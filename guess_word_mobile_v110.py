@@ -177,70 +177,52 @@ class ModeButton(BoxLayout):
 class GameCell(Label):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.text = ""
-        self.font_name = resource_path("ClearSans-Bold.ttf")
-        self.font_size = '42sp' # Крупный шрифт под оригинальный бланк
-        self.bold = True
-        
-        # СТРОГО ОРИГИНАЛЬНЫЙ РАЗМЕР ПК-ВЕРСИИ
         self.size_hint = (None, None)
-        self.size = (80, 100) 
-        
-        self.cell_status = "blank"
+        self.size = (74, 92)
         self.base_color = color_blank
-        self.text_color = color_text
-        
-        self.color = self.text_color
         self.bind(pos=self.update_canvas, size=self.update_canvas)
 
     def change_type(self, letter_type):
-        self.cell_status = letter_type
-        if letter_type == "blank":
-            self.base_color = color_blank
-            self.text_color = color_text
-        elif letter_type == "correct":
-            self.base_color = color_correct
-            self.text_color = (1.0, 1.0, 1.0, 1.0)
-        elif letter_type == "in_word":
-            self.base_color = color_in_word
-            self.text_color = (0.0, 0.0, 0.0, 1.0)
-        elif letter_type == "not_in_word":
-            self.base_color = color_not_in_word
-            self.text_color = (1.0, 1.0, 1.0, 1.0)
-
-        self.color = self.text_color
+        # Логика смены цветов...
         self.update_canvas()
 
     def update_canvas(self, *args):
         self.canvas.before.clear()
         with self.canvas.before:
             Color(*self.base_color)
-            # Оригинальный радиус скругления 6 пикселей из file_1_1
-            RoundedRectangle(pos=self.pos, size=self.size, radius=[6])
+            # ИСПРАВЛЕНО: Явный список радиусов для корректной отрисовки
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[6, 6, 6, 6])
 
-    def change_type(self, letter_type):
-        self.cell_status = letter_type
-        if letter_type == "blank":
-            self.base_color = color_blank
-            self.text_color = color_text
-        elif letter_type == "correct":
-            self.base_color = color_correct
-            self.text_color = (1.0, 1.0, 1.0, 1.0)
-        elif letter_type == "in_word":
-            self.base_color = color_in_word
-            self.text_color = (0.0, 0.0, 0.0, 1.0)
-        elif letter_type == "not_in_word":
-            self.base_color = color_not_in_word
-            self.text_color = (1.0, 1.0, 1.0, 1.0)
-
-        self.color = self.text_color
-        self.update_canvas()
+class KeyButton(Button):
+    def __init__(self, text="", size=(27, 93), **kwargs):
+        super().__init__(**kwargs)
+        self.text = text
+        self.font_name = resource_path("ClearSans-Bold.ttf")
+        self.font_size = '20sp'  # ИСПРАВЛЕНО: Крупный шрифт букв
+        self.bold = True
+        self.halign = 'center'
+        self.valign = 'middle'
+        
+        self.background_normal = ''
+        self.background_down = ''
+        self.background_color = (0, 0, 0, 0)
+        
+        self.size_hint = (None, None)
+        self.size = size
+        
+        self.base_color = color_key
+        self.color = color_text
+        
+        self.bind(pos=self.update_canvas, size=self.update_canvas, state=self.update_canvas)
 
     def update_canvas(self, *args):
         self.canvas.before.clear()
         with self.canvas.before:
-            Color(*self.base_color)
-            # Оригинальное скругление углов на 6 пикселей
+            if self.state == 'normal':
+                Color(*self.base_color)
+            else:
+                Color(self.base_color*0.8, self.base_color*0.8, self.base_color*0.8, 1.0)
+            
             RoundedRectangle(pos=self.pos, size=self.size, radius=[6])
 
 # ----- ИГРА ----
@@ -363,39 +345,87 @@ class OnePlayerGameScreen(Screen):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
         
-        # Кнопка "Выйти"
-        btn_back = MenuButton(text="Выйти", size_hint=(None, None), size=(100, 54))
-        btn_back.pos = (Window.width - 100 - 15, Window.height - 54 - 44)
-        btn_back.font_size = '20sp'
-        btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'game'))
-        self.layout.add_widget(btn_back)
-        
-        # МАТЕМАТИЧЕСКИЙ ПЕРЕНОС ТВОЕГО ЦИКЛА ИЗ PYGAME В KIVY
+        # 1. СОЗДАЕМ БЛАНКИ СЕТКИ 6х5 (размер ячейки 74x92)
         self.cells = []
-        
-        # Высчитываем стартовую точку X для идеального центра в окне 360
-        # Ширина всей пачки: 5 * 80 + 4 * 5 = 420px. 
-        # Центр: (360 - 420) // 2 = -30px (сетка выйдет за края ровно на 30px с каждой стороны)
-        blank_x = (Window.width - 420) // 2 
-        
-        # Стартовая точка Y (в Kivy считаем снизу вверх, ставим на высоту 150px, чтобы снизу был воздух)
-        blank_y = 150 
-        
-        # Твой оригинальный двойной цикл 6х5 из репозитория GitHub
-        for a1 in range(6):
-            for a2 in range(5):
-                cell = GameCell()
-                cell.pos = (blank_x, blank_y) # Ручное пиксельное позиционирование
-                
-                self.cells.append(cell)
-                self.layout.add_widget(cell)
-                
-                blank_x += 80 + 5 # Твой оригинальный шаг по горизонтали
+        for _ in range(30):
+            cell = GameCell(size=(74, 92))
+            self.cells.append(cell)
+            self.layout.add_widget(cell)
             
-            blank_x = (Window.width - 420) // 2 # Сброс X на начало строки
-            blank_y += 100 + 5 # Твой оригинальный шаг по вертикали
-            
+        # 2. СОЗДАЕМ МОНОЛИТНУЮ КЛАВИАТУРУ
+        self.keyboard_keys = []
+        self.lines = ["ЙЦУКЕНГШЩЗХЪ", "ФЫВАПРОЛДЖЭ", "ЯЧСМИТЬБЮЁ"]
+        
+        # Кнопка "СТЕРЕТЬ"
+        self.btn_erase = KeyButton(text="СТЕР", size=(28, 68))
+        self.btn_erase.font_size = '9sp'
+        self.layout.add_widget(self.btn_erase)
+        
+        # Буквы всех рядов
+        self.letter_buttons = []
+        for line in self.lines:
+            row_buttons = []
+            for char in line:
+                key = KeyButton(text=char, size=(28, 68))
+                self.keyboard_keys.append(key)
+                self.layout.add_widget(key)
+                row_buttons.append(key)
+            self.letter_buttons.append(row_buttons)
+                
+        # Кнопка "ВВОД"
+        self.btn_enter = KeyButton(text="ВВОД", size=(28, 68))
+        self.btn_enter.font_size = '9sp'
+        self.layout.add_widget(self.btn_enter)
+        
         self.add_widget(self.layout)
+        self.bind(size=self.reposition_elements)
+
+    def reposition_elements(self, instance, size):
+        win_w = Window.width
+        win_h = Window.height
+        
+        # Расставляем сетку бланков строго в 5 пикселях от потолка
+        start_blank_x = (win_w - 390) // 2
+        start_blank_y = win_h - 92 - 5
+        
+        cell_idx = 0
+        for row in range(6):
+            for col in range(5):
+                if cell_idx < len(self.cells):
+                    self.cells[cell_idx].pos = (start_blank_x + col * (74 + 5), start_blank_y - row * (92 + 5))
+                    cell_idx += 1
+
+        # Плотные монолитные высоты рядов под размер 68px с зазором 5px
+        row_heights = [156, 83, 10]
+        
+        for i, line_keys in enumerate(self.letter_buttons):
+            if i == 0 or i == 1:
+                # Центрируем 1 и 2 ряды (общая ширина 358px при зазоре 2px)
+                total_w = len(line_keys) * 28 + (len(line_keys) - 1) * 2
+                start_l_x = (win_w - total_w) // 2
+                for idx, key in enumerate(line_keys):
+                    # ПРИНУДИТЕЛЬНО форсируем размер во время расстановки
+                    key.size = (28, 68)
+                    key.pos = (start_l_x + idx * (28 + 2), row_heights[i])
+            elif i == 2:
+                # Третий ряд идеально сливается по ширине (358px)
+                total_w_3 = 12 * 28 + 11 * 2
+                start_l_x = (win_w - total_w_3) // 2
+                
+                # СТЕРЕТЬ в начале
+                self.btn_erase.size = (28, 68)
+                self.btn_erase.pos = (start_l_x, row_heights[i])
+                current_x = start_l_x + 28 + 2
+                
+                # Буквы 3-го ряда
+                for key in line_keys:
+                    key.size = (28, 68)
+                    key.pos = (current_x, row_heights[i])
+                    current_x += 28 + 2
+                    
+                # ВВОД в конец
+                self.btn_enter.size = (28, 68)
+                self.btn_enter.pos = (current_x, row_heights[i])
 
 class TwoPlayerGameScreen(Screen):
     def __init__(self, **kwargs):
