@@ -6,7 +6,7 @@ from kivy.core.window import Window
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
-from kivy.uix.screenmanager import ScreenManager, Screen
+from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
 
 def resource_path(relative_path):
     try:
@@ -130,7 +130,7 @@ class MenuScreen(Screen):
             font_name=resource_path("ClearSans-Bold.ttf"),
             font_size='30sp', 
             bold=True,
-            color=(0.12, 0.15, 0.18, 1),
+            color=color_text,
             size_hint_y=1)
         
     def go_to_game(self, instance):
@@ -140,22 +140,42 @@ class GameScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         layout = BoxLayout(orientation='vertical', padding=20)
-        label = Label(text="Здесь будет мобильный игровой процесс", font_name=resource_path("ClearSans-Bold.ttf"), font_size='24sp', color=(0.12, 0.15, 0.18, 1))
+        label = Label(text="Здесь будет мобильный игровой процесс", font_name=resource_path("ClearSans-Bold.ttf"), font_size='24sp', color=color_text)
         layout.add_widget(label)
         
-        btn_back = Button(text="Назад в меню", size_hint=(None, None), size=(150, 50), background_normal='', background_color=(0.86, 0.89, 0.93, 1), color=(0.12, 0.15, 0.18, 1))
+        btn_back = Button(text="Назад в меню", size_hint=(None, None), size=(150, 50), background_normal='', background_color=color_key, color=color_text)
         btn_back.bind(on_release=self.go_to_menu)
         layout.add_widget(btn_back)
         self.add_widget(layout)
+    
+    def go_to_game(self, instance):
+        self.manager.transition.duration = 0
+        self.manager.current = 'game'
         
     def go_to_menu(self, instance):
+        self.manager.transition.duration = 0
         self.manager.current = 'menu'
 
 class MobileApp(App):
     def build(self):
-        Window.clearcolor = (0.96, 0.97, 0.98, 1)
+        saved_theme = MOBILE_PLAYER_STATS.get("active_theme_name", "classic")
         
-        sm = ScreenManager()
+        theme_translator = {
+            "классика": "classic", "ночь": "night", "океан": "ocean", 
+            "закат": "sunset", "сакура": "sakura", "лес": "forest", 
+            "король": "royal", "лава": "lava", "изумруд": "emerald", 
+            "конфета": "candy", "неон": "neon", "золото": "gold"
+        }
+        if isinstance(saved_theme, str):
+            saved_theme = saved_theme.lower()
+            if saved_theme in theme_translator:
+                saved_theme = theme_translator[saved_theme]
+
+        choose_theme(saved_theme)
+        Window.clearcolor = color_bg
+        
+        sm = ScreenManager(transition=NoTransition())
+        
         sm.add_widget(MenuScreen(name='menu'))
         sm.add_widget(GameScreen(name='game'))
         return sm
