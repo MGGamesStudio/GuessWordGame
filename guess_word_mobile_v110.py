@@ -1,5 +1,6 @@
 import os
 import sys
+
 from kivy.app import App
 from kivy.core.window import Window
 from kivy.uix.boxlayout import BoxLayout
@@ -7,7 +8,6 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.screenmanager import ScreenManager, Screen
 
-# Адаптер путей для встроенных ресурсов (Шрифты)
 def resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
@@ -54,13 +54,19 @@ def choose_theme(theme):
     color_not_in_word = new_theme["color_not_in_word"]
     color_key = new_theme["color_key"]
 
+    if 'MOBILE_PLAYER_STATS' in globals():
+        MOBILE_PLAYER_STATS["active_theme_name"] = theme
+        
+    if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
+        MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
+
 class RoundedButton(Button):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.background_normal = ''
         self.background_down = ''
         self.background_color = (0, 0, 0, 0)
-        self.base_color = (0.86, 0.89, 0.93, 1)
+        self.base_color = color_key
         self.bind(pos=self.update_canvas, size=self.update_canvas, state=self.update_canvas)
         
     def update_canvas(self, *args):
@@ -81,7 +87,7 @@ class MenuScreen(Screen):
             font_name=resource_path("ClearSans-Bold.ttf"),
             font_size='52sp', 
             bold=True,
-            color=(0.12, 0.15, 0.18, 1),
+            color=color_text,
             size_hint_y=0.20
         )
         main_layout.add_widget(title_label)
@@ -110,7 +116,7 @@ class MenuScreen(Screen):
             text="Угадай слово by MGGamesStudio. v.1.1.0", 
             font_name=resource_path("ClearSans-Bold.ttf"),
             font_size='11sp',
-            color=(0.6, 0.64, 0.68, 1),
+            color=color_not_in_word,
             size_hint_y=0.20,
             halign='center', valign='bottom')
         copyright_label.bind(size=copyright_label.setter('text_size'))
