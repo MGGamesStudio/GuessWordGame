@@ -75,7 +75,7 @@ class RoundedButton(Button):
             if self.state == 'normal':
                 Color(*self.base_color)
             else:
-                Color(self.base_color[0]*0.9, self.base_color[1]*0.9, self.base_color[2]*0.9, 1)
+                Color(self.base_color[0]*0.8, self.base_color[1]*0.8, self.base_color[2]*0.8, 1)
             RoundedRectangle(pos=self.pos, size=self.size, radius=[12])
 
 class MenuScreen(Screen):
