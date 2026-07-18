@@ -8,13 +8,13 @@ import os
 from platformdirs import user_data_dir
 
 external_save_func = None
+achivements = {}
+all_quests = {}
 
 try:
     game_save_dir = user_data_dir("GuessWordGame", "MGGamesStudio")
-    
     if not os.path.exists(game_save_dir):
         os.makedirs(game_save_dir)
-        
     SAVE_FILE_PATH = os.path.join(game_save_dir, "guess_word_save_file_guess_word_save_file.json")
 except Exception:
     SAVE_FILE_PATH = "guess_word_save_file_guess_word_save_file.json"
@@ -26,29 +26,29 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
-except:
+if os.environ.get("MGGAMES_MODE") != "mobile":
     try:
-        ctypes.windll.user32.SetProcessDPIAware()
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except:
-        pass
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except:
+            pass
 
-pygame.init()
-pygame.freetype.init()
+    pygame.init()
+    pygame.freetype.init()
 
-screen_x = 1200
-screen_y = 900
+    screen_x = 1200
+    screen_y = 900
 
-# виртуальный холст
-screen = pygame.Surface((screen_x, screen_y))
-is_fullscreen = False
-real_window = pygame.display.set_mode((screen_x, screen_y), pygame.RESIZABLE)
-timer = pygame.time.Clock()
-pygame.display.set_caption("Угадай слово")
+    screen = pygame.Surface((screen_x, screen_y))
+    is_fullscreen = False
+    real_window = pygame.display.set_mode((screen_x, screen_y), pygame.RESIZABLE)
+    timer = pygame.time.Clock()
+    pygame.display.set_caption("Угадай слово")
 
-screen_icon = pygame.image.load(resource_path("1000074566.png")).convert_alpha()
-pygame.display.set_icon(screen_icon)
+    screen_icon = pygame.image.load(resource_path("1000074566.png")).convert_alpha()
+    pygame.display.set_icon(screen_icon)
 
 # 1. МАТЕМАТИЧЕСКИЙ РАСЧЕТ МАСШТАБА МЫШКИ
 def get_scaled_mouse_pos():
@@ -148,47 +148,9 @@ color_themes = {
     "neon": {"color_name": "Неон","price": 1000,"unlocked": False,"color_bg": (15, 23, 42),"color_text": (255, 255, 255),"color_blank": (51, 65, 85),"color_correct": (0, 255, 136),"color_in_word": (255, 230, 0),"color_not_in_word": (100, 116, 139),"color_key": (0, 217, 255)},
     "gold": {"color_name": "Золото","price": 1000,"unlocked": False,"color_bg": (255, 251, 235),"color_text": (120, 53, 15),"color_blank": (253, 230, 138),"color_correct": (217, 119, 6),"color_in_word": (250, 204, 21),"color_not_in_word": (168, 162, 158),"color_key": (251, 191, 36)}
 }
-# ----- ДОСТИЖЕНИЯ -----
-achivements = {
-    "ach_1": {"type": "rare", "name": "5 побед", "description": "Выиграйте 5 раз.", "got": False, "date": ""},
-    "ach_2": {"type": "rare", "name": "10 побед", "description": "Выиграйте 10 раз.", "got": False, "date": ""},
-    "ach_3": {"type": "rare", "name": "15 побед", "description": "Выиграйте 15 раз.", "got": False, "date": ""},
-    "ach_4": {"type": "rare", "name": "20 побед", "description": "Выиграйте 20 раз.", "got": False, "date": ""},
-    "ach_5": {"type": "rare", "name": "25 побед", "description": "Выиграйте 25 раз.", "got": False, "date": ""},
-    "ach_6": {"type": "common", "name": "5 поражений", "description": "Проиграйте 5 раз.", "got": False, "date": ""},
-    "ach_7": {"type": "common", "name": "10 поражений", "description": "Проиграйте 10 раз.", "got": False, "date": ""},
-    "ach_8": {"type": "common", "name": "15 поражений", "description": "Проиграйте 15 раз.", "got": False, "date": ""},
-    "ach_9": {"type": "common", "name": "20 поражений", "description": "Проиграйте 20 раз.", "got": False, "date": ""},
-    "ach_10": {"type": "common", "name": "25 поражений", "description": "Проиграйте 25 раз.", "got": False, "date": ""},
-    "ach_11": {"type": "epic", "name": "Гений", "description": "Выиграйте с 1 попытки.", "got": False, "date": ""},
-    "ach_12": {"type": "epic", "name": "Академик", "description": "Выиграйте с 2 попытки.", "got": False, "date": ""},
-    "ach_13": {"type": "rare", "name": "Гроссмейстер", "description": "Выиграйте с 3 попытки.", "got": False, "date": ""},
-    "ach_14": {"type": "rare", "name": "Эрудит", "description": "Выиграйте с 4 попытки.", "got": False, "date": ""},
-    "ach_15": {"type": "common", "name": "Логик", "description": "Выиграйте с 5 попытки.", "got": False, "date": ""},
-    "ach_16": {"type": "common", "name": "В последний вагон", "description": "Выиграйте с 6 попытки.", "got": False, "date": ""}
-}
-# ----- КВЕСТЫ -----
-all_quests = {
-    "q1": {"type": "common", "name": "РАЗМИНКА", "description": "Сыграйте 3 игры в одиночном режиме.", "reward": 50, "goal": 3, "progress": 0, "done": False},
-    "q2": {"type": "common", "name": "ТОЧНОЕ ПОПАДАНИЕ", "description": "Найдите хотя бы 3 зелёные буквы за одну игру.", "reward": 50, "goal": 1, "progress": 0, "done": False},
-    "q3": {"type": "common", "name": "В ПОИСКАХ ИСТИНЫ", "description": "Найдите хотя бы 5 жёлтых букв за одну игру.", "reward": 50, "goal": 1, "progress": 0, "done": False},
-    "q4": {"type": "common", "name": "РАЗВЕДКА БОЕМ", "description": "Введите слово, которого нет в словаре.", "reward": 50, "goal": 1, "progress": 0, "done": False},
-    "q5": {"type": "rare", "name": "СТАБИЛЬНЫЙ РЕЗУЛЬТАТ", "description": "Одержите 2 победы подряд в одиночном режиме.", "reward": 150, "goal": 2, "progress": 0, "done": False},
-    "q6": {"type": "rare", "name": "ПО ТОНКОМУ ЛЕДУ", "description": "Выиграйте игру строго на 5 или 6 попытке.", "reward": 150, "goal": 1, "progress": 0, "done": False},
-    "q7": {"type": "rare", "name": "ЭКОНОМНЫЙ ЭРУДИТ", "description": "Выиграйте игру, потратив не более 4 попыток.", "reward": 150, "goal": 1, "progress": 0, "done": False},
-    "q8": {"type": "rare", "name": "БУКВЕННЫЙ ПОСТ", "description": "Покрасьте на клавиатуре 10 букв в серый цвет за игру.", "reward": 150, "goal": 1, "progress": 0, "done": False},
-    "q9": {"type": "epic", "name": "ИНТУИЦИЯ ГЕНИЯ", "description": "Угадайте слово со 2-й или 3-й попытки.", "reward": 350, "goal": 1, "progress": 0, "done": False},
-    "q10": {"type": "epic", "name": "ЧИСТАЯ ПОБЕДА", "description": "Выиграйте игру без единой жёлтой буквы.", "reward": 350, "goal": 1, "progress": 0, "done": False},
-    "q11": {"type": "epic", "name": "ЛИНГВИСТ-МАРАФОН", "description": "Одержите 5 побед за день.", "reward": 350, "goal": 5, "progress": 0, "done": False},
-    "q12": {"type": "epic", "name": "ЮВЕЛИРНАЯ РАБОТА", "description": "Выиграйте игру, ни разу не нажав 'СТЕРЕТЬ'.", "reward": 350, "goal": 1, "progress": 0, "done": False}
-}
 active_quests = {}
 total_completed_quests = 0
 last_update_day = -1
-
-# ----- ----- -----
-# -----  КОД  -----
-# ----- ----- -----
 
 color_name = color_themes["classic"]["color_name"]
 color_bg = color_themes["classic"]["color_bg"]
@@ -217,7 +179,7 @@ def save_game_progress():
     
     if 'external_save_func' in globals() and external_save_func is not None:
         external_save_func(save_data)
-        print("Данные сохранены через лаунчер!")
+        print("[MGGamesStudio ПК] Данные сохранены через лаунчер!")
 
 # ----- ----- -----
 def choose_theme(theme):
@@ -1648,7 +1610,6 @@ def start_game_scene_1_2():
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     return
 
-            # Кнопка выхода во время активной игры
             if event.type == pygame.MOUSEBUTTONDOWN and mp_state in ["setup", "playing"]:
                 if event.button == 1:
                     if button_exit.rect.collidepoint(event.pos):
@@ -1943,7 +1904,7 @@ title_rect.x -= 0
 title_rect.y -= 325
 
 # 3. Нижний текст
-cpr_rect = font_20.get_rect("Угадай слово by MGGamesStudio. v.1.0.1")
+cpr_rect = font_20.get_rect("Угадай слово by MGGamesStudio. v.1.1.0")
 cpr_rect.center = (screen_x // 2, screen_y // 2)
 cpr_rect.x -= 0
 cpr_rect.y += 425
@@ -1966,11 +1927,13 @@ button_6_text_rect = font_55.get_rect("Выйти")
 button_6_text_rect.center = button_6.rect.center
 button_6_text_rect.y -= 5
 
-def start_pc_game(all_words, player_stats, save_function):
-    global words, external_save_func
+def start_pc_game(all_words, player_stats, save_function, launcher_achivements, launcher_quests):
+    global words, external_save_func, achivements, all_quests
 
     words = [w.lower() for w in all_words]
     external_save_func = save_function
+    achivements = launcher_achivements
+    all_quests = launcher_quests
 
     global player_coins, total_wins, total_losses, current_win_streak, max_win_streak, total_completed_quests, last_update_day
     global active_quests
@@ -1996,8 +1959,12 @@ def start_pc_game(all_words, player_stats, save_function):
             achivements[k]["date"] = ach_info.get("date", "")
             
     active_theme = player_stats.get("active_theme_name", "classic")
-    if active_theme in color_themes:
-        choose_theme(active_theme)
+    using_theme = "classic"
+    for k, v in color_themes.items():
+        if k == active_theme or v["color_name"].lower() == active_theme.lower():
+            using_theme = k
+            break
+    choose_theme(using_theme)
         
     print("[MGGamesStudio ПК] Все данные успешно приняты из лаунчера!")
     start_game_scene_menu() 
@@ -2045,7 +2012,7 @@ def start_game_scene_menu():
 
         # Текст
         font_120.render_to(screen, title_rect, "Угадай слово", color_text)
-        font_20.render_to(screen, cpr_rect, "Угадай слово by MGGamesStudio. v.1.0.1", color_not_in_word)
+        font_20.render_to(screen, cpr_rect, "Угадай слово by MGGamesStudio. v.1.1.0", color_not_in_word)
 
         font_55.render_to(screen, button_1_text_rect, "Играть", color_text)
         font_55.render_to(screen, button_2_text_rect, "Как играть", color_text)
