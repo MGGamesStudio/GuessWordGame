@@ -1,7 +1,5 @@
 import os
 import sys
-
-# Импорты базовых элементов интерфейса Kivy и менеджера экранов
 from kivy.app import App
 from kivy.core.window import Window
 from kivy.uix.boxlayout import BoxLayout
