@@ -220,7 +220,7 @@ class GameCell(Label):
             RoundedRectangle(pos=self.pos, size=self.size, radius=[6])
 
 class KeyButton(Button):
-    def __init__(self, text="", size=(27, 93), **kwargs):
+    def __init__(self, text="", size=(40, 85), **kwargs):
         super().__init__(**kwargs)
         self.text = text
         self.font_name = resource_path("ClearSans-Bold.ttf")
@@ -229,16 +229,13 @@ class KeyButton(Button):
         self.halign = 'center'
         self.valign = 'middle'
         
-        # Отключаем стандартный фон Kivy
         self.background_normal = ''
         self.background_down = ''
-        self.background_color = (0, 0, 0, 0)
+        self.background_color = (0, 0, 0, 0.01)
         
-        # Жестко фиксируем физический размер под FloatLayout
         self.size_hint = (None, None)
         self.size = size
         
-        # Подключаем к твоей глобальной системе цветов
         self.base_color = color_key
         self.color = color_text
         
@@ -384,19 +381,32 @@ class OnePlayerGameScreen(Screen):
         self.cells = []
         for _ in range(30):
             cell = GameCell(size=(74, 92))
-            cell.base_color = (0.85, 0.87, 0.9, 1.0)
+            cell.base_color = color_blank
             self.cells.append(cell)
             self.layout.add_widget(cell)
             
-        # 3. ИСПРАВЛЕНО: Ширина 26px, высота 130px для ультимативного монолита в рамках экрана
+        # 3. Список для хранения буквенных клавиш (критично для reposition)
         self.keyboard_keys = []
-        self.btn_erase = KeyButton(text="СТЕР", size=(40, 85))
-        self.btn_erase.font_size = '10sp' # Покомпактнее, чтобы влезло в 26px
-        self.btn_enter = KeyButton(text="ВВОД", size=(40, 85))
-        self.btn_enter.font_size = '10sp'
+        
+        # 4. Три новые большие системные кнопки в белом пространстве
+        self.btn_erase = KeyButton(text="СТЕРЕТЬ", size=(100, 50))
+        self.btn_erase.font_size = '22sp'
+        self.btn_erase.bind(on_release=self.press_erase_key)
+        
+        self.btn_exit = KeyButton(text="ВЫХОД", size=(100, 50))
+        self.btn_exit.font_size = '22sp'
+        self.btn_exit.bind(on_release=self.press_exit_key)
+
+        
+        self.btn_enter = KeyButton(text="ВВОД", size=(100, 50))
+        self.btn_enter.font_size = '22sp'
+        self.btn_enter.bind(on_release=self.press_enter_key)
+        
         self.layout.add_widget(self.btn_erase)
+        self.layout.add_widget(self.btn_exit)
         self.layout.add_widget(self.btn_enter)
         
+        # 5. Буквенная клавиатура с привязкой событий тача
         self.lines = ["ЙЦУКЕНГШЩЗХЪ", "ФЫВАПРОЛДЖЭ", "ЯЧСМИТЬБЮЁ"]
         self.letter_buttons = []
         for line in self.lines:
@@ -404,6 +414,10 @@ class OnePlayerGameScreen(Screen):
             for char in line:
                 key = KeyButton(text=char, size=(40, 85))
                 key.font_size = '22sp'
+                
+                # ЖЕСТКАЯ ПРИВЯЗКА КЛИКА: передаем нажатую букву в метод
+                key.bind(on_release=self.press_letter_key)
+                
                 self.keyboard_keys.append(key)
                 self.layout.add_widget(key)
                 row_buttons.append(key)
@@ -412,42 +426,195 @@ class OnePlayerGameScreen(Screen):
         self.add_widget(self.layout)
         self.bind(size=self.reposition_elements)
 
+        # ----- ИГРА ----
+        self.current_word = ""
+        self.current_attempt = 0
+
     def reposition_elements(self, instance, size):
         win_w = Window.width
         win_h = Window.height
         self.bg_rect.size = (win_w, win_h)
+
+        # =========================================================================
+        # 1. АДАПТИВНЫЙ РАСЧЕТ БЛАНКОВ С ЛИМИТОМ В 65% ОТ ВЫСОТЫ ЭКРАНА
+        # =========================================================================
+        CELL_SPACING_X = 5
+        CELL_SPACING_Y = 5
         
-        # Позиционирование сетки
-        start_blank_x = (win_w - 390) // 2
-        start_blank_y = win_h - 92 - 5
+        # Стартовый базовый отступ от стен (11% от ширины)
+        side_margin = win_w * 0.11
+        
+        # Считаем стандартные размеры ячейки по горизонтали
+        avail_cell_w = win_w - (2 * side_margin) - 20
+        CELL_WIDTH = avail_cell_w / 5  
+        CELL_HEIGHT = CELL_WIDTH * 1.243  
+
+        # ПРЕДОХРАНИТЕЛЬ: Проверяем, не превышает ли вся пачка бланков 65% высоты окна
+        # Высота всей пачки: 6 рядов по CELL_HEIGHT + 5 зазоров по 5px
+        total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
+        max_allowed_height = win_h * 0.65
+
+        if total_blanks_height > max_allowed_height:
+            # Если превышает (окно квадратное), принудительно зажимаем сетку в лимит
+            total_blanks_height = max_allowed_height
+            # Обратным ходом вычисляем высоту и ширину одной ячейки из лимита
+            CELL_HEIGHT = (total_blanks_height - (5 * CELL_SPACING_Y)) / 6
+            CELL_WIDTH = CELL_HEIGHT / 1.243
+            # Пересчитываем боковые отступы, чтобы уменьшенная сетка осталась строго по центру
+            side_margin = (win_w - (5 * CELL_WIDTH) - 20) / 2
+
+        # Принудительно растягиваем визуальные размеры RoundedRectangle у бланков
+        for cell in self.cells:
+            cell.size = (CELL_WIDTH, CELL_HEIGHT)
+
+        # Позиционируем ячейки сетки (start_blank_x теперь зависит от side_margin)
+        start_blank_x = side_margin
+        start_blank_y = win_h - CELL_HEIGHT - 5
+        
         cell_idx = 0
         for row in range(6):
             for col in range(5):
                 if cell_idx < len(self.cells):
-                    self.cells[cell_idx].pos = (start_blank_x + col * 79, start_blank_y - row * 97)
+                    self.cells[cell_idx].pos = (start_blank_x + col * (CELL_WIDTH + CELL_SPACING_X), start_blank_y - row * (CELL_HEIGHT + CELL_SPACING_Y))
                     self.cells[cell_idx].update_canvas()
                     cell_idx += 1
 
-        # Твои идеальные высоты рядов
-                # ИСПРАВЛЕНО: Сближаем ряды клавиатуры по вертикали (высота кнопки 85 + зазор 6)
-        row_heights = [10 + 2 * (85 + 6), 10 + (85 + 6), 10]
+        # НАХОДИМ ОКОНЧАТЕЛЬНУЮ НИЖНЮЮ ЛИНИЮ БЛОКОВ (Клавиатура сама подстроится под неё!)
+        bottom_blanks_line = (win_h - 5) - total_blanks_height
 
+        # =========================================================================
+        # 2. РЕЗИНОВАЯ МАТЕМАТИКА КЛАВИАТУРЫ (Остается без изменений!)
+        # =========================================================================
+        KEY_SPACING_X = 4
+        avail_w = win_w - 16 - 44
+        KEY_WIDTH = avail_w / 12  # Динамическая ширина кнопки по 1-му ряду
         
+        KEY_SPACING_Y = 4
+        # Доступная чистая высота — от пола до вычисленной нижней линии бланков
+        # Минус отступы сверху и снизу по 8px (16px) и 3 зазора между 4 рядами по 4px (12px)
+        avail_h = bottom_blanks_line - 16 - 12
+        KEY_HEIGHT = avail_h / 4  # Идеальная динамическая высота кнопки
+
+        # Принудительно растягиваем размеры всех кнопок клавиатуры
+        for key in self.keyboard_keys:
+            key.size = (KEY_WIDTH, KEY_HEIGHT)
+
+        # Высчитываем высоты для каждого из 4-х рядов от пола (8px отступ)
+        row_heights = [
+            8,                                              # 3-й ряд букв ("ЯЧС...")
+            8 + (KEY_HEIGHT + KEY_SPACING_Y),               # 2-й ряд букв ("ФЫВА...")
+            8 + 2 * (KEY_HEIGHT + KEY_SPACING_Y),           # 1-й ряд букв ("ЙЦУКЕН...")
+            8 + 3 * (KEY_HEIGHT + KEY_SPACING_Y)            # 0-й ряд ("СТЕРЕТЬ ВЫХОД ВВОД")
+        ]
+
+        # Д. Расстановка буквенных рядов строго по центру экрана
+        line_to_height_idx = {0: 2, 1: 1, 2: 0}
         for i, line_keys in enumerate(self.letter_buttons):
-            if i == 0 or i == 2:
-                start_l_x = 8
-            elif i == 1:
-                start_l_x = 30
-            
-            if i == 2: # 3-й ряд + спецклавиши
-                self.btn_erase.pos = (start_l_x, row_heights[i])
-                start_l_x += 40 + 4
+            h_idx = line_to_height_idx[i]
+            total_w = len(line_keys) * KEY_WIDTH + (len(line_keys) - 1) * KEY_SPACING_X
+            start_l_x = (win_w - total_w) / 2
                 
             for idx, key in enumerate(line_keys):
-                key.pos = (start_l_x + idx * (40 + 4), row_heights[i])
+                key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
+                key.update_canvas()
+
+        # Е. Расстановка 0 ряда "СТЕРЕТЬ ВЫХОД ВВОД" абсолютно одинаковой длины
+        SYS_SPACING = 4
+        avail_sys_w = win_w - 16 - (2 * SYS_SPACING)
+        SYS_WIDTH = avail_sys_w / 3
+        
+        start_sys_x = 8
+        
+        self.btn_erase.pos = (start_sys_x, row_heights[3])
+        self.btn_erase.size = (SYS_WIDTH, KEY_HEIGHT)
+        self.btn_erase.update_canvas()
+        
+        self.btn_exit.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights[3])
+        self.btn_exit.size = (SYS_WIDTH, KEY_HEIGHT)
+        self.btn_exit.update_canvas()
+        
+        self.btn_enter.pos = (start_sys_x + 2 * (SYS_WIDTH + SYS_SPACING), row_heights[3])
+        self.btn_enter.size = (SYS_WIDTH, KEY_HEIGHT)
+        self.btn_enter.update_canvas()
+
+    def press_letter_key(self, instance):
+        """Срабатывает при нажатии на любую букву виртуальной клавиатуры"""
+        letter = instance.text
+        
+        # Твоя проверка из ПК-версии: если в слове меньше 5 букв
+        if len(self.current_word) < 5:
+            # Математический расчет индекса клетки из твоего оригинального кода
+            cell_idx = (self.current_attempt * 5) + len(self.current_word)
+            
+            if cell_idx < len(self.cells):
+                # Записываем букву в бланк Kivy (используем .text вместо .letter)
+                self.cells[cell_idx].text = letter
                 
-            if i == 2: # ВВОД
-                self.btn_enter.pos = (start_l_x + len(line_keys) * (40 + 4), row_heights[i])
+                # Добавляем букву в наше текущее слово
+                self.current_word += letter
+
+    def press_erase_key(self, instance):
+        """Срабатывает при нажатии на большую кнопку СТЕРЕТЬ"""
+        # Твоя проверка из ПК-версии: стирать можно, только если в слове уже есть буквы
+        if len(self.current_word) > 0:
+            # Точный расчет индекса последней заполненной ячейки
+            cell_idx = (self.current_attempt * 5) + len(self.current_word) - 1
+            
+            if cell_idx < len(self.cells):
+                # Стираем текст на экране Kivy
+                self.cells[cell_idx].text = ""
+                
+                # Обрезаем последнюю букву в нашей переменной слова
+                self.current_word = self.current_word[:-1]
+
+    def press_enter_key(self, instance):
+        """Срабатывает при нажатии на большую кнопку ВВОД"""
+        # 1. Жесткая проверка на длину слова (ровно 5 букв)
+        if len(self.current_word) == 5:
+            
+            # Получаем доступ к твоему оригинальному словарю words_list из главного класса App
+            app = App.get_running_app()
+            
+            # Принудительно переводим набранное слово в нижний регистр для проверки
+            check_word = self.current_word.lower()
+            
+            # 2. Жесткая проверка: есть ли слово в словаре words_list
+            if hasattr(app, 'words_list') and check_word in app.words_list:
+                print(f"Слово валидно и найдено в словаре: {self.current_word}")
+                
+                # (Сюда на следующем шаге мы встроим покраску букв в зеленый/желтый)
+                
+                # Только если слово правильное — переходим к следующей строке попыток
+                self.current_attempt += 1
+                self.current_word = ""
+                
+                # Если попытки кончились
+                if self.current_attempt >= 6:
+                    print("Попытки исчерпаны!")
+                    self.reset_game()
+            else:
+                # ИСПРАВЛЕНО: Если слова НЕТ в словарe — мы ПРОСТО ИГНОРИРУЕМ нажатие.
+                # Буквы остаются стоять на экране, слово не сбрасывается.
+                print(f"Слова '{self.current_word}' нет в словаре! Игрок должен исправить его сам.")
+
+    def press_exit_key(self, instance):
+        """Срабатывает при нажатии на ВЫХОД: сбрасывает поле и уводит в меню"""
+        self.reset_game()  # Вызываем очистку поля
+        self.manager.current = 'game'  # Переключаем экран обратно в меню выбора режимов
+
+    def reset_game(self):
+        """Полностью сбрасывает состояние игрового поля и переменных к исходному нулю"""
+        # 1. Стираем текст во всех 30 бланках на экране
+        for cell in self.cells:
+            cell.text = ""
+            # Если в будущем у бланков будут меняться цвета (на зеленый/серый), 
+            # здесь мы также вернем им базовый цвет:
+            cell.base_color = color_blank
+            cell.update_canvas()
+            
+        # 2. Обнуляем твои игровые переменные
+        self.current_word = ""
+        self.current_attempt = 0
 
 class TwoPlayerGameScreen(Screen):
     def __init__(self, **kwargs):
@@ -526,5 +693,5 @@ def start_mobile_game(words_list, player_stats, save_function):
     MOBILE_PLAYER_STATS = player_stats
     MOBILE_SAVE_FUNC = save_function
     
-    Window.size = (360, 640)
+    Window.size = (360, 640) # (360, 640)
     MobileApp().run()
