@@ -1,5 +1,6 @@
 import os
 import sys
+import random
 
 from kivy.app import App
 from kivy.core.window import Window
@@ -9,6 +10,7 @@ from kivy.uix.label import Label
 from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.gridlayout import GridLayout
+from kivy.uix.modalview import ModalView
 
 def resource_path(relative_path):
     try:
@@ -33,13 +35,6 @@ color_themes = {
     "candy": {"color_name": "Конфета", "price": 1000, "unlocked": False, "color_bg": (255/255, 247/255, 251/255, 1.0), "color_text": (131/255, 24/255, 67/255, 1.0), "color_blank": (249/255, 168/255, 212/255, 1.0), "color_correct": (236/255, 72/255, 153/255, 1.0), "color_in_word": (244/255, 114/255, 182/255, 1.0), "color_not_in_word": (203/255, 213/255, 225/255, 1.0), "color_key": (253/255, 164/255, 175/255, 1.0)},
     "neon": {"color_name": "Неон", "price": 1000, "unlocked": False, "color_bg": (15/255, 23/255, 42/255, 1.0), "color_text": (255/255, 255/255, 255/255, 1.0), "color_blank": (51/255, 65/255, 85/255, 1.0), "color_correct": (0/255, 255/255, 136/255, 1.0), "color_in_word": (255/255, 230/255, 0/255, 1.0), "color_not_in_word": (100/255, 116/255, 139/255, 1.0), "color_key": (0/255, 217/255, 255/255, 1.0)},
     "gold": {"color_name": "Золото", "price": 1000, "unlocked": False, "color_bg": (255/255, 251/255, 235/255, 1.0), "color_text": (120/255, 53/255, 15/255, 1.0), "color_blank": (253/255, 230/255, 138/255, 1.0), "color_correct": (217/255, 119/255, 6/255, 1.0), "color_in_word": (250/255, 204/255, 21/255, 1.0), "color_not_in_word": (168/255, 162/255, 158/255, 1.0), "color_key": (251/255, 191/255, 36/255, 1.0)}}
-
-CURRENT_WORD = ""
-CURRENT_ATTEMPT = 0
-CORRECT_WORD = ""
-GAME_STATE = "playing"
-GUESSES = ["", "", "", "", "", ""]
-KEYBOARD_STATUS = {}
 
 color_name = color_themes["classic"]["color_name"]
 color_bg = color_themes["classic"]["color_bg"]
@@ -67,6 +62,104 @@ def choose_theme(theme):
         
     if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
         MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
+
+def apply_adaptive_layouts(screen_instance, win_w, win_h):
+    """
+    Универсальная функция адаптивной верстки для GuessWordGame.
+    Рассчитывает резиновые бланки, клавиатуру, шрифты и центрирует буквы.
+    """
+    # 1. АДАПТИВНЫЙ РАСЧЕТ РАЗМЕРОВ БЛАНКА (Жесткие 65% высоты)
+    CELL_SPACING_X = 5
+    CELL_SPACING_Y = 5
+    side_margin = win_w * 0.11
+    avail_cell_w = win_w - (2 * side_margin) - 20
+    CELL_WIDTH = avail_cell_w / 5  
+    CELL_HEIGHT = CELL_WIDTH * 1.243  
+
+    total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
+    max_allowed_height = win_h * 0.65
+
+    if total_blanks_height > max_allowed_height:
+        total_blanks_height = max_allowed_height
+        CELL_HEIGHT = (total_blanks_height - (5 * CELL_SPACING_Y)) / 6
+        CELL_WIDTH = CELL_HEIGHT / 1.243
+        side_margin = (win_w - (5 * CELL_WIDTH) - 20) / 2
+
+    # Идеальный масштаб шрифта бланка (48% от его высоты)
+    cell_font_size_px = CELL_HEIGHT * 0.48
+
+    for cell in screen_instance.cells:
+        cell.size = (CELL_WIDTH, CELL_HEIGHT)
+        cell.font_size = f"{cell_font_size_px}px"
+        # Идеальное вертикальное и горизонтальное центрирование букв в ячейках
+        cell.text_size = cell.size
+        cell.halign = 'center'
+        cell.valign = 'middle'
+
+    # 2. ФИКСИРУЕМ ПОЛОЖЕНИЕ КЛАВИАТУРЫ ОТ ПОЛНОЙ ПАЧКИ БЛАНКОВ
+    virtual_bottom_line = (win_h - 5) - total_blanks_height
+    KEY_SPACING_X = 4
+    avail_w = win_w - 16 - 44
+    KEY_WIDTH = avail_w / 12  
+    KEY_SPACING_Y = 4
+    avail_h = virtual_bottom_line - 16 - 12
+    KEY_HEIGHT = avail_h / 4  
+
+    row_heights = [
+        8,
+        8 + (KEY_HEIGHT + KEY_SPACING_Y),
+        8 + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
+        8 + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
+    ]
+
+    # Масштабы шрифтов клавиатуры
+    key_font_size_px = KEY_HEIGHT * 0.38       # Буквы (38%)
+    sys_font_size_px = KEY_HEIGHT * 0.20       # СТЕРЕТЬ/ВЫХОД/ВВОД (20%)
+
+    # Применяем размеры, шрифты и микро-сдвиг вверх ко всей клавиатуре
+    for key in screen_instance.keyboard_keys:
+        key.size = (KEY_WIDTH, KEY_HEIGHT)
+        key.font_size = f"{key_font_size_px}px"
+        key.text_size = key.size
+        key.halign = 'center'
+        key.valign = 'middle'
+        key.padding_y = 3 # Точечно приподнимаем буквы к центру плашки
+
+    # Раскладываем буквенные ряды по экрану
+    line_to_height_idx = {0: 2, 1: 1, 2: 0}
+    for i, line_keys in enumerate(screen_instance.letter_buttons):
+        h_idx = line_to_height_idx[i]
+        total_w = len(line_keys) * KEY_WIDTH + (len(line_keys) - 1) * KEY_SPACING_X
+        start_l_x = (win_w - total_w) / 2
+        for idx, key in enumerate(line_keys):
+            key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
+            key.update_canvas()
+
+    # Системные кнопки
+    SYS_SPACING = 4
+    avail_sys_w = win_w - 16 - (2 * SYS_SPACING)
+    SYS_WIDTH = avail_sys_w / 3
+    start_sys_x = 8
+    
+    for btn in [screen_instance.btn_erase, screen_instance.btn_exit, screen_instance.btn_enter]:
+        btn.size = (SYS_WIDTH, KEY_HEIGHT)
+        btn.font_size = f"{sys_font_size_px}px"
+        btn.text_size = btn.size
+        btn.halign = 'center'
+        btn.valign = 'middle'
+        btn.padding_y = 2
+
+    screen_instance.btn_erase.pos = (start_sys_x, row_heights)
+    screen_instance.btn_erase.update_canvas()
+    
+    screen_instance.btn_exit.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights)
+    screen_instance.btn_exit.update_canvas()
+    
+    screen_instance.btn_enter.pos = (start_sys_x + 2 * (SYS_WIDTH + SYS_SPACING), row_heights)
+    screen_instance.btn_enter.update_canvas()
+
+    # Возвращаем наружу вычисленные данные, которые могут понадобиться экранам локально
+    return CELL_WIDTH, CELL_HEIGHT, row_heights, KEY_HEIGHT
 
 class MenuButton(Button):
     def __init__(self, text="", pos_hint=None, size_hint=(0.93, None), height=84, **kwargs):
@@ -237,6 +330,7 @@ class KeyButton(Button):
         self.size = size
         
         self.base_color = color_key
+        self.cell_status = "blank"
         self.color = color_text
         
         self.bind(pos=self.update_canvas, size=self.update_canvas, state=self.update_canvas)
@@ -429,6 +523,9 @@ class OnePlayerGameScreen(Screen):
         # ----- ИГРА ----
         self.current_word = ""
         self.current_attempt = 0
+        self.secret_word = ""
+
+        self.reset_game()
 
     def reposition_elements(self, instance, size):
         win_w = Window.width
@@ -569,33 +666,92 @@ class OnePlayerGameScreen(Screen):
 
     def press_enter_key(self, instance):
         """Срабатывает при нажатии на большую кнопку ВВОД"""
-        # 1. Жесткая проверка на длину слова (ровно 5 букв)
         if len(self.current_word) == 5:
+            check_word = self.current_word.upper()
             
-            # Получаем доступ к твоему оригинальному словарю words_list из главного класса App
-            app = App.get_running_app()
-            
-            # Принудительно переводим набранное слово в нижний регистр для проверки
-            check_word = self.current_word.lower()
-            
-            # 2. Жесткая проверка: есть ли слово в словаре words_list
-            if hasattr(app, 'words_list') and check_word in app.words_list:
+            if 'MOBILE_ALL_WORDS' in globals() and MOBILE_ALL_WORDS and check_word in MOBILE_ALL_WORDS:
                 print(f"Слово валидно и найдено в словаре: {self.current_word}")
                 
-                # (Сюда на следующем шаге мы встроим покраску букв в зеленый/желтый)
+                row_statuses = ["not_in_word"] * 5
+                secret_chars = list(self.secret_word)
+                guess_chars = list(check_word)
                 
-                # Только если слово правильное — переходим к следующей строке попыток
+                # ШАГ А: Ищем точные совпадения (Зелёные буквы)
+                for i in range(5):
+                    if guess_chars[i] == secret_chars[i]:
+                        row_statuses[i] = "correct"
+                        secret_chars[i] = None
+                        guess_chars[i] = b" "
+                        
+                # ШАГ Б: Ищем частичные совпадения (Жёлтые буквы)
+                for i in range(5):
+                    if guess_chars[i] != b" " and guess_chars[i] in secret_chars:
+                        row_statuses[i] = "in_word"
+                        idx = secret_chars.index(guess_chars[i])
+                        secret_chars[idx] = None
+                
+                # ШАГ В: Применяем цвета к бланкам Kivy на экране
+                start_idx = self.current_attempt * 5
+                for i in range(5):
+                    cell_idx = start_idx + i
+                    if cell_idx < len(self.cells):
+                        self.cells[cell_idx].change_type(row_statuses[i])
+
+                # ПОКРАСКА КНОПОК ВИРТУАЛЬНОЙ КЛАВИАТУРЫ
+                for i in range(5):
+                    char_in_guess = self.current_word[i].upper()
+                    status_for_char = row_statuses[i]
+                    
+                    for key_btn in self.keyboard_keys:
+                        if key_btn.text == char_in_guess:
+                            if key_btn.cell_status == "correct":
+                                continue
+                            elif key_btn.cell_status == "in_word" and status_for_char != "correct":
+                                continue
+                                
+                            if status_for_char == "correct":
+                                key_btn.base_color = color_correct
+                                key_btn.color = (1.0, 1.0, 1.0, 1.0)
+                            elif status_for_char == "in_word":
+                                key_btn.base_color = color_in_word
+                                key_btn.color = (0.0, 0.0, 0.0, 1.0)
+                            elif status_for_char == "not_in_word":
+                                key_btn.base_color = color_not_in_word
+                                key_btn.color = (1.0, 1.0, 1.0, 1.0)
+                                
+                            key_btn.cell_status = status_for_char
+                            key_btn.update_canvas()
+
+                # Проверяем победу
+                if check_word == self.secret_word:
+                    self.show_game_popup(
+                        "ПОБЕДА!", 
+                        f"Было загадано слово: {self.secret_word}",
+                        color_correct,
+                        is_end_game=True
+                    )
+                    return
+
+                # Переходим к следующей строке попыток
                 self.current_attempt += 1
                 self.current_word = ""
                 
-                # Если попытки кончились
+                # Если проигрыш (ИСПРАВЛЕНО: Заголовок красится в color_not_in_word)
                 if self.current_attempt >= 6:
-                    print("Попытки исчерпаны!")
-                    self.reset_game()
+                    self.show_game_popup(
+                        "ИГРА ОКОНЧЕНА", 
+                        f"Загаданное слово было: {self.secret_word}",
+                        color_not_in_word,
+                        is_end_game=True
+                    )
             else:
-                # ИСПРАВЛЕНО: Если слова НЕТ в словарe — мы ПРОСТО ИГНОРИРУЕМ нажатие.
-                # Буквы остаются стоять на экране, слово не сбрасывается.
-                print(f"Слова '{self.current_word}' нет в словаре! Игрок должен исправить его сам.")
+                # ИСПРАВЛЕНО: Заголовок ошибки полностью подчиняется цвету темы color_text
+                self.show_game_popup(
+                    "Такого слова нет в словаре", 
+                    "или введенное слово состоит не из 5 букв.",
+                    color_text,
+                    is_end_game=False
+                )
 
     def press_exit_key(self, instance):
         """Срабатывает при нажатии на ВЫХОД: сбрасывает поле и уводит в меню"""
@@ -603,23 +759,489 @@ class OnePlayerGameScreen(Screen):
         self.manager.current = 'game'  # Переключаем экран обратно в меню выбора режимов
 
     def reset_game(self):
-        """Полностью сбрасывает состояние игрового поля и переменных к исходному нулю"""
-        # 1. Стираем текст во всех 30 бланках на экране
+        """Полностью сбрасывает состояние игрового поля, клавиатуры и выбирает новое слово"""
         for cell in self.cells:
             cell.text = ""
-            # Если в будущем у бланков будут меняться цвета (на зеленый/серый), 
-            # здесь мы также вернем им базовый цвет:
             cell.base_color = color_blank
+            # ИСПРАВЛЕНО: Принудительно возвращаем тексту ячеек твой родной color_text темы!
+            cell.color = color_text
             cell.update_canvas()
             
-        # 2. Обнуляем твои игровые переменные
+        # Сбрасываем цвета кнопок букв клавиатуры при новой игре
+        for key_btn in self.keyboard_keys:
+            key_btn.base_color = color_key
+            key_btn.color = color_text
+            key_btn.cell_status = "blank"
+            key_btn.update_canvas()
+            
+        # Возвращаем дефолтный цвет системным кнопкам
+        for btn in [self.btn_erase, self.btn_enter, self.btn_exit]:
+            btn.base_color = color_key
+            btn.color = color_text
+            btn.update_canvas()
+            
         self.current_word = ""
         self.current_attempt = 0
+
+        if 'MOBILE_ALL_WORDS' in globals() and MOBILE_ALL_WORDS:
+            self.secret_word = random.choice(MOBILE_ALL_WORDS).upper()
+            print(f"[MGGamesStudio] Загадано новое секретное слово: {self.secret_word}")
+        else:
+            self.secret_word = "СЛОВО"
+
+    def show_game_popup(self, title_text, msg_text, title_color, is_end_game=False):
+        """Создает базовое мобильное модальное окно на базе ModalView с прямыми углами"""
+        # Создаем стандартное окно с прозрачным фоном Kivy
+        view = ModalView(size_hint=(0.8, None), height=220, auto_dismiss=True, background='')
+        
+        # Подложка плашки строго в цвет твоей темы
+        with view.canvas.before:
+            Color(*color_bg)
+            self.popup_rect = RoundedRectangle(pos=view.pos, size=view.size, radius=[(0, 0), (0, 0), (0, 0), (0, 0)])
+            
+        def update_popup_bg(inst, value):
+            self.popup_rect.pos = inst.pos
+            self.popup_rect.size = inst.size
+        view.bind(pos=update_popup_bg, size=update_popup_bg)
+        
+        box = FloatLayout()
+        
+        # Заголовок сообщения
+        lbl_title = Label(text=title_text, font_name=resource_path("ClearSans-Bold.ttf"),
+                          font_size='24sp', color=title_color, bold=True,
+                          size_hint=(None, None), size=(300, 40), pos_hint={'center_x': 0.5, 'top': 0.9})
+        
+        # Текст сообщения
+        lbl_msg = Label(text=msg_text, font_name=resource_path("ClearSans-Bold.ttf"),
+                        font_size='15sp', color=color_text, bold=True,
+                        size_hint=(None, None), size=(300, 40), pos_hint={'center_x': 0.5, 'center_y': 0.45})
+        
+        tip_text = "Кликните в любое место для выхода в меню" if is_end_game else "Кликните в любое место, чтобы скрыть"
+        lbl_tip = Label(text=tip_text, font_name=resource_path("ClearSans-Bold.ttf"),
+                        font_size='11sp', color=color_not_in_word, bold=True,
+                        size_hint=(None, None), size=(300, 30), pos_hint={'center_x': 0.5, 'y': 0.08})
+        
+        box.add_widget(lbl_title)
+        box.add_widget(lbl_msg)
+        box.add_widget(lbl_tip)
+        view.add_widget(box)
+        
+        # Перехватываем клик по экрану напрямую через ModalView
+        def self_dismiss(instance, touch):
+            instance.dismiss()
+            return True
+            
+        view.bind(on_touch_down=self_dismiss)
+        
+        if is_end_game:
+            view.bind(on_dismiss=lambda x: self.press_exit_key(None))
+            
+        view.open()
 
 class TwoPlayerGameScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.add_widget(create_stub_layout(self, "Режим: 2 Игрока"))
+        self.layout = FloatLayout()
+        
+        # 1. Задний фон экрана
+        with self.canvas.before:
+            Color(*color_bg)
+            self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
+
+        self.lbl_title = Label(text="ЗАГАДАЙТЕ СЛОВО", font_name=resource_path("ClearSans-Bold.ttf"),
+                               font_size='32sp', color=color_text, bold=True, size_hint=(None, None))
+        self.lbl_subtitle = Label(text="Второй игрок должен отвернуться от экрана!", font_name=resource_path("ClearSans-Bold.ttf"),
+                                  font_size='14sp', color=color_not_in_word, bold=True, size_hint=(None, None))
+        self.lbl_error = Label(text="", font_name=resource_path("ClearSans-Bold.ttf"),
+                               font_size='15sp', color=color_in_word, bold=True, size_hint=(None, None))
+        self.layout.add_widget(self.lbl_error)
+        self.layout.add_widget(self.lbl_title)
+        self.layout.add_widget(self.lbl_subtitle)
+            
+        # 2. Создаем бланки сетки 6х5
+        self.cells = []
+        for _ in range(30):
+            cell = GameCell(size=(74, 92))
+            cell.base_color = color_blank
+            self.cells.append(cell)
+            self.layout.add_widget(cell)
+            
+        # 3. Список для хранения буквенных клавиш (критично для reposition)
+        self.keyboard_keys = []
+        
+        # 4. Три новые большие системные кнопки в белом пространстве
+        self.btn_erase = KeyButton(text="СТЕРЕТЬ", size=(100, 50))
+        self.btn_erase.font_size = '22sp'
+        self.btn_erase.bind(on_release=self.press_erase_key)
+        
+        self.btn_exit = KeyButton(text="ВЫХОД", size=(100, 50))
+        self.btn_exit.font_size = '22sp'
+        self.btn_exit.bind(on_release=self.press_exit_key)
+
+        
+        self.btn_enter = KeyButton(text="ВВОД", size=(100, 50))
+        self.btn_enter.font_size = '22sp'
+        self.btn_enter.bind(on_release=self.press_enter_key)
+        
+        self.layout.add_widget(self.btn_erase)
+        self.layout.add_widget(self.btn_exit)
+        self.layout.add_widget(self.btn_enter)
+        
+        # 5. Буквенная клавиатура с привязкой событий тача
+        self.lines = ["ЙЦУКЕНГШЩЗХЪ", "ФЫВАПРОЛДЖЭ", "ЯЧСМИТЬБЮЁ"]
+        self.letter_buttons = []
+        for line in self.lines:
+            row_buttons = []
+            for char in line:
+                key = KeyButton(text=char, size=(40, 85))
+                key.font_size = '22sp'
+                
+                # ЖЕСТКАЯ ПРИВЯЗКА КЛИКА: передаем нажатую букву в метод
+                key.bind(on_release=self.press_letter_key)
+                
+                self.keyboard_keys.append(key)
+                self.layout.add_widget(key)
+                row_buttons.append(key)
+            self.letter_buttons.append(row_buttons)
+                
+        self.add_widget(self.layout)
+        self.bind(size=self.reposition_elements)
+
+        # ----- ИГРА ----
+        self.current_word = ""
+        self.current_attempt = 0
+        self.secret_word = ""
+        self.stage = "setup"
+
+        self.reset_game()
+
+    def reposition_elements(self, instance, size):
+        win_w = Window.width
+        win_h = Window.height
+        self.bg_rect.size = (win_w, win_h)
+
+        # 1. АДАПТИВНЫЙ РАСЧЕТ РАЗМЕРОВ БЛАНКА (Как в OnePlayer)
+        CELL_SPACING_X = 5
+        CELL_SPACING_Y = 5
+        side_margin = win_w * 0.11
+        avail_cell_w = win_w - (2 * side_margin) - 20
+        CELL_WIDTH = avail_cell_w / 5  
+        CELL_HEIGHT = CELL_WIDTH * 1.243  
+
+        total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
+        max_allowed_height = win_h * 0.65
+
+        if total_blanks_height > max_allowed_height:
+            total_blanks_height = max_allowed_height
+            CELL_HEIGHT = (total_blanks_height - (5 * CELL_SPACING_Y)) / 6
+            CELL_WIDTH = CELL_HEIGHT / 1.243
+            side_margin = (win_w - (5 * CELL_WIDTH) - 20) / 2
+
+        for cell in self.cells:
+            cell.size = (CELL_WIDTH, CELL_HEIGHT)
+
+        # 2. ФИКСИРУЕМ ПОЛОЖЕНИЕ КЛАВИАТУРЫ (Чтобы она не прыгала)
+        virtual_bottom_line = (win_h - 5) - total_blanks_height
+        KEY_SPACING_X = 4
+        avail_w = win_w - 16 - 44
+        KEY_WIDTH = avail_w / 12  
+        KEY_SPACING_Y = 4
+        avail_h = virtual_bottom_line - 16 - 12
+        KEY_HEIGHT = avail_h / 4  
+
+        row_heights = [
+            8,
+            8 + (KEY_HEIGHT + KEY_SPACING_Y),
+            8 + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
+            8 + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
+        ]
+
+        # =========================================================================
+        # 3. ИСПРАВЛЕНО: ЧИСТАЯ МАТЕМАТИКА РАСПРЕДЕЛЕНИЯ ПРОСТРАНСТВА ПОПОЛАМ
+        # =========================================================================
+        start_blank_x = side_margin
+        
+        if self.stage == "setup":
+            # Точная высота начала клавиатуры (Y-координата верхнего ряда + высота кнопки)
+            kbd_top_y = row_heights[3] + KEY_HEIGHT
+            
+            # А. Бланки встают строго ПОСЕРЕДИНЕ между потолком (win_h) и верхом клавиатуры (kbd_top_y)
+            total_free_space_y = win_h - kbd_top_y
+            start_blank_y = kbd_top_y + (total_free_space_y - CELL_HEIGHT) // 2
+            
+            # Б. Заголовки: берем расстояние от потолка до верха бланка и делим ровно НА 2
+            space_above_cells = win_h - (start_blank_y + CELL_HEIGHT)
+            center_above_y = (start_blank_y + CELL_HEIGHT) + (space_above_cells // 2)
+            
+            # Ставим главный заголовок по центру этого пространства
+            self.lbl_title.pos = (win_w // 2 - self.lbl_title.width // 2, center_above_y + 15)
+            # Подсказку опускаем чуть ниже с аккуратным фиксированным зазором (30px от главного текста)
+            self.lbl_subtitle.pos = (win_w // 2 - self.lbl_subtitle.width // 2, center_above_y - 15)
+            
+            # В. Текст ошибки: берем свободное пространство МЕЖДУ низом бланка и клавиатурой и делим НА 2
+            space_below_cells = start_blank_y - kbd_top_y
+            center_below_y = kbd_top_y + (space_below_cells // 2)
+            
+            # Ставим ошибку ровно по центру нижнего белого пространства
+            self.lbl_error.pos = (win_w // 2 - self.lbl_error.width // 2, center_below_y - self.lbl_error.height // 2)
+        else:
+            # Во время игры возвращаем всю сетку 6х5 стандартно к потолку
+            start_blank_y = win_h - CELL_HEIGHT - 5
+
+        # Расставляем ячейки по вычисленным координатам
+        cell_idx = 0
+        for row in range(6):
+            for col in range(5):
+                if cell_idx < len(self.cells):
+                    if self.stage == "setup" and row > 0:
+                        self.cells[cell_idx].pos = (-1000, -1000)
+                    else:
+                        self.cells[cell_idx].pos = (start_blank_x + col * (CELL_WIDTH + CELL_SPACING_X), start_blank_y - row * (CELL_HEIGHT + CELL_SPACING_Y))
+                    self.cells[cell_idx].update_canvas()
+                    cell_idx += 1
+
+        # 4. РАССТАНОВКА БУКВ И СИСТЕМНЫХ КНОПОК КЛАВИАТУРЫ (Без изменений)
+        for key in self.keyboard_keys:
+            key.size = (KEY_WIDTH, KEY_HEIGHT)
+
+        line_to_height_idx = {0: 2, 1: 1, 2: 0}
+        for i, line_keys in enumerate(self.letter_buttons):
+            h_idx = line_to_height_idx[i]
+            total_w = len(line_keys) * KEY_WIDTH + (len(line_keys) - 1) * KEY_SPACING_X
+            start_l_x = (win_w - total_w) / 2
+            for idx, key in enumerate(line_keys):
+                key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
+                key.update_canvas()
+
+        SYS_SPACING = 4
+        avail_sys_w = win_w - 16 - (2 * SYS_SPACING)
+        SYS_WIDTH = avail_sys_w / 3
+        start_sys_x = 8
+        
+        for btn in [self.btn_erase, self.btn_exit, self.btn_enter]:
+            btn.size = (SYS_WIDTH, KEY_HEIGHT)
+            
+        # =========================================================================
+        # ИСПРАВЛЕНО НАВЕК: Добавили индексы [3] для системных кнопок управления!
+        # =========================================================================
+        self.btn_erase.pos = (start_sys_x, row_heights[3])
+        self.btn_erase.update_canvas()
+        
+        self.btn_exit.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights[3])
+        self.btn_exit.update_canvas()
+        
+        self.btn_enter.pos = (start_sys_x + 2 * (SYS_WIDTH + SYS_SPACING), row_heights[3])
+        self.btn_enter.update_canvas()
+
+    def press_letter_key(self, instance):
+        self.lbl_error.text = ""
+        """Срабатывает при нажатии на любую букву виртуальной клавиатуры"""
+        letter = instance.text
+        
+        # Твоя проверка из ПК-версии: если в слове меньше 5 букв
+        if len(self.current_word) < 5:
+            # Математический расчет индекса клетки из твоего оригинального кода
+            cell_idx = (self.current_attempt * 5) + len(self.current_word)
+            
+            if cell_idx < len(self.cells):
+                # Записываем букву в бланк Kivy (используем .text вместо .letter)
+                self.cells[cell_idx].text = letter
+                
+                # Добавляем букву в наше текущее слово
+                self.current_word += letter
+
+    def press_erase_key(self, instance):
+        self.lbl_error.text = ""
+        """Срабатывает при нажатии на большую кнопку СТЕРЕТЬ"""
+        # Твоя проверка из ПК-версии: стирать можно, только если в слове уже есть буквы
+        if len(self.current_word) > 0:
+            # Точный расчет индекса последней заполненной ячейки
+            cell_idx = (self.current_attempt * 5) + len(self.current_word) - 1
+            
+            if cell_idx < len(self.cells):
+                # Стираем текст на экране Kivy
+                self.cells[cell_idx].text = ""
+                
+                # Обрезаем последнюю букву в нашей переменной слова
+                self.current_word = self.current_word[:-1]
+
+    def press_enter_key(self, instance):
+        """Срабатывает при нажатии на большую кнопку ВВОД в режиме двух игроков"""
+        if len(self.current_word) == 5:
+            check_word = self.current_word.upper()
+            
+            if 'MOBILE_ALL_WORDS' in globals() and MOBILE_ALL_WORDS and check_word in MOBILE_ALL_WORDS:
+                
+                if self.stage == "setup":
+                    self.secret_word = check_word
+                    self.stage = "playing"
+                    self.current_word = ""
+                    
+                    # Стираем текст заголовков, чтобы они исчезли с экрана
+                    self.lbl_title.text = ""
+                    self.lbl_subtitle.text = ""
+                    
+                    for cell in self.cells:
+                        cell.text = ""
+                        
+                    # Пересчитываем экран — Kivy автоматически вернет бланки к потолку и откроет все 6 рядов!
+                    self.reposition_elements(None, None)
+                    return
+                
+                # Дальше идёт твой стандартный код проверки букв (оставляем его без изменений)
+                row_statuses = ["not_in_word"] * 5
+                secret_chars = list(self.secret_word)
+                guess_chars = list(check_word)
+                
+                for i in range(5):
+                    if guess_chars[i] == secret_chars[i]:
+                        row_statuses[i] = "correct"
+                        secret_chars[i] = None
+                        guess_chars[i] = b" "
+                        
+                for i in range(5):
+                    if guess_chars[i] != b" " and guess_chars[i] in secret_chars:
+                        row_statuses[i] = "in_word"
+                        idx = secret_chars.index(guess_chars[i])
+                        secret_chars[idx] = None
+                
+                start_idx = self.current_attempt * 5
+                for i in range(5):
+                    cell_idx = start_idx + i
+                    if cell_idx < len(self.cells):
+                        self.cells[cell_idx].change_type(row_statuses[i])
+
+                # Покраска кнопок клавиатуры (оставляем твой код как есть)
+                for i in range(5):
+                    char_in_guess = self.current_word[i].upper()
+                    status_for_char = row_statuses[i]
+                    for key_btn in self.keyboard_keys:
+                        if key_btn.text == char_in_guess:
+                            if key_btn.cell_status == "correct": continue
+                            elif key_btn.cell_status == "in_word" and status_for_char != "correct": continue
+                            if status_for_char == "correct": key_btn.base_color = color_correct
+                            elif status_for_char == "in_word": key_btn.base_color = color_in_word
+                            elif status_for_char == "not_in_word": key_btn.base_color = color_not_in_word
+                            key_btn.cell_status = status_for_char
+                            key_btn.update_canvas()
+
+                # Проверка победы (ИСПРАВЛЕНО: Меняем текст уведомления на "Второй игрок")
+                if check_word == self.secret_word:
+                    self.show_game_popup(
+                        "ПОБЕДА!", 
+                        f"Второй игрок угадал слово: {self.secret_word}",
+                        color_correct,
+                        is_end_game=True
+                    )
+                    return
+
+                self.current_attempt += 1
+                self.current_word = ""
+                
+                if self.current_attempt >= 6:
+                    self.show_game_popup(
+                        "ИГРА ОКОНЧЕНА", 
+                        f"Загаданное слово было: {self.secret_word}",
+                        color_not_in_word,
+                        is_end_game=True
+                    )
+            else:
+                if self.stage == "setup":
+                    # Вместо модального окна выводим ошибку текстом в белое пространство!
+                    self.lbl_error.text = "Такого слова нет в словаре!"
+                    self.reposition_elements(None, None) # Обновляем позицию текста
+                else:
+                    self.show_game_popup("Такого слова нет в словаре", "или введенное слово состоит не из 5 букв.", color_text, is_end_game=False)
+
+    def press_exit_key(self, instance):
+        """Срабатывает при нажатии на ВЫХОД: сбрасывает поле и уводит в меню"""
+        self.reset_game()  # Вызываем очистку поля
+        self.manager.current = 'game'  # Переключаем экран обратно в меню выбора режимов
+
+    def reset_game(self):
+        """Полностью очищает игру двух игроков и возвращает состояние к стартовому setup"""
+        self.stage = "setup"
+        self.current_word = ""
+        self.current_attempt = 0
+        self.secret_word = ""
+        
+        # 1. Возвращаем исходные чистые заголовки на экран
+        self.lbl_title.text = "ЗАГАДАЙТЕ СЛОВО"
+        self.lbl_subtitle.text = "Второй игрок должен отвернуться от экрана!"
+        self.lbl_error.text = ""
+        
+        # 2. Очищаем бланки клеток, возвращая дефолтные цвета ячейкам и шрифтам
+        for cell in self.cells:
+            cell.text = ""
+            cell.base_color = color_blank
+            cell.color = color_text
+            cell.update_canvas()
+            
+        # 3. ИСПРАВЛЕНО: Принудительно сбрасываем цвета кнопок букв клавиатуры в серый!
+        for key_btn in self.keyboard_keys:
+            key_btn.base_color = color_key
+            key_btn.color = color_text
+            key_btn.cell_status = "blank"
+            key_btn.update_canvas()
+            
+        # 4. Возвращаем дефолтный цвет системным кнопкам
+        for btn in [self.btn_erase, self.btn_enter, self.btn_exit]:
+            btn.base_color = color_key
+            btn.color = color_text
+            btn.update_canvas()
+            
+        # 5. ИСПРАВЛЕНО: Принудительно заставляем макет пересчитать геометрию,
+        # чтобы спрятать 25 ячеек обратно и выровнять клавиатуру
+        self.reposition_elements(None, None)
+
+    def show_game_popup(self, title_text, msg_text, title_color, is_end_game=False):
+        """Создает базовое мобильное модальное окно на базе ModalView с прямыми углами"""
+        # Создаем стандартное окно с прозрачным фоном Kivy
+        view = ModalView(size_hint=(0.8, None), height=220, auto_dismiss=True, background='')
+        
+        # Подложка плашки строго в цвет твоей темы
+        with view.canvas.before:
+            Color(*color_bg)
+            self.popup_rect = RoundedRectangle(pos=view.pos, size=view.size, radius=[(0, 0), (0, 0), (0, 0), (0, 0)])
+            
+        def update_popup_bg(inst, value):
+            self.popup_rect.pos = inst.pos
+            self.popup_rect.size = inst.size
+        view.bind(pos=update_popup_bg, size=update_popup_bg)
+        
+        box = FloatLayout()
+        
+        # Заголовок сообщения
+        lbl_title = Label(text=title_text, font_name=resource_path("ClearSans-Bold.ttf"),
+                          font_size='24sp', color=title_color, bold=True,
+                          size_hint=(None, None), size=(300, 40), pos_hint={'center_x': 0.5, 'top': 0.9})
+        
+        # Текст сообщения
+        lbl_msg = Label(text=msg_text, font_name=resource_path("ClearSans-Bold.ttf"),
+                        font_size='15sp', color=color_text, bold=True,
+                        size_hint=(None, None), size=(300, 40), pos_hint={'center_x': 0.5, 'center_y': 0.45})
+        
+        tip_text = "Кликните в любое место для выхода в меню" if is_end_game else "Кликните в любое место, чтобы скрыть"
+        lbl_tip = Label(text=tip_text, font_name=resource_path("ClearSans-Bold.ttf"),
+                        font_size='11sp', color=color_not_in_word, bold=True,
+                        size_hint=(None, None), size=(300, 30), pos_hint={'center_x': 0.5, 'y': 0.08})
+        
+        box.add_widget(lbl_title)
+        box.add_widget(lbl_msg)
+        box.add_widget(lbl_tip)
+        view.add_widget(box)
+        
+        # Перехватываем клик по экрану напрямую через ModalView
+        def self_dismiss(instance, touch):
+            instance.dismiss()
+            return True
+            
+        view.bind(on_touch_down=self_dismiss)
+        
+        if is_end_game:
+            view.bind(on_dismiss=lambda x: self.press_exit_key(None))
+            
+        view.open()
 
 class HowToPlayScreen(Screen):
     def __init__(self, **kwargs):
@@ -667,6 +1289,7 @@ def create_stub_layout(screen_instance, text):
 
 class MobileApp(App):
     def build(self):
+        self.words_list = MOBILE_ALL_WORDS
         saved_theme = MOBILE_PLAYER_STATS.get("active_theme_name", "classic")
         theme_translator = {"классика": "classic", "ночь": "night", "океан": "ocean", "закат": "sunset", "сакура": "sakura", "лес": "forest", "король": "royal", "лава": "lava", "изумруд": "emerald", "конфета": "candy", "неон": "neon", "золото": "gold"}
         
