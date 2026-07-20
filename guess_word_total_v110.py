@@ -143,11 +143,6 @@ if START_MOBILE:
     
     try:
         import guess_word_mobile_v110
-        
-        # =========================================================================
-        # ИСПРАВЛЕНО: СИНХРОНИЗАЦИЯ ДОСТИЖЕНИЙ ПЕРЕД ПЕРЕДАЧЕЙ В МОБИЛКУ
-        # =========================================================================
-        # Накатываем сохраненные из JSON-файла ачивки на наш дефолтный словарь
         saved_ach = PLAYER_STATS.get("unlocked_achivements", {})
         if saved_ach:
             for ach_key, saved_data in saved_ach.items():
@@ -155,9 +150,15 @@ if START_MOBILE:
                     achivements[ach_key]["got"] = saved_data.get("got", False)
                     achivements[ach_key]["date"] = saved_data.get("date", "")
         
-        # Передаем обновленный, актуальный словарь достижений в мобильный файл
+        saved_quests = PLAYER_STATS.get("active_quests", {})
+        if saved_quests:
+            for q_key, saved_data in saved_quests.items():
+                if q_key in all_quests:
+                    all_quests[q_key]["progress"] = saved_data.get("progress", 0)
+                    all_quests[q_key]["done"] = saved_data.get("done", False)
+
         PLAYER_STATS["achivements_dict"] = achivements
-        
+        PLAYER_STATS["quests_dict"] = all_quests
         guess_word_mobile_v110.start_mobile_game(ALL_WORDS, PLAYER_STATS, save_game_progress)
     except ModuleNotFoundError:
         print("[MGGamesStudio] Ошибка: Файл guess_word_mobile_v110.py не найден в этой папке!")
