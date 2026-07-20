@@ -63,103 +63,44 @@ def choose_theme(theme):
     if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
         MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
 
-def apply_adaptive_layouts(screen_instance, win_w, win_h):
+def apply_adaptive_fonts(screen_instance, cell_height, key_height):
     """
-    Универсальная функция адаптивной верстки для GuessWordGame.
-    Рассчитывает резиновые бланки, клавиатуру, шрифты и центрирует буквы.
+    Базовая адаптивная настройка шрифтов и отступов.
+    Размеры шрифтов букв и системных кнопок СТРОГО совпадают!
     """
-    # 1. АДАПТИВНЫЙ РАСЧЕТ РАЗМЕРОВ БЛАНКА (Жесткие 65% высоты)
-    CELL_SPACING_X = 5
-    CELL_SPACING_Y = 5
-    side_margin = win_w * 0.11
-    avail_cell_w = win_w - (2 * side_margin) - 20
-    CELL_WIDTH = avail_cell_w / 5  
-    CELL_HEIGHT = CELL_WIDTH * 1.243  
-
-    total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
-    max_allowed_height = win_h * 0.65
-
-    if total_blanks_height > max_allowed_height:
-        total_blanks_height = max_allowed_height
-        CELL_HEIGHT = (total_blanks_height - (5 * CELL_SPACING_Y)) / 6
-        CELL_WIDTH = CELL_HEIGHT / 1.243
-        side_margin = (win_w - (5 * CELL_WIDTH) - 20) / 2
-
-    # Идеальный масштаб шрифта бланка (48% от его высоты)
-    cell_font_size_px = CELL_HEIGHT * 0.48
-
+    # 1. БЛАНКИ СЕТКИ
+    cell_pad_bottom = cell_height * 0.08
     for cell in screen_instance.cells:
-        cell.size = (CELL_WIDTH, CELL_HEIGHT)
-        cell.font_size = f"{cell_font_size_px}px"
-        # Идеальное вертикальное и горизонтальное центрирование букв в ячейках
+        cell.font_size = f"{cell_height * 0.50}px"
         cell.text_size = cell.size
         cell.halign = 'center'
         cell.valign = 'middle'
+        cell.padding = [0, 0, 0, cell_pad_bottom]
 
-    # 2. ФИКСИРУЕМ ПОЛОЖЕНИЕ КЛАВИАТУРЫ ОТ ПОЛНОЙ ПАЧКИ БЛАНКОВ
-    virtual_bottom_line = (win_h - 5) - total_blanks_height
-    KEY_SPACING_X = 4
-    avail_w = win_w - 16 - 44
-    KEY_WIDTH = avail_w / 12  
-    KEY_SPACING_Y = 4
-    avail_h = virtual_bottom_line - 16 - 12
-    KEY_HEIGHT = avail_h / 4  
-
-    row_heights = [
-        8,
-        8 + (KEY_HEIGHT + KEY_SPACING_Y),
-        8 + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
-        8 + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
-    ]
-
-    # Масштабы шрифтов клавиатуры
-    key_font_size_px = KEY_HEIGHT * 0.38       # Буквы (38%)
-    sys_font_size_px = KEY_HEIGHT * 0.20       # СТЕРЕТЬ/ВЫХОД/ВВОД (20%)
-
-    # Применяем размеры, шрифты и микро-сдвиг вверх ко всей клавиатуре
+    # 2. БУКВЫ КЛАВИАТУРЫ (38% от высоты)
+    key_width = screen_instance.keyboard_keys[0].width if screen_instance.keyboard_keys else 30
+    safe_side_key = min(key_width, key_height)
+    key_font_size_px = safe_side_key * 0.8
+    key_pad_bottom = key_height * 0.08
+    
     for key in screen_instance.keyboard_keys:
-        key.size = (KEY_WIDTH, KEY_HEIGHT)
         key.font_size = f"{key_font_size_px}px"
         key.text_size = key.size
         key.halign = 'center'
         key.valign = 'middle'
-        key.padding_y = 3 # Точечно приподнимаем буквы к центру плашки
+        key.padding = [0, 0, 0, key_pad_bottom]
 
-    # Раскладываем буквенные ряды по экрану
-    line_to_height_idx = {0: 2, 1: 1, 2: 0}
-    for i, line_keys in enumerate(screen_instance.letter_buttons):
-        h_idx = line_to_height_idx[i]
-        total_w = len(line_keys) * KEY_WIDTH + (len(line_keys) - 1) * KEY_SPACING_X
-        start_l_x = (win_w - total_w) / 2
-        for idx, key in enumerate(line_keys):
-            key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
-            key.update_canvas()
-
-    # Системные кнопки
-    SYS_SPACING = 4
-    avail_sys_w = win_w - 16 - (2 * SYS_SPACING)
-    SYS_WIDTH = avail_sys_w / 3
-    start_sys_x = 8
+    # 3. ИСПРАВЛЕНО: Шрифт системных кнопок СТРОГО равен шрифту букв клавиатуры!
+    sys_pad_bottom = key_height * 0.07
     
     for btn in [screen_instance.btn_erase, screen_instance.btn_exit, screen_instance.btn_enter]:
-        btn.size = (SYS_WIDTH, KEY_HEIGHT)
-        btn.font_size = f"{sys_font_size_px}px"
+        btn.font_size = f"{key_font_size_px}px" # Берем ту же самую переменную!
         btn.text_size = btn.size
         btn.halign = 'center'
         btn.valign = 'middle'
-        btn.padding_y = 2
-
-    screen_instance.btn_erase.pos = (start_sys_x, row_heights)
-    screen_instance.btn_erase.update_canvas()
-    
-    screen_instance.btn_exit.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights)
-    screen_instance.btn_exit.update_canvas()
-    
-    screen_instance.btn_enter.pos = (start_sys_x + 2 * (SYS_WIDTH + SYS_SPACING), row_heights)
-    screen_instance.btn_enter.update_canvas()
-
-    # Возвращаем наружу вычисленные данные, которые могут понадобиться экранам локально
-    return CELL_WIDTH, CELL_HEIGHT, row_heights, KEY_HEIGHT
+        # Выключаем автоперенос Kivy, чтобы текст не разбивался на две строки
+        btn.shorten = False
+        btn.padding = [0, 0, 0, sys_pad_bottom]
 
 class MenuButton(Button):
     def __init__(self, text="", pos_hint=None, size_hint=(0.93, None), height=84, **kwargs):
@@ -634,6 +575,8 @@ class OnePlayerGameScreen(Screen):
         self.btn_enter.size = (SYS_WIDTH, KEY_HEIGHT)
         self.btn_enter.update_canvas()
 
+        apply_adaptive_fonts(self, CELL_HEIGHT, KEY_HEIGHT)
+
     def press_letter_key(self, instance):
         """Срабатывает при нажатии на любую букву виртуальной клавиатуры"""
         letter = instance.text
@@ -665,7 +608,7 @@ class OnePlayerGameScreen(Screen):
                 self.current_word = self.current_word[:-1]
 
     def press_enter_key(self, instance):
-        """Срабатывает при нажатии на большую кнопку ВВОД"""
+        """Срабатывает при нажатии на большую кнопку ВВОД в одиночной игре"""
         if len(self.current_word) == 5:
             check_word = self.current_word.upper()
             
@@ -722,8 +665,50 @@ class OnePlayerGameScreen(Screen):
                             key_btn.cell_status = status_for_char
                             key_btn.update_canvas()
 
-                # Проверяем победу
-                if check_word == self.secret_word:
+                # =========================================================================
+                # ЭКОНОМИКА И СТАТИСТИКА ОДИНОЧНОЙ ИГРЫ (КАЖДЫЙ ХОД)
+                # =========================================================================
+                turn_coins = 0
+                for status in row_statuses:
+                    if status == "correct":
+                        turn_coins += 5   # Зелёная буква
+                    elif status == "in_word":
+                        turn_coins += 2   # Жёлтая буква
+                    elif status == "not_in_word":
+                        turn_coins += 1   # Серая буква
+                
+                is_win = (check_word == self.secret_word)
+                if is_win:
+                    turn_coins += 10      # Бонус за победу!
+                
+                # Начисляем монеты в кошелек лаунчера за этот ход
+                if 'MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS is not None:
+                    if "player_coins" not in MOBILE_PLAYER_STATS:
+                        MOBILE_PLAYER_STATS["player_coins"] = 0
+                    MOBILE_PLAYER_STATS["player_coins"] += turn_coins
+                    print(f"[MGGamesStudio] Начислено за ход: +{turn_coins} монет. Баланс: {MOBILE_PLAYER_STATS['player_coins']}")
+
+                    # Если победа — обновляем статистику и стрики лаунчера
+                    if is_win:
+                        MOBILE_PLAYER_STATS["total_wins"] = MOBILE_PLAYER_STATS.get("total_wins", 0) + 1
+                        MOBILE_PLAYER_STATS["current_win_streak"] = MOBILE_PLAYER_STATS.get("current_win_streak", 0) + 1
+                        
+                        # Проверяем и обновляем максимальный стрик побед
+                        if MOBILE_PLAYER_STATS["current_win_streak"] > MOBILE_PLAYER_STATS.get("max_win_streak", 0):
+                            MOBILE_PLAYER_STATS["max_win_streak"] = MOBILE_PLAYER_STATS["current_win_streak"]
+                    
+                    # Если поражение на 6-й попытке
+                    elif self.current_attempt >= 5:
+                        MOBILE_PLAYER_STATS["total_losses"] = MOBILE_PLAYER_STATS.get("total_losses", 0) + 1
+                        MOBILE_PLAYER_STATS["current_win_streak"] = 0 # Стрик сгорает
+
+                    # МОМЕНТАЛЬНОЕ ПОШАГОВОЕ СОХРАНЕНИЕ В ФАЙЛ ЛАУНЧЕРА
+                    if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
+                        MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
+                # =========================================================================
+
+                # Проверяем победу для вывода плашки
+                if is_win:
                     self.show_game_popup(
                         "ПОБЕДА!", 
                         f"Было загадано слово: {self.secret_word}",
@@ -736,7 +721,7 @@ class OnePlayerGameScreen(Screen):
                 self.current_attempt += 1
                 self.current_word = ""
                 
-                # Если проигрыш (ИСПРАВЛЕНО: Заголовок красится в color_not_in_word)
+                # Если проиграли все 6 попыток
                 if self.current_attempt >= 6:
                     self.show_game_popup(
                         "ИГРА ОКОНЧЕНА", 
@@ -745,7 +730,6 @@ class OnePlayerGameScreen(Screen):
                         is_end_game=True
                     )
             else:
-                # ИСПРАВЛЕНО: Заголовок ошибки полностью подчиняется цвету темы color_text
                 self.show_game_popup(
                     "Такого слова нет в словаре", 
                     "или введенное слово состоит не из 5 букв.",
@@ -790,11 +774,18 @@ class OnePlayerGameScreen(Screen):
             self.secret_word = "СЛОВО"
 
     def show_game_popup(self, title_text, msg_text, title_color, is_end_game=False):
-        """Создает базовое мобильное модальное окно на базе ModalView с прямыми углами"""
-        # Создаем стандартное окно с прозрачным фоном Kivy
-        view = ModalView(size_hint=(0.8, None), height=220, auto_dismiss=True, background='')
+        """Создает полностью адаптивное и резиновое модальное окно на базе ModalView"""
+        win_w = Window.width
+        win_h = Window.height
         
-        # Подложка плашки строго в цвет твоей темы
+        # Находим меньшую сторону устройства для расчета резиновых шрифтов
+        safe_screen_side = min(win_w, win_h)
+        
+        # ИСПРАВЛЕНО: Высота плашки теперь динамическая — строго 30% от высоты экрана
+        popup_height = win_h * 0.30
+        
+        view = ModalView(size_hint=(0.8, None), height=popup_height, auto_dismiss=True, background='')
+        
         with view.canvas.before:
             Color(*color_bg)
             self.popup_rect = RoundedRectangle(pos=view.pos, size=view.size, radius=[(0, 0), (0, 0), (0, 0), (0, 0)])
@@ -806,27 +797,34 @@ class OnePlayerGameScreen(Screen):
         
         box = FloatLayout()
         
+        # ИСПРАВЛЕНО: Шрифты теперь полностью резиновые и зависят от safe_screen_side!
+        title_font_size = safe_screen_side * 0.06  # 6% от меньшей стороны
+        msg_font_size = safe_screen_side * 0.04    # 4% от меньшей стороны
+        tip_font_size = safe_screen_side * 0.03    # 3% от меньшей стороны
+        
         # Заголовок сообщения
         lbl_title = Label(text=title_text, font_name=resource_path("ClearSans-Bold.ttf"),
-                          font_size='24sp', color=title_color, bold=True,
-                          size_hint=(None, None), size=(300, 40), pos_hint={'center_x': 0.5, 'top': 0.9})
+                          font_size=f"{title_font_size}px", color=title_color, bold=True,
+                          size_hint=(1, None), height=popup_height * 0.25, 
+                          pos_hint={'center_x': 0.5, 'top': 0.9})
         
         # Текст сообщения
         lbl_msg = Label(text=msg_text, font_name=resource_path("ClearSans-Bold.ttf"),
-                        font_size='15sp', color=color_text, bold=True,
-                        size_hint=(None, None), size=(300, 40), pos_hint={'center_x': 0.5, 'center_y': 0.45})
+                        font_size=f"{msg_font_size}px", color=color_text, bold=True,
+                        size_hint=(1, None), height=popup_height * 0.25, 
+                        pos_hint={'center_x': 0.5, 'center_y': 0.45})
         
         tip_text = "Кликните в любое место для выхода в меню" if is_end_game else "Кликните в любое место, чтобы скрыть"
         lbl_tip = Label(text=tip_text, font_name=resource_path("ClearSans-Bold.ttf"),
-                        font_size='11sp', color=color_not_in_word, bold=True,
-                        size_hint=(None, None), size=(300, 30), pos_hint={'center_x': 0.5, 'y': 0.08})
+                        font_size=f"{tip_font_size}px", color=(100/255, 116/255, 139/255, 1.0), bold=True,
+                        size_hint=(1, None), height=popup_height * 0.15, 
+                        pos_hint={'center_x': 0.5, 'y': 0.08})
         
         box.add_widget(lbl_title)
         box.add_widget(lbl_msg)
         box.add_widget(lbl_tip)
         view.add_widget(box)
         
-        # Перехватываем клик по экрану напрямую через ModalView
         def self_dismiss(instance, touch):
             instance.dismiss()
             return True
@@ -1033,6 +1031,8 @@ class TwoPlayerGameScreen(Screen):
         self.btn_enter.pos = (start_sys_x + 2 * (SYS_WIDTH + SYS_SPACING), row_heights[3])
         self.btn_enter.update_canvas()
 
+        apply_adaptive_fonts(self, CELL_HEIGHT, KEY_HEIGHT)
+
     def press_letter_key(self, instance):
         self.lbl_error.text = ""
         """Срабатывает при нажатии на любую букву виртуальной клавиатуры"""
@@ -1195,11 +1195,18 @@ class TwoPlayerGameScreen(Screen):
         self.reposition_elements(None, None)
 
     def show_game_popup(self, title_text, msg_text, title_color, is_end_game=False):
-        """Создает базовое мобильное модальное окно на базе ModalView с прямыми углами"""
-        # Создаем стандартное окно с прозрачным фоном Kivy
-        view = ModalView(size_hint=(0.8, None), height=220, auto_dismiss=True, background='')
+        """Создает полностью адаптивное и резиновое модальное окно на базе ModalView"""
+        win_w = Window.width
+        win_h = Window.height
         
-        # Подложка плашки строго в цвет твоей темы
+        # Находим меньшую сторону устройства для расчета резиновых шрифтов
+        safe_screen_side = min(win_w, win_h)
+        
+        # ИСПРАВЛЕНО: Высота плашки теперь динамическая — строго 30% от высоты экрана
+        popup_height = win_h * 0.30
+        
+        view = ModalView(size_hint=(0.8, None), height=popup_height, auto_dismiss=True, background='')
+        
         with view.canvas.before:
             Color(*color_bg)
             self.popup_rect = RoundedRectangle(pos=view.pos, size=view.size, radius=[(0, 0), (0, 0), (0, 0), (0, 0)])
@@ -1211,27 +1218,34 @@ class TwoPlayerGameScreen(Screen):
         
         box = FloatLayout()
         
+        # ИСПРАВЛЕНО: Шрифты теперь полностью резиновые и зависят от safe_screen_side!
+        title_font_size = safe_screen_side * 0.06  # 6% от меньшей стороны
+        msg_font_size = safe_screen_side * 0.04    # 4% от меньшей стороны
+        tip_font_size = safe_screen_side * 0.03    # 3% от меньшей стороны
+        
         # Заголовок сообщения
         lbl_title = Label(text=title_text, font_name=resource_path("ClearSans-Bold.ttf"),
-                          font_size='24sp', color=title_color, bold=True,
-                          size_hint=(None, None), size=(300, 40), pos_hint={'center_x': 0.5, 'top': 0.9})
+                          font_size=f"{title_font_size}px", color=title_color, bold=True,
+                          size_hint=(1, None), height=popup_height * 0.25, 
+                          pos_hint={'center_x': 0.5, 'top': 0.9})
         
         # Текст сообщения
         lbl_msg = Label(text=msg_text, font_name=resource_path("ClearSans-Bold.ttf"),
-                        font_size='15sp', color=color_text, bold=True,
-                        size_hint=(None, None), size=(300, 40), pos_hint={'center_x': 0.5, 'center_y': 0.45})
+                        font_size=f"{msg_font_size}px", color=color_text, bold=True,
+                        size_hint=(1, None), height=popup_height * 0.25, 
+                        pos_hint={'center_x': 0.5, 'center_y': 0.45})
         
         tip_text = "Кликните в любое место для выхода в меню" if is_end_game else "Кликните в любое место, чтобы скрыть"
         lbl_tip = Label(text=tip_text, font_name=resource_path("ClearSans-Bold.ttf"),
-                        font_size='11sp', color=color_not_in_word, bold=True,
-                        size_hint=(None, None), size=(300, 30), pos_hint={'center_x': 0.5, 'y': 0.08})
+                        font_size=f"{tip_font_size}px", color=(100/255, 116/255, 139/255, 1.0), bold=True,
+                        size_hint=(1, None), height=popup_height * 0.15, 
+                        pos_hint={'center_x': 0.5, 'y': 0.08})
         
         box.add_widget(lbl_title)
         box.add_widget(lbl_msg)
         box.add_widget(lbl_tip)
         view.add_widget(box)
         
-        # Перехватываем клик по экрану напрямую через ModalView
         def self_dismiss(instance, touch):
             instance.dismiss()
             return True
@@ -1248,10 +1262,219 @@ class HowToPlayScreen(Screen):
         super().__init__(**kwargs)
         self.add_widget(create_stub_layout(self, "Правила игры"))
 
+from kivy.uix.screenmanager import Screen
+from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.label import Label
+from kivy.uix.button import Button
+from kivy.core.window import Window
+from kivy.graphics import Color, RoundedRectangle
+
 class AchievementsScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.add_widget(create_stub_layout(self, "Достижения"))
+        self.layout = FloatLayout()
+        
+        # 1. СЛОЙ ФОНА (Самый нижний)
+        with self.canvas.before:
+            Color(*color_bg)
+            self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
+            
+        # =========================================================================
+        # 2. СЛОЙ ВЕРТИКАЛЬНОГО СКРОЛЛА ДОСТИЖЕНИЙ (Средний)
+        # =========================================================================
+        self.scroll_view = ScrollView(size_hint=(1, None))
+        self.ach_list_layout = GridLayout(cols=1, spacing=12, size_hint_y=None)
+        self.ach_list_layout.bind(minimum_height=self.ach_list_layout.setter('height'))
+        self.scroll_view.add_widget(self.ach_list_layout)
+        self.layout.add_widget(self.scroll_view)
+
+        # =========================================================================
+        # 3. СЛОЙ ВЕРХНЕЙ НЕПРОЗРАЧНОЙ ПЛАШКИ ОВЕРЛЕЯ (Перекрывающий)
+        # =========================================================================
+        # ЭтотLayout закроет верхнюю треть экрана, пряча улетающие вверх ачивки
+        self.top_overlay = FloatLayout(size_hint=(1, None))
+        with self.top_overlay.canvas.before:
+            Color(*color_bg)
+            self.overlay_rect = RoundedRectangle(pos=(0, 0), size=(360, 240))
+        self.layout.add_widget(self.top_overlay)
+
+        # =========================================================================
+        # 4. СЛОЙ КОНТЕНТА ПАНЕЛИ СТАТИСТИКИ (Самый верхний)
+        # =========================================================================
+        # Заголовок "Достижения" у левого края
+        self.lbl_main_title = Label(text="Достижения", font_name=resource_path("ClearSans-Bold.ttf"),
+                                    color=color_text, bold=True, size_hint=(None, None))
+        self.top_overlay.add_widget(self.lbl_main_title)
+
+        # Кнопка "Назад" (Выйти) в правом верхнем углу
+        self.btn_back = Button(text="Назад", font_name=resource_path("ClearSans-Bold.ttf"),
+                               background_normal='', background_color=color_key, color=color_text,
+                               size_hint=(None, None), size=(100, 45))
+        # Скруглим кнопку Назад встроенным канвасом
+        with self.btn_back.canvas.before:
+            Color(*color_key)
+            self.btn_back_rect = RoundedRectangle(pos=self.btn_back.pos, size=self.btn_back.size, radius=[8, 8, 8, 8])
+        
+        def update_btn_rect(inst, value):
+            self.btn_back_rect.pos = inst.pos
+            self.btn_back_rect.size = inst.size
+        self.btn_back.bind(pos=update_btn_rect, size=update_btn_rect)
+        self.btn_back.bind(on_release=self.press_back_key)
+        self.top_overlay.add_widget(self.btn_back)
+
+        # Горизонтальный скролл для карточек статистики (Красный квадрат)
+        self.stats_scroll = ScrollView(size_hint=(1, None), do_scroll_x=True, do_scroll_y=False)
+        self.stats_layout = BoxLayout(orientation='horizontal', spacing=12, size_hint_x=None, padding=[16, 0, 16, 0])
+        self.stats_layout.bind(minimum_width=self.stats_layout.setter('width'))
+        self.stats_scroll.add_widget(self.stats_layout)
+        self.top_overlay.add_widget(self.stats_scroll)
+
+        self.add_widget(self.layout)
+        self.bind(size=self.reposition_elements)
+
+    def on_enter(self):
+        """Срабатывает при каждом открытии экрана: обновляет данные и выставляет скролл вправо"""
+        self.refresh_stats_and_achievements()
+        # Вынуждаем Kivy дождаться отрисовки и выставить ползунок в крайнее правое положение (1.0)
+        from kivy.clock import Clock
+        Clock.schedule_once(lambda dt: setattr(self.stats_scroll, 'scroll_x', 1.0), 0.05)
+
+    def refresh_stats_and_achievements(self):
+        """Загружает актуальные данные из глобальных переменных лаунчера и строит списки"""
+        # Считываем данные из лаунчера
+        stats = MOBILE_PLAYER_STATS if ('MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS) else {}
+        coins = stats.get("player_coins", 0)
+        wins = stats.get("total_wins", 0)
+        losses = stats.get("total_losses", 0)
+        streak = f"{stats.get('current_win_streak', 0)}/{stats.get('max_win_streak', 0)}"
+        quests = stats.get("total_completed_quests", 0)
+        
+        # Подсчет ачивок
+        launcher_ach = achivements if 'achivements' in globals() else {}
+        got_count = sum(1 for ach in launcher_ach.values() if ach.get("got", False))
+        ach_ratio = f"{got_count}/{len(launcher_ach)}" if launcher_ach else "0/16"
+
+        # 1. ОБНОВЛЯЕМ КАРТОЧКИ СТАТИСТИКИ (Горизонтальный ряд)
+        self.stats_layout.clear_widgets()
+        
+        stats_data = [
+            ("Квесты", str(quests), color_text),
+            ("Достижения", ach_ratio, color_text),
+            ("Серия побед", streak, color_text),
+            ("Поражения", str(losses), color_text),
+            ("Победы", str(wins), color_correct),
+            ("Монеты", str(coins), color_in_word)
+        ]
+
+        # Создаем карточки по твоей схеме
+        for label_text, val_text, val_color in stats_data:
+            card = FloatLayout(size_hint=(None, 1), width=140)
+            with card.canvas.before:
+                Color(*color_blank)
+                card_rect = RoundedRectangle(pos=card.pos, size=(140, 72), radius=[12, 12, 12, 12])
+            
+            def update_card(inst, value, r=card_rect):
+                r.pos = inst.pos
+                r.size = (inst.width, inst.height)
+            card.bind(pos=update_card, size=update_card)
+
+            # Текст ярлыка (Монеты, Победы и т.д.)
+            lbl_lbl = Label(text=label_text, font_name=resource_path("ClearSans-Bold.ttf"),
+                            font_size='13sp', color=color_not_in_word, size_hint=(None, None), size=(120, 20),
+                            pos_hint={'x': 0.08, 'top': 0.9})
+            
+            # ОПТИЧЕСКИЙ ЗУМ ШРИФТА ИЗ ОРИГИНАЛА (Зависимость от длины цифр)
+            val_len = len(val_text)
+            if val_len >= 9:
+                v_font = '14sp' # Вместо font_20
+            elif val_len >= 6:
+                v_font = '20sp' # Вместо font_30
+            else:
+                v_font = '28sp' # Вместо font_45
+
+            lbl_val = Label(text=val_text, font_name=resource_path("ClearSans-Bold.ttf"),
+                            font_size=v_font, color=val_color, bold=True, size_hint=(None, None), size=(120, 35),
+                            pos_hint={'right': 0.92, 'y': 0.08})
+            
+            card.add_widget(lbl_lbl)
+            card.add_widget(lbl_val)
+            self.stats_layout.add_widget(card)
+
+        # 2. ОБНОВЛЯЕМ СПИСОК ДОСТИЖЕНИЙ (Вертикальный ряд)
+        self.ach_list_layout.clear_widgets()
+        if launcher_ach:
+            sorted_keys = sorted(launcher_ach.keys(), key=lambda k: launcher_ach[k].get("got", False), reverse=True)
+            for ach_key in sorted_keys:
+                ach_data = launcher_ach[ach_key]
+                is_got = ach_data.get("got", False)
+                
+                # Создаем вертикальную плашку ачивки
+                ach_row = FloatLayout(size_hint_y=None, height=90)
+                with ach_row.canvas.before:
+                    Color(*color_blank)
+                    ach_rect = RoundedRectangle(pos=ach_row.pos, size=(320, 90), radius=[10, 10, 10, 10])
+                
+                def update_ach_row(inst, value, r=ach_rect):
+                    r.pos = (inst.pos[0] + 16, inst.pos[1])
+                    r.size = (inst.width - 32, inst.height)
+                ach_row.bind(pos=update_ach_row, size=update_ach_row)
+
+                # Название ачивки
+                name_lbl = Label(text=ach_data.get("name", ""), font_name=resource_path("ClearSans-Bold.ttf"),
+                                 font_size='16sp', color=color_text, bold=True, size_hint=(None, None),
+                                 pos_hint={'x': 0.08, 'top': 0.88})
+                
+                # Описание ачивки
+                desc_lbl = Label(text=ach_data.get("description", ""), font_name=resource_path("ClearSans-Bold.ttf"),
+                                 font_size='12sp', color=color_not_in_word, size_hint=(None, None),
+                                 pos_hint={'x': 0.08, 'y': 0.15})
+
+                # Статус получения
+                status_text = "ПОЛУЧЕНО" if is_got else "НЕ ПОЛУЧЕНО"
+                status_color = color_correct if is_got else (150/255, 150/255, 150/255, 1.0)
+                status_lbl = Label(text=status_text, font_name=resource_path("ClearSans-Bold.ttf"),
+                                   font_size='11sp', color=status_color, bold=True, size_hint=(None, None),
+                                   pos_hint={'right': 0.92, 'y': 0.15})
+
+                ach_row.add_widget(name_lbl)
+                ach_row.add_widget(desc_lbl)
+                ach_row.add_widget(status_lbl)
+                self.ach_list_layout.add_widget(ach_row)
+
+    def reposition_elements(self, instance, size):
+        """Адаптивный резиновый пересчет позиций по осям Window"""
+        win_w = Window.width
+        win_h = Window.height
+        self.bg_rect.size = (win_w, win_h)
+
+        # Размеры верхнего глухого оверлея
+        overlay_height = 200
+        self.top_overlay.height = overlay_height
+
+        self.top_overlay.pos = (0, win_h - overlay_height)
+        self.overlay_rect.size = (win_w, overlay_height)
+        self.overlay_rect.pos = (0, win_h - overlay_height)
+        
+        # Тексты верхней панели
+        self.lbl_main_title.font_size = f"{min(win_w, win_h) * 0.08}px"
+        self.lbl_main_title.pos = (20, overlay_height - 65)
+        self.btn_back.pos = (win_w - 120, overlay_height - 60)
+        
+        # Горизонтальный скролл карточек (Красный квадрат)
+        self.stats_scroll.height = 72
+        self.stats_scroll.pos = (0, 15)
+        self.stats_layout.height = 72
+        
+        # Вертикальный скролл достижений (Остаток экрана снизу)
+        self.scroll_view.size = (win_w, win_h - overlay_height - 10)
+        self.scroll_view.pos = (0, 10)
+        self.ach_list_layout.width = win_w
+                
+    def press_back_key(self, instance):
+        self.manager.current = 'game'
 
 class CustomizationScreen(Screen):
     def __init__(self, **kwargs):
