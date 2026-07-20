@@ -1240,7 +1240,7 @@ class TwoPlayerGameScreen(Screen):
         
         tip_text = "Кликните в любое место для выхода в меню" if is_end_game else "Кликните в любое место, чтобы скрыть"
         lbl_tip = Label(text=tip_text, font_name=resource_path("ClearSans-Bold.ttf"),
-                        font_size=f"{tip_font_size}px", color=(100/255, 116/255, 139/255, 1.0), bold=True,
+                        font_size=f"{tip_font_size}px", color=color_not_in_word, bold=True,
                         size_hint=(1, None), height=popup_height * 0.15, 
                         pos_hint={'center_x': 0.5, 'y': 0.08})
         
@@ -1269,13 +1269,31 @@ class AchievementsScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
-        
+
+        # 1. Загружаем базовый макет с кнопкой (Самый нижний слой)
         self.stub_layout = create_stub_layout(self, "")
         self.layout.add_widget(self.stub_layout)
         
-        # 2. Создаем локальный заголовок для динамического позиционирования
+        # 2. Наша маскировочная подложка
+        self.top_overlay = FloatLayout(size_hint=(1, None))
+        with self.top_overlay.canvas.before:
+            Color(*color_bg)
+            self.overlay_rect = RoundedRectangle(pos=(0, 0), size=(360, 200), radius=[12])
+        self.layout.add_widget(self.top_overlay)
+
+        # =========================================================================
+        # ИСПРАВЛЕНО: ЖЁСТКО ПЕРЕВЕСИЛИ КНОПКУ ИЗ НИЖНЕГО СЛОЯ НА САМЫЙ ВЕРХ!
+        # =========================================================================
+        # Мы забираем кнопку из stub_layout, удаляем её оттуда и перекладываем поверх плашки
+        if self.stub_layout.children:
+            # Находим кнопку (обычно она первая в списке детей FloatLayout)
+            btn = [child for child in self.stub_layout.children if isinstance(child, MenuButton)][0]
+            self.stub_layout.remove_widget(btn)
+            self.layout.add_widget(btn) # Кладём на самый верхний рабочий слой!
+
+        # 3. Локальный заголовок "Достижения" (Тоже лежит сверху)
         self.lbl_main_title = Label(
-            text="ДОСТИЖЕНИЯ", 
+            text="Достижения", 
             font_name=resource_path("ClearSans-Bold.ttf"), 
             bold=True, 
             color=color_text,
@@ -1285,29 +1303,318 @@ class AchievementsScreen(Screen):
         )
         self.layout.add_widget(self.lbl_main_title)
         
+        # 3. На самый верхний слой укладываем горизонтальный скролл карточек статистики
+        self.stats_scroll = ScrollView(size_hint=(1, None), do_scroll_x=True, do_scroll_y=False, bar_width=0)
+        from kivy.effects.dampedscroll import DampedScrollEffect
+        self.stats_scroll.effect_cls = DampedScrollEffect
+        
+        self.stats_container = BoxLayout(orientation='vertical', spacing=8, size_hint=(None, None))
+        self.stats_row1 = BoxLayout(orientation='horizontal', spacing=10, size_hint=(None, None))
+        self.stats_row2 = BoxLayout(orientation='horizontal', spacing=10, size_hint=(None, None))
+        
+        self.stats_container.add_widget(self.stats_row1)
+        self.stats_container.add_widget(self.stats_row2)
+        self.stats_scroll.add_widget(self.stats_container)
+        self.layout.add_widget(self.stats_scroll)
+        
         self.add_widget(self.layout)
-        # Привязываем динамический пересчет ко всем размерам окон
         self.bind(size=self.reposition_elements)
 
+        # =========================================================================
+        # ШАГ 1: Создаем вертикальный скролл для 16 плашек достижений
+        # =========================================================================
+        # bar_width=0 полностью убирает уродливую черную полосу скроллбара
+        self.scroll_view = ScrollView(size_hint=(1, None), do_scroll_x=False, do_scroll_y=True, bar_width=0)
+        
+        # Жесткий стопор: отключаем резиновый оверскролл Kivy, чтобы список стопорился на краях
+        from kivy.effects.dampedscroll import DampedScrollEffect
+        self.scroll_view.effect_cls = DampedScrollEffect
+        
+        # Вертикальная сетка в 1 столбец, которая будет автоматически растягиваться вниз
+        self.ach_list_layout = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=[0])
+        self.ach_list_layout.bind(minimum_height=self.ach_list_layout.setter('height'))
+        
+        # Собираем контейнеры вместе
+        self.scroll_view.add_widget(self.ach_list_layout)
+        
+        # КРИТИЧЕСКИ ВАЖНО: Добавляем на самый нижний слой FloatLayout, чтобы ачивки уплывали ПОД статы!
+        self.layout.add_widget(self.scroll_view)
+        
+        # Пересчитываем порядок слоев, чтобы скролл остался под top_overlay
+        if hasattr(self, 'top_overlay'):
+            self.layout.remove_widget(self.scroll_view)
+            # Вставляем на индекс 1 (сразу над фоновым макетом stub_layout, но под оверлеем)
+            self.layout.add_widget(self.scroll_view, index=len(self.layout.children))
+
+    def on_enter(self):
+        """Срабатывает автоматически при входе на экран достижений"""
+        self.refresh_stats_and_achievements()
+
     def reposition_elements(self, instance, size):
-        """Динамическое выравнивание заголовка строго по центру кнопки Назад"""
+        """Полностью динамический расчет позиций для любого экрана телефона"""
         win_w = Window.width
         win_h = Window.height
+
+        # Вычисляем общую высоту верхней зоны (высота шапки + высота 2 рядов стат + зазоры)
+        # 54 (кнопка) + 44 (отступ) + 152 (статы) + 30 (зазоры) = примерно 280 пикселей
+        overlay_height = 280
         
-        # Настройка шрифта
+        # Задаем размеры и позицию самому контейнеру подложки
+        self.top_overlay.height = overlay_height
+        self.top_overlay.pos = (0, win_h - overlay_height)
+        
+        # Синхронизируем графический прямоугольник RoundedRectangle
+        self.overlay_rect.size = (win_w, overlay_height)
+        self.overlay_rect.pos = (0, win_h - overlay_height)
+        
+        # Настройка шапки (Твой рабочий и выровненный вариант)
         self.lbl_main_title.font_size = f"{min(win_w, win_h) * 0.08}px"
-        
-        # ИСПРАВЛЕНО: Даем рамке максимальную ширину (до самой кнопки), 
-        # чтобы жирные буквы больше никогда не зажимались и не обрезались по бокам
-        self.lbl_main_title.size = (win_w - 150, 100)
+        self.lbl_main_title.size = (win_w - 150, 54)
         self.lbl_main_title.text_size = self.lbl_main_title.size
-        
-        # Твоя правильная формула центра кнопки
-        btn_center_y = win_h - 54
-        
-        # Выравнивание
-        self.lbl_main_title.center_y = btn_center_y
+        self.lbl_main_title.center_y = win_h - 54
         self.lbl_main_title.x = 15
+        
+        # =========================================================================
+        # ДОБАВЛЕНО: Резиновое позиционирование двухэтажного блока под шапкой
+        # =========================================================================
+        # Высота блока: 2 ряда по 72px из file_3 + зазор 8px = 152px
+        self.stats_scroll.height = 152
+        
+        # Ставим строго под кнопочную зону (win_h - 54 - 44), опуская ниже на 15 пикселей зазора
+        self.stats_scroll.pos = (0, win_h - 54 - 44 - 152 - 15)
+        self.stats_container.height = 152
+
+        # Вертикальный скролл занимает всё оставшееся пространство от низа до панели стат
+        # Высота оверлея у нас была настроена (примерно 280px)
+        self.scroll_view.size = (win_w, win_h - 280 - 15)
+        self.scroll_view.pos = (0, 10) # Небольшой зазор от пола телефона
+        
+        # Растягиваем ширину внутренней сетки под ширину экрана смартфона
+        self.ach_list_layout.width = win_w
+
+    def create_card(self, label_text, val_text, val_color):
+        """Создает карточку статистики с огромными хитбоксами против любых переносов"""
+        card = FloatLayout(size_hint=(None, None), size=(385, 72))
+        
+        # Подложка плашки (светло-серая со скруглением 12)
+        with card.canvas.before:
+            Color(*color_blank)
+            r_rect = RoundedRectangle(pos=card.pos, size=card.size, radius=[12])
+        card.bind(pos=lambda inst, v: setattr(r_rect, 'pos', inst.pos), 
+                  size=lambda inst, v: setattr(r_rect, 'size', inst.size))
+        
+        # 1. ТЕКСТ ЯРЛЫКА (Слева, вернули оригинальный 20sp и дали огромный хитбокс 345px)
+        lbl_lbl = Label(
+            text=label_text, 
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size='20sp', 
+            color=color_not_in_word, 
+            size_hint=(None, None),
+            size=(345, 72),
+            text_size=(345, 72),  # ИСПРАВЛЕНО: Дали огромный хитбокс, чтобы ничего не переносилось
+            pos_hint={'x': 0.06, 'center_y': 0.5}, 
+            halign='left', 
+            valign='middle'
+        )
+        card.add_widget(lbl_lbl)
+        
+        # Оптический зум шрифта для больших чисел из твоей ПК-версии file_3
+        val_len = len(val_text)
+        if val_len >= 9:
+            v_font = '14sp'
+        elif val_len >= 6:
+            v_font = '20sp'
+        else:
+            v_font = '30sp'
+        
+        # 2. ЧИСЛОВОЕ ЗНАЧЕНИЕ (Справа, дали такой же огромный хитбокс 345px)
+        lbl_val = Label(
+            text=val_text, 
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size=v_font, 
+            color=val_color, 
+            bold=True, 
+            size_hint=(None, None),
+            size=(345, 72),
+            text_size=(345, 72),  # ИСПРАВЛЕНО: Дали огромный хитбокс, цифры никогда не улетят вниз
+            pos_hint={'right': 0.94, 'center_y': 0.5}, 
+            halign='right', 
+            valign='middle'
+        )
+        card.add_widget(lbl_val)
+        
+        return card
+    
+    def create_achievement_row(self, name, description, is_got, ach_type="common", date_str=""):
+        """Создает плашку достижения с точным переносом цветов, смешивания и редкостей из ПК-версии"""
+        row = FloatLayout(size_hint_y=None, height=100)
+        
+        # --- МАТЕМАТИЧЕСКИЙ ПЕРЕНОС ЦВЕТОВ ИЗ RECT.LERP КЛАССА AchivementCard ---
+        def lerp_color(c1, c2, factor):
+            """Вспомогательная функция для точного воспроизведения pygame.Color.lerp"""
+            return (
+                c1[0] + (c2[0] - c1[0]) * factor,
+                c1[1] + (c2[1] - c1[1]) * factor,
+                c1[2] + (c2[2] - c1[2]) * factor,
+                1.0
+            )
+
+        # 1. Расчет цвета левой полосы (rare_color) в зависимости от типа редкости
+        if ach_type == "common":
+            type_text = "Обычное"
+            rare_color = lerp_color(color_text, color_bg, 0.3)
+        elif ach_type == "rare":
+            type_text = "Редкое"
+            rare_color = lerp_color(color_text, color_in_word, 0.5)
+        elif ach_type == "epic":
+            type_text = "Эпическое"
+            rare_color = lerp_color(color_text, color_correct, 0.6)
+        else:
+            type_text = "Обычное"
+            rare_color = lerp_color(color_text, color_bg, 0.3)
+
+        # 2. Расчет фона карточки и текстов в зависимости от статуса получения (is_got)
+        if is_got:
+            bg_color = color_blank
+            text_color = color_text
+            status_str = "ПОЛУЧЕНО"
+            status_color = color_correct
+        else:
+            bg_color = lerp_color(color_blank, color_bg, 0.5)
+            text_color = lerp_color(color_text, color_bg, 0.4)
+            rare_color = lerp_color(rare_color, color_bg, 0.3)
+            status_str = "НЕ ПОЛУЧЕНО"
+            status_color = color_not_in_word
+
+        # Отрисовка подложки карточки и левой полосы
+        with row.canvas.before:
+            Color(*bg_color)
+            bg_rect = RoundedRectangle(pos=row.pos, size=row.size, radius=[12])
+            Color(*rare_color)
+            ribbon_rect = RoundedRectangle(pos=row.pos, size=(10, 100), radius=[12, 0, 0, 12])
+            
+        def sync_graphics(instance, value):
+            bg_rect.pos = (instance.x + 15, instance.y)
+            bg_rect.size = (instance.width - 30, instance.height)
+            ribbon_rect.pos = (instance.x + 15, instance.y)
+            ribbon_rect.size = (10, instance.height)
+        row.bind(pos=sync_graphics, size=sync_graphics)
+
+        # 1. НАЗВАНИЕ (ИСПРАВЛЕНО: сдвинули x с 0.12 до 0.08, чтобы текст встал левее)
+        name_lbl = Label(
+            text=name.upper(), font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size='18sp', color=text_color, bold=True, size_hint=(None, None),
+            size=(400, 30), text_size=(400, 30), pos_hint={'x': 0.08, 'top': 0.88}, halign='left', valign='middle'
+        )
+
+        # 2. ОПИСАНИЕ (ИСПРАВЛЕНО: сдвинули x с 0.12 до 0.08, чтобы текст встал левее)
+        desc_lbl = Label(
+            text=description, font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size='13sp', color=text_color, size_hint=(None, None),
+            size=(400, 25), text_size=(400, 25), pos_hint={'x': 0.08, 'y': 0.15}, halign='left', valign='middle'
+        )
+
+        # БЛОК СПРАВА: Редкость + Статус получения
+        rarity_lbl = Label(
+            text=type_text, font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size='13sp', color=rare_color, bold=True, size_hint=(None, None),
+            size=(150, 25), text_size=(150, 25), pos_hint={'right': 0.92, 'top': 0.88}, halign='right', valign='middle'
+        )
+        status_lbl = Label(
+            text=status_str, font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size='14sp', color=status_color, bold=True, size_hint=(None, None),
+            size=(150, 25), text_size=(150, 25), pos_hint={'right': 0.92, 'y': 0.15}, halign='right', valign='middle'
+        )
+
+        # БЛОК ЦЕНТРА: Дата (Выводится, если ачивка открыта и есть строка с датой)
+        if is_got and date_str:
+            date_lbl = Label(
+                text=f"Дата: {date_str}", font_name=resource_path("ClearSans-Bold.ttf"),
+                font_size='13sp', color=color_not_in_word, size_hint=(None, None),
+                size=(160, 25), text_size=(160, 25), pos_hint={'center_x': 0.53, 'center_y': 0.5}, halign='center', valign='middle'
+            )
+            row.add_widget(date_lbl)
+
+        row.add_widget(name_lbl); row.add_widget(desc_lbl)
+        row.add_widget(rarity_lbl); row.add_widget(status_lbl)
+        return row
+    
+    def build_achievements_list(self, launcher_ach):
+        """Читает, сортирует и выводит все достижения из лаунчера в вертикальный скролл"""
+        self.ach_list_layout.clear_widgets()
+        
+        # Настраиваем отступы между карточками и границами сетки (10px по бокам, 15px снизу)
+        self.ach_list_layout.padding = [10, 15, 10, 15]
+        
+        if not launcher_ach:
+            return
+
+        # СОРТИРОВКА ИЗ file_3: сначала открытые (got=True) уходят наверх списка
+        all_keys = list(launcher_ach.keys())
+        sorted_keys = sorted(all_keys, key=lambda k: launcher_ach[k].get("got", False), reverse=True)
+        
+        for ach_key in sorted_keys:
+            ach_data = launcher_ach[ach_key]
+            
+            # Строгое считывание данных по оригинальным ключам твоего проекта
+            name = ach_data.get("name", "Секретное")
+            description = ach_data.get("description", "")
+            is_got = ach_data.get("got", False)
+            ach_type = ach_data.get("type", "common")  # Передаем тип редкости (common/rare/epic)
+            date_str = ach_data.get("date", "")         # Передаем дату получения изpickle-файла
+            
+            # Генерируем плашку по нашей новой схеме трех редкостей и бросаем в GridLayout
+            ach_row_widget = self.create_achievement_row(name, description, is_got, ach_type, date_str)
+            self.ach_list_layout.add_widget(ach_row_widget)
+
+    def refresh_stats_and_achievements(self):
+        """Загружает данные лаунчера и строит карточки статистики строго в 2 ряда."""
+        stats = MOBILE_PLAYER_STATS if ('MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS) else {}
+        launcher_ach = MOBILE_ACHIVEMENTS if ('MOBILE_ACHIVEMENTS' in globals() and MOBILE_ACHIVEMENTS) else {}
+        
+        coins = stats.get("player_coins", 0)
+        wins = stats.get("total_wins", 0)
+        losses = stats.get("total_losses", 0)
+        streak = f"{stats.get('current_win_streak', 0)}/{stats.get('max_win_streak', 0)}"
+        quests = stats.get("total_completed_quests", 0)
+        
+        got_count = sum(1 for ach in launcher_ach.values() if ach.get("got", False))
+        ach_ratio = f"{got_count}/{len(launcher_ach)}" if launcher_ach else "0/16"
+
+        self.stats_row1.clear_widgets()
+        self.stats_row2.clear_widgets()
+        
+        # Распределяем данные ровно по твоим цветам
+        row1_data = [
+            ("Монеты", str(coins), color_in_word),      # Жёлтый
+            ("Победы", str(wins), color_correct),       # Зелёный
+            ("Поражения", str(losses), color_text)      # Стандартный
+        ]
+        
+        row2_data = [
+            ("Серия побед", streak, color_text),
+            ("Достижения", ach_ratio, color_text),
+            ("Квесты", str(quests), color_text)
+        ]
+
+        for item in row1_data:
+            self.stats_row1.add_widget(self.create_card(*item))
+            
+        for item in row2_data:
+            self.stats_row2.add_widget(self.create_card(*item))
+
+        # ИСПРАВЛЕНО: Задаем отступы от стен на 10 пикселей именно для stats_container!
+        self.stats_container.padding = [10, 0, 10, 0]
+
+        # Фиксируем ширину (3 карточки * 385px + зазоры 20px + боковые отступы ленты 20px = 1195px)
+        total_scroll_width = 3 * 385 + 2 * 10 + 20
+        
+        self.stats_row1.size = (total_scroll_width - 20, 72)
+        self.stats_row2.size = (total_scroll_width - 20, 72)
+        self.stats_container.size = (total_scroll_width, 152)
+
+        # Добавь эту строчку в самый конец метода refresh_stats_and_achievements:
+        self.build_achievements_list(launcher_ach)
 
 class CustomizationScreen(Screen):
     def __init__(self, **kwargs):
@@ -1369,8 +1676,12 @@ def start_mobile_game(words_list, player_stats, save_function):
     MOBILE_PLAYER_STATS = player_stats
     MOBILE_SAVE_FUNC = save_function
     
-    # Забираем актуальный словарь достижений, который теперь лежит внутри player_stats
-    MOBILE_ACHIVEMENTS = player_stats.get("achivements_dict", {})
+    # ИСПРАВЛЕНО: Читаем напрямую из оригинального ключа сохранения лаунчера (с буквой e)!
+    # Если лаунчер передал чистый словарь достижений, используем его, иначе парсим unlocked_achivements
+    if "achivements_dict" in player_stats and player_stats["achivements_dict"]:
+        MOBILE_ACHIVEMENTS = player_stats["achivements_dict"]
+    else:
+        MOBILE_ACHIVEMENTS = player_stats.get("unlocked_achivements", {})
     
-    print(f"[MGGamesStudio] Мобильная версия успешно подхватила {len(MOBILE_ACHIVEMENTS)} достижений.")
+    print(f"[MGGamesStudio] Мобильная версия успешно синхронизировала {len(MOBILE_ACHIVEMENTS)} достижений.")
     MobileApp().run()
