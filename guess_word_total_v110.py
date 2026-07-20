@@ -112,9 +112,9 @@ PLAYER_STATS = load_game_progress()
 print(f"[MGGamesStudio] Успешно загружено уникальных слов: {len(ALL_WORDS)}")
 
 # Лаунчер
-# "auto"    — игра сама определяет платформу (ПК на Pygame или телефон на Kivy)
-# "1"      — принудительно запустить ПК-версию на Pygame
-# "2"  — принудительно запустить мобильную версию
+# "auto"   — игра сама определяет платформу (ПК на Pygame или телефон на Kivy)
+# "1"      — ПК ВЕРСИЯ
+# "2"      — МОБИЛЬНАЯ ВЕРСИЯ
 DEV_MODE = "2"
 START_MOBILE = False
 
@@ -130,18 +130,18 @@ if START_MOBILE:
     os.environ["MGGAMES_MODE"] = "mobile"
     print("[MGGamesStudio] ЗАПУСК МОБИЛЬНОЙ ВЕРСИИ ИГРЫ")
     
+    config_x = 360 # 360
+    config_y = 640 # 640
     from kivy.config import Config
     Config.set('graphics', 'resizable', False)
-    Config.set('graphics', 'width', '360')
-    Config.set('graphics', 'height', '640')
+    Config.set('graphics', 'width', f'{config_x}')
+    Config.set('graphics', 'height', f'{config_y}')
     
     from kivy.core.window import Window
-    Window.size = (360, 640)
+    Window.size = (config_x, config_y)
 
     try:
         import guess_word_mobile_v110
-        # ИСПРАВЛЕНО: временно упаковываем словарь ачивок в объект PLAYER_STATS,
-        # чтобы передать его в мобильную версию без циклического импорта!
         PLAYER_STATS["achivements_dict"] = achivements
         
         guess_word_mobile_v110.start_mobile_game(ALL_WORDS, PLAYER_STATS, save_game_progress)
