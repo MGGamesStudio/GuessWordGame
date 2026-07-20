@@ -1526,12 +1526,19 @@ class AchievementsScreen(Screen):
             size=(150, 25), text_size=(150, 25), pos_hint={'right': 0.92, 'y': 0.15}, halign='right', valign='middle'
         )
 
-        # БЛОК ЦЕНТРА: Дата (Выводится, если ачивка открыта и есть строка с датой)
+        # ИСПРАВЛЕНО: Переносим дату в правый блок по жестким координатам без изменения остального кода
         if is_got and date_str:
             date_lbl = Label(
-                text=f"Дата: {date_str}", font_name=resource_path("ClearSans-Bold.ttf"),
-                font_size='13sp', color=color_not_in_word, size_hint=(None, None),
-                size=(160, 25), text_size=(160, 25), pos_hint={'center_x': 0.53, 'center_y': 0.5}, halign='center', valign='middle'
+                text=f"Дата: {date_str}",
+                font_name=resource_path("ClearSans-Bold.ttf"),
+                font_size='11sp', 
+                color=color_not_in_word, 
+                size_hint=(None, None),
+                size=(150, 20), 
+                text_size=(150, 20),
+                pos_hint={'right': 0.92, 'center_y': 0.52}, 
+                halign='right', 
+                valign='middle'
             )
             row.add_widget(date_lbl)
 
