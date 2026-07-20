@@ -129,16 +129,22 @@ else:
 if START_MOBILE:
     os.environ["MGGAMES_MODE"] = "mobile"
     print("[MGGamesStudio] ЗАПУСК МОБИЛЬНОЙ ВЕРСИИ ИГРЫ")
+    
     from kivy.config import Config
     Config.set('graphics', 'resizable', False)
     Config.set('graphics', 'width', '360')
     Config.set('graphics', 'height', '640')
-
+    
     from kivy.core.window import Window
     Window.size = (360, 640)
+
     try:
         import guess_word_mobile_v110
-        guess_word_mobile_v110.start_mobile_game(ALL_WORDS, PLAYER_STATS, save_game_progress) 
+        # ИСПРАВЛЕНО: временно упаковываем словарь ачивок в объект PLAYER_STATS,
+        # чтобы передать его в мобильную версию без циклического импорта!
+        PLAYER_STATS["achivements_dict"] = achivements
+        
+        guess_word_mobile_v110.start_mobile_game(ALL_WORDS, PLAYER_STATS, save_game_progress)
     except ModuleNotFoundError:
         print("[MGGamesStudio] Ошибка: Файл guess_word_mobile_v110.py не найден в этой папке!")
 else:
