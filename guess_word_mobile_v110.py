@@ -1268,7 +1268,46 @@ class HowToPlayScreen(Screen):
 class AchievementsScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.add_widget(create_stub_layout(self, "Достижения"))
+        self.layout = FloatLayout()
+        
+        self.stub_layout = create_stub_layout(self, "")
+        self.layout.add_widget(self.stub_layout)
+        
+        # 2. Создаем локальный заголовок для динамического позиционирования
+        self.lbl_main_title = Label(
+            text="ДОСТИЖЕНИЯ", 
+            font_name=resource_path("ClearSans-Bold.ttf"), 
+            bold=True, 
+            color=color_text,
+            size_hint=(None, None),
+            halign='left',
+            valign='middle'
+        )
+        self.layout.add_widget(self.lbl_main_title)
+        
+        self.add_widget(self.layout)
+        # Привязываем динамический пересчет ко всем размерам окон
+        self.bind(size=self.reposition_elements)
+
+    def reposition_elements(self, instance, size):
+        """Динамическое выравнивание заголовка строго по центру кнопки Назад"""
+        win_w = Window.width
+        win_h = Window.height
+        
+        # Настройка шрифта
+        self.lbl_main_title.font_size = f"{min(win_w, win_h) * 0.08}px"
+        
+        # ИСПРАВЛЕНО: Даем рамке максимальную ширину (до самой кнопки), 
+        # чтобы жирные буквы больше никогда не зажимались и не обрезались по бокам
+        self.lbl_main_title.size = (win_w - 150, 100)
+        self.lbl_main_title.text_size = self.lbl_main_title.size
+        
+        # Твоя правильная формула центра кнопки
+        btn_center_y = win_h - 54
+        
+        # Выравнивание
+        self.lbl_main_title.center_y = btn_center_y
+        self.lbl_main_title.x = 15
 
 class CustomizationScreen(Screen):
     def __init__(self, **kwargs):
@@ -1282,7 +1321,6 @@ class QuestsScreen(Screen):
 
 def create_stub_layout(screen_instance, text):
     layout = FloatLayout()
-
     btn_back = MenuButton(
         text="Назад", 
         size_hint=(None, None), 
@@ -1292,7 +1330,6 @@ def create_stub_layout(screen_instance, text):
     btn_back.font_size = '20sp' 
     btn_back.bind(on_release=lambda x: setattr(screen_instance.manager, 'current', 'menu'))
     layout.add_widget(btn_back)
-    
     layout.add_widget(Label(
         text=text, 
         font_name=resource_path("ClearSans-Bold.ttf"), 
@@ -1301,7 +1338,6 @@ def create_stub_layout(screen_instance, text):
         color=color_text,
         pos_hint={'center_x': 0.5, 'center_y': 0.5}
     ))
-    
     return layout
 
 class MobileApp(App):
