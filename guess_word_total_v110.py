@@ -130,8 +130,9 @@ if START_MOBILE:
     os.environ["MGGAMES_MODE"] = "mobile"
     print("[MGGamesStudio] ЗАПУСК МОБИЛЬНОЙ ВЕРСИИ ИГРЫ")
     
-    config_x = 360 # 360
-    config_y = 640 # 640
+    config_x = 360
+    config_y = 640
+    
     from kivy.config import Config
     Config.set('graphics', 'resizable', False)
     Config.set('graphics', 'width', f'{config_x}')
@@ -139,9 +140,22 @@ if START_MOBILE:
     
     from kivy.core.window import Window
     Window.size = (config_x, config_y)
-
+    
     try:
         import guess_word_mobile_v110
+        
+        # =========================================================================
+        # ИСПРАВЛЕНО: СИНХРОНИЗАЦИЯ ДОСТИЖЕНИЙ ПЕРЕД ПЕРЕДАЧЕЙ В МОБИЛКУ
+        # =========================================================================
+        # Накатываем сохраненные из JSON-файла ачивки на наш дефолтный словарь
+        saved_ach = PLAYER_STATS.get("unlocked_achivements", {})
+        if saved_ach:
+            for ach_key, saved_data in saved_ach.items():
+                if ach_key in achivements:
+                    achivements[ach_key]["got"] = saved_data.get("got", False)
+                    achivements[ach_key]["date"] = saved_data.get("date", "")
+        
+        # Передаем обновленный, актуальный словарь достижений в мобильный файл
         PLAYER_STATS["achivements_dict"] = achivements
         
         guess_word_mobile_v110.start_mobile_game(ALL_WORDS, PLAYER_STATS, save_game_progress)
