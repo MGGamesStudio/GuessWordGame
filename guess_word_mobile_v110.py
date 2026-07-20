@@ -784,14 +784,26 @@ class OnePlayerGameScreen(Screen):
         # Находим меньшую сторону устройства для расчета резиновых шрифтов
         safe_screen_side = min(win_w, win_h)
         
-        # ИСПРАВЛЕНО: Высота плашки теперь динамическая — строго 30% от высоты экрана
         popup_height = win_h * 0.30
         
-        view = ModalView(size_hint=(0.8, None), height=popup_height, auto_dismiss=True, background='')
+        # ИСПРАВЛЕНО: Генерируем 1 прозрачный пиксель прямо в оперативной памяти!
+        from kivy.graphics.texture import Texture
+        transparent_texture = Texture.create(size=(1, 1), colorfmt='rgba')
+        transparent_texture.blit_buffer(b'\x00\x00\x00\x00', colorfmt='rgba', bufferfmt='ubyte')
         
+        # Создаем ModalView и отдаем ему нашу прозрачную текстуру из памяти
+        view = ModalView(size_hint=(0.8, None), height=popup_height, auto_dismiss=True)
+        view.background_image = transparent_texture
+        
+        # ИСПРАВЛЕНО: Мягкое полупрозрачное затемнение заднего фона игры (черный с 50% альфой)
+        # Это уберет серый налет с самой плашки, и она станет чистого цвета темы!
+        view.overlay_color = (0, 0, 0, 0.5)
+        
+        # Стираем старые слои и красим строго в чистый цвет темы!
+        view.canvas.before.clear()
         with view.canvas.before:
-            Color(*color_bg)
-            self.popup_rect = RoundedRectangle(pos=view.pos, size=view.size, radius=[(0, 0), (0, 0), (0, 0), (0, 0)])
+            Color(*color_bg)  # Твой чистый color_bg без серого смешивания!
+            self.popup_rect = RoundedRectangle(pos=view.pos, size=view.size, radius=[12])
             
         def update_popup_bg(inst, value):
             self.popup_rect.pos = inst.pos
