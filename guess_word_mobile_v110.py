@@ -11,6 +11,7 @@ from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.modalview import ModalView
+from kivy.uix.scrollview import ScrollView
 
 def resource_path(relative_path):
     try:
@@ -84,7 +85,7 @@ def apply_adaptive_fonts(screen_instance, cell_height, key_height):
     safe_side_key = min(key_width, key_height)
     key_font_size_px = safe_side_key * 0.8
     key_pad_bottom = key_height * 0.08
-    
+
     for key in screen_instance.keyboard_keys:
         key.font_size = f"{key_font_size_px}px"
         key.text_size = key.size
@@ -1264,70 +1265,74 @@ class HowToPlayScreen(Screen):
         super().__init__(**kwargs)
         self.add_widget(create_stub_layout(self, "Правила игры"))
 
-from kivy.uix.screenmanager import Screen
-from kivy.uix.floatlayout import FloatLayout
-from kivy.uix.scrollview import ScrollView
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.label import Label
-from kivy.uix.button import Button
-from kivy.core.window import Window
-from kivy.graphics import Color, RoundedRectangle
-
 class AchievementsScreen(Screen):
-    def refresh_stats_and_achievements(self):
-        """Загружает данные, строит карточки статистики и список достижений."""
-        # 1. Получение данных
-        stats = MOBILE_PLAYER_STATS if ('MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS) else {}
-        launcher_ach = MOBILE_ACHIVEMENTS if ('MOBILE_ACHIVEMENTS' in globals() and MOBILE_ACHIVEMENTS) else {}
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = FloatLayout()
         
-        # 2. СБОРКА КАРТОЧЕК СТАТИСТИКИ (Горизонтальный ряд)
-        self.stats_layout.clear_widgets()
-        stats_data = [
-            ("Квесты", str(stats.get("total_completed_quests", 0))),
-            ("Достижения", f"{sum(1 for a in launcher_ach.values() if a.get('got'))}/{len(launcher_ach)}" if launcher_ach else "0/16"),
-            ("Серия побед", f"{stats.get('current_win_streak', 0)}/{stats.get('max_win_streak', 0)}"),
-            ("Поражения", str(stats.get("total_losses", 0))),
-            ("Победы", str(stats.get("total_wins", 0))),
-            ("Монеты", str(stats.get("player_coins", 0)))
-        ]
+        # 1. СЛОЙ ФОНА (Самый нижний)
+        with self.canvas.before:
+            Color(*color_bg)
+            self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
+            
+        # 2. СЛОЙ ВЕРТИКАЛЬНОГО СКРОЛЛА ДОСТИЖЕНИЙ (Средний)
+        self.scroll_view = ScrollView(size_hint=(1, None))
+        self.ach_list_layout = GridLayout(cols=1, spacing=12, size_hint_y=None, padding=[16, 16, 16, 16])
+        self.ach_list_layout.bind(minimum_height=self.ach_list_layout.setter('height'))
+        self.scroll_view.add_widget(self.ach_list_layout)
+        self.layout.add_widget(self.scroll_view)
 
-        for label_text, val_text in stats_data:
-            card = FloatLayout(size_hint=(None, 1), width=140)
-            # ИСПРАВЛЕНО: Задали радиус скругления [12] вместо пустых скобок
-            with card.canvas.before:
-                Color(*color_blank)
-                r = RoundedRectangle(pos=card.pos, size=(140, 72), radius=[12])
-            card.bind(pos=lambda i, v, r=r: setattr(r, 'pos', i.pos), size=lambda i, v, r=r: setattr(r, 'size', i.size))
-            
-            card.add_widget(Label(text=label_text, font_name=resource_path("ClearSans-Bold.ttf"), font_size='13sp', color=color_not_in_word, pos_hint={'x': 0.08, 'top': 0.9}))
-            card.add_widget(Label(text=val_text, font_name=resource_path("ClearSans-Bold.ttf"), font_size='24sp', color=color_text, bold=True, pos_hint={'right': 0.92, 'y': 0.08}))
-            self.stats_layout.add_widget(card)
+        # 3. СЛОЙ ВЕРХНЕЙ НЕПРОЗРАЧНОЙ ПЛАШКИ ОВЕРЛЕЯ (Перекрывающий)
+        self.top_overlay = FloatLayout(size_hint=(1, None))
+        with self.top_overlay.canvas.before:
+            Color(*color_bg)
+            self.overlay_rect = RoundedRectangle(pos=(0, 0), size=(360, 200))
+        self.layout.add_widget(self.top_overlay)
 
-        # 3. СБОРКА СПИСКА ДОСТИЖЕНИЙ (Вертикальный ряд)
-        self.ach_list_layout.clear_widgets()
-        for ach_key in sorted(launcher_ach.keys(), key=lambda k: launcher_ach[k].get("got", False), reverse=True):
-            ach = launcher_ach[ach_key]
-            is_got = ach.get("got", False)
-            
-            ach_row = FloatLayout(size_hint_y=None, height=90)
-            # ИСПРАВЛЕНО: Задали радиус скругления [12] для плашек достижений
-            with ach_row.canvas.before:
-                Color(*color_blank)
-                r = RoundedRectangle(pos=ach_row.pos, size=(320, 90), radius=[12])
-            ach_row.bind(pos=lambda i, v, r=r: setattr(r, 'pos', (i.pos[0]+16, i.pos[1])), size=lambda i, v, r=r: setattr(r, 'size', (i.width-32, i.height)))
-            
-            ach_row.add_widget(Label(text=ach.get("name", ""), font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, bold=True, pos_hint={'x': 0.08, 'top': 0.88}))
-            ach_row.add_widget(Label(text=ach.get("description", ""), font_name=resource_path("ClearSans-Bold.ttf"), font_size='12sp', color=color_not_in_word, pos_hint={'x': 0.08, 'y': 0.15}))
-            
-            status_text = "ПОЛУЧЕНО" if is_got else "НЕ ПОЛУЧЕНО"
-            status_color = color_correct if is_got else (150/255, 150/255, 150/255, 1.0)
-            ach_row.add_widget(Label(text=status_text, font_name=resource_path("ClearSans-Bold.ttf"), font_size='11sp', color=status_color, bold=True, pos_hint={'right': 0.92, 'y': 0.15}))
-            
-            self.ach_list_layout.add_widget(ach_row)
+        # 4. СЛОЙ КОНТЕНТА ПАНЕЛИ СТАТИСТИКИ (Самый верхний)
+        self.lbl_main_title = Label(
+            text="Достижения", 
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            color=color_text, 
+            bold=True, 
+            size_hint=(None, None)
+        )
+        self.top_overlay.add_widget(self.lbl_main_title)
+
+        # Кнопка "Назад"
+        self.btn_back = Button(
+            text="Назад", 
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            background_normal='', 
+            background_color=(0, 0, 0, 0.01), 
+            color=color_text,
+            size_hint=(None, None), 
+            size=(100, 45)
+        )
+        with self.btn_back.canvas.before:
+            Color(*color_key)
+            self.btn_back_rect = RoundedRectangle(pos=self.btn_back.pos, size=self.btn_back.size, radius=[12])
+        
+        # ИСПРАВЛЕНО: Убрали лишние 4 пробела (таб) слева! Строка стоит на уровне с with
+        def update_btn_rect(inst, value):
+            self.btn_back_rect.pos = inst.pos
+            self.btn_back_rect.size = inst.size
+        self.btn_back.bind(pos=update_btn_rect, size=update_btn_rect)
+        self.btn_back.bind(on_release=self.press_back_key)
+        self.top_overlay.add_widget(self.btn_back)
+
+        # ИСПРАВЛЕНО: Убрали лишние 4 пробела слева! Скролл и леяут стоят ровно
+        self.stats_scroll = ScrollView(size_hint=(1, None), do_scroll_x=True, do_scroll_y=False)
+        self.stats_layout = BoxLayout(orientation='horizontal', spacing=12, size_hint_x=None, padding=[16, 0, 16, 0])
+        self.stats_layout.bind(minimum_width=self.stats_layout.setter('width'))
+        self.stats_scroll.add_widget(self.stats_layout)
+        self.top_overlay.add_widget(self.stats_scroll)
+
+        self.add_widget(self.layout)
+        self.bind(size=self.reposition_elements)
 
     def on_enter(self):
-        """Срабатывает при каждом входе: обновляет списки и уводит скролл в крайнее правое положение"""
+        """Срабатывает при входе: обновляет данные и уводит скролл в крайнее правое положение"""
         self.refresh_stats_and_achievements()
         from kivy.clock import Clock
         Clock.schedule_once(lambda dt: setattr(self.stats_scroll, 'scroll_x', 1.0), 0.05)
@@ -1338,22 +1343,32 @@ class AchievementsScreen(Screen):
 
     def refresh_stats_and_achievements(self):
         """Загружает данные, строит карточки статистики и список достижений."""
-        # 1. Получение актуальных данных из глобальных переменных лаунчера
+        # 1. Считываем данные из лаунчера
         stats = MOBILE_PLAYER_STATS if ('MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS) else {}
         launcher_ach = MOBILE_ACHIVEMENTS if ('MOBILE_ACHIVEMENTS' in globals() and MOBILE_ACHIVEMENTS) else {}
         
+        coins = stats.get("player_coins", 0)
+        wins = stats.get("total_wins", 0)
+        losses = stats.get("total_losses", 0)
+        streak = f"{stats.get('current_win_streak', 0)}/{stats.get('max_win_streak', 0)}"
+        quests = stats.get("total_completed_quests", 0)
+        
+        got_count = sum(1 for ach in launcher_ach.values() if ach.get("got", False))
+        ach_ratio = f"{got_count}/{len(launcher_ach)}" if launcher_ach else "0/16"
+
         # 2. СБОРКА КАРТОЧЕК СТАТИСТИКИ (Горизонтальный ряд)
         self.stats_layout.clear_widgets()
+        
         stats_data = [
-            ("Квесты", str(stats.get("total_completed_quests", 0))),
-            ("Достижения", f"{sum(1 for a in launcher_ach.values() if a.get('got'))}/{len(launcher_ach)}" if launcher_ach else "0/16"),
-            ("Серия побед", f"{stats.get('current_win_streak', 0)}/{stats.get('max_win_streak', 0)}"),
-            ("Поражения", str(stats.get("total_losses", 0))),
-            ("Победы", str(stats.get("total_wins", 0))),
-            ("Монеты", str(stats.get("player_coins", 0)))
+            ("Квесты", str(quests), color_text),
+            ("Достижения", ach_ratio, color_text),
+            ("Серия побед", streak, color_text),
+            ("Поражения", str(losses), color_text),
+            ("Победы", str(wins), color_correct),
+            ("Монеты", str(coins), color_in_word)
         ]
 
-        for label_text, val_text in stats_data:
+        for label_text, val_text, val_color in stats_data:
             card = FloatLayout(size_hint=(None, 1), width=140)
             
             with card.canvas.before:
@@ -1365,12 +1380,10 @@ class AchievementsScreen(Screen):
                 r.size = instance.size
             card.bind(pos=sync_card, size=sync_card)
             
-            # Текст ярлыка карточки
-            lbl_lbl = Label(text=label_text, font_name=resource_path("ClearSans-Bold.ttf"), 
-                            font_size='13sp', color=color_not_in_word, 
+            lbl_lbl = Label(text=label_text, font_name=resource_path("ClearSans-Bold.ttf"),
+                            font_size='13sp', color=color_not_in_word,
                             pos_hint={'x': 0.08, 'top': 0.9})
             
-            # Оптический зум шрифта в зависимости от длины текста
             val_len = len(val_text)
             if val_len >= 9:
                 v_font = '14sp'
@@ -1379,8 +1392,8 @@ class AchievementsScreen(Screen):
             else:
                 v_font = '26sp'
 
-            lbl_val = Label(text=val_text, font_name=resource_path("ClearSans-Bold.ttf"), 
-                            font_size=v_font, color=color_text, bold=True, 
+            lbl_val = Label(text=val_text, font_name=resource_path("ClearSans-Bold.ttf"),
+                            font_size=v_font, color=val_color, bold=True,
                             pos_hint={'right': 0.92, 'y': 0.08})
             
             card.add_widget(lbl_lbl)
@@ -1389,39 +1402,41 @@ class AchievementsScreen(Screen):
 
         # 3. СБОРКА СПИСКА ДОСТИЖЕНИЙ (Вертикальный ряд)
         self.ach_list_layout.clear_widgets()
-        for ach_key in sorted(launcher_ach.keys(), key=lambda k: launcher_ach[k].get("got", False), reverse=True):
-            ach = launcher_ach[ach_key]
-            is_got = ach.get("got", False)
-            
-            ach_row = FloatLayout(size_hint_y=None, height=90)
-            
-            with ach_row.canvas.before:
-                Color(*color_blank)
-                ach_rect = RoundedRectangle(pos=ach_row.pos, size=(320, 90), radius=[12])
+        if launcher_ach:
+            sorted_keys = sorted(launcher_ach.keys(), key=lambda k: launcher_ach[k].get("got", False), reverse=True)
+            for ach_key in sorted_keys:
+                ach_data = launcher_ach[ach_key]
+                is_got = ach_data.get("got", False)
                 
-            def sync_ach(instance, value, r=ach_rect):
-                r.pos = (instance.pos[0] + 16, instance.pos[1])
-                r.size = (instance.width - 32, instance.height)
-            ach_row.bind(pos=sync_ach, size=sync_ach)
-            
-            name_lbl = Label(text=ach.get("name", ""), font_name=resource_path("ClearSans-Bold.ttf"), 
-                             font_size='16sp', color=color_text, bold=True, 
-                             pos_hint={'x': 0.08, 'top': 0.88})
-            
-            desc_lbl = Label(text=ach.get("description", ""), font_name=resource_path("ClearSans-Bold.ttf"), 
-                             font_size='12sp', color=color_not_in_word, 
-                             pos_hint={'x': 0.08, 'y': 0.15})
-            
-            status_text = "ПОЛУЧЕНО" if is_got else "НЕ ПОЛУЧЕНО"
-            status_color = color_correct if is_got else (150/255, 150/255, 150/255, 1.0)
-            status_lbl = Label(text=status_text, font_name=resource_path("ClearSans-Bold.ttf"), 
-                               font_size='11sp', color=status_color, bold=True, 
-                               pos_hint={'right': 0.92, 'y': 0.15})
-            
-            ach_row.add_widget(name_lbl)
-            ach_row.add_widget(desc_lbl)
-            ach_row.add_widget(status_lbl)
-            self.ach_list_layout.add_widget(ach_row)
+                ach_row = FloatLayout(size_hint_y=None, height=90)
+                
+                with ach_row.canvas.before:
+                    Color(*color_blank)
+                    ach_rect = RoundedRectangle(pos=ach_row.pos, size=(320, 90), radius=[12])
+                    
+                def sync_ach(instance, value, r=ach_rect):
+                    r.pos = (instance.pos[0] + 16, instance.pos[1])
+                    r.size = (instance.width - 32, instance.height)
+                ach_row.bind(pos=sync_ach, size=sync_ach)
+                
+                name_lbl = Label(text=ach_data.get("name", ""), font_name=resource_path("ClearSans-Bold.ttf"),
+                                 font_size='16sp', color=color_text, bold=True,
+                                 pos_hint={'x': 0.08, 'top': 0.88})
+                
+                desc_lbl = Label(text=ach_data.get("description", ""), font_name=resource_path("ClearSans-Bold.ttf"),
+                                 font_size='12sp', color=color_not_in_word,
+                                 pos_hint={'x': 0.08, 'y': 0.15})
+                
+                status_text = "ПОЛУЧЕНО" if is_got else "НЕ ПОЛУЧЕНО"
+                status_color = color_correct if is_got else (150/255, 150/255, 150/255, 1.0)
+                status_lbl = Label(text=status_text, font_name=resource_path("ClearSans-Bold.ttf"),
+                                   font_size='11sp', color=status_color, bold=True,
+                                   pos_hint={'right': 0.92, 'y': 0.15})
+                
+                ach_row.add_widget(name_lbl)
+                ach_row.add_widget(desc_lbl)
+                ach_row.add_widget(status_lbl)
+                self.ach_list_layout.add_widget(ach_row)
 
     def reposition_elements(self, instance, size):
         """Адаптивный резиновый пересчет позиций под размеры окна устройства."""
@@ -1429,7 +1444,7 @@ class AchievementsScreen(Screen):
         win_h = Window.height
         self.bg_rect.size = (win_w, win_h)
 
-        # Вычисляем фиксированную высоту верхней панели оверлея (200 пикселей)
+        # Вычисляем фиксированную высоту верхней панели оверлея
         overlay_height = 200
         self.top_overlay.height = overlay_height
         self.top_overlay.pos = (0, win_h - overlay_height)
@@ -1438,15 +1453,14 @@ class AchievementsScreen(Screen):
 
         # Позиционируем заголовок «Достижения» строго у ЛЕВОГО края на уровне кнопки
         self.lbl_main_title.font_size = f"{min(win_w, win_h) * 0.08}px"
-        # Сдвиг на 16px от левой стены, центрируем по высоте кнопки
         self.lbl_main_title.pos = (16, overlay_height - 65)
         
-        # Кнопка «Назад» (Выйти) встает строго в правый верхний угол панели
+        # Кнопка «Назад» встает строго в правый верхний угол панели
         self.btn_back.pos = (win_w - 116, overlay_height - 60)
 
         # Горизонтальная лента статистики (Красный квадрат)
         self.stats_scroll.height = 72
-        self.stats_scroll.pos = (0, 15) # Опускаем чуть ниже к границе панели
+        self.stats_scroll.pos = (0, 15)
         self.stats_layout.height = 72
 
         # Вертикальный скролл списка ачивок занимает всё оставшееся пространство снизу
