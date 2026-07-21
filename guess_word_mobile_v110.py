@@ -1519,25 +1519,41 @@ class AchievementsScreen(Screen):
         return self.fill_achievement_widgets(row, name, description, got, date_str, type_text, rare_color, text_color, status_color, bg_rect, ribbon_rect)
 
     def fill_achievement_widgets(self, row, name, description, got, date_str, type_text, rarity_color, text_color, status_color, bg_rect, ribbon_rect):
-        """Часть 2: Исправлен хитбокс (35px) и смещение для даты"""
+        """Часть 2: Полностью динамическая высота плашки достижения на основе texture_size"""
+        
+        # Сбалансированная ширина для текста (6% отступы слева и справа)
         text_w = Window.width - 45
         font_path = resource_path("ClearSans-Bold.ttf")
 
-        # Компоненты текста
-        name_lbl = Label(text=name.upper(), font_name=font_path, font_size='18sp', color=text_color, bold=True, size_hint=(None, None), size=(text_w, 30), text_size=(text_w, 30), pos_hint={'x': 0.06, 'top': 0.92}, halign='left', valign='middle')
-        desc_lbl = Label(text=description, font_name=font_path, font_size='13sp', color=text_color, size_hint=(None, None), size=(text_w, 42), text_size=(text_w, 42), pos_hint={'x': 0.06, 'top': 0.66}, halign='left', valign='top')
+        # 1. НАЗВАНИЕ ДОСТИЖЕНИЯ (Высота управляется текстом, разрешен перенос на любое число строк!)
+        name_lbl = Label(
+            text=name.upper(), font_name=font_path,
+            font_size='18sp', color=text_color, bold=True,
+            size_hint=(None, None), width=text_w, text_size=(text_w, None),
+            halign='left', valign='top'
+        )
+        # Привязываем автоматический расчет высоты заголовка по тексту
+        name_lbl.bind(texture_size=lambda inst, sz: setattr(inst, 'height', sz[1]))
 
-        # 3. НИЖНЯЯ ИНФО-СТРОКА (ИСПРАВЛЕНО: Вернули size_hint=(1, None), чтобы проценты считались от краев всей плашки!)
+        # 2. ОПИСАНИЕ ДОСТИЖЕНИЯ (Высота управляется текстом, растет строго вниз)
+        desc_lbl = Label(
+            text=description, font_name=font_path,
+            font_size='13sp', color=text_color,
+            size_hint=(None, None), width=text_w, text_size=(text_w, None),
+            halign='left', valign='top'
+        )
+        # Привязываем автоматический расчет высоты описания по тексту
+        desc_lbl.bind(texture_size=lambda inst, sz: setattr(inst, 'height', sz[1]))
+
+        # 3. НИЖНЯЯ ИНФО-СТРОКА (Высота 35px, статус прижат к right: 0.94 для идеальной симметрии!)
         info_line = FloatLayout(size_hint=(1, None), height=35)
         
-        # Редкость (Отступ от левого края — x: 0.06)
         lbl_rare = Label(
             text=type_text, font_name=font_path, font_size='13sp', color=rarity_color, bold=True, 
             size_hint=(None, None), size=(120, 35), text_size=(120, 35), 
             pos_hint={'x': 0.06, 'center_y': 0.5}, halign='left', valign='middle'
         )
         
-        # Дата открытия (Жестко по центру, ширина 240px в одну строку)
         lbl_date = Label(
             text=f"Дата: {date_str}" if (got and date_str) else "", 
             font_name=font_path, font_size='12sp', color=color_not_in_word, bold=True, 
@@ -1545,7 +1561,6 @@ class AchievementsScreen(Screen):
             pos_hint={'center_x': 0.5, 'center_y': 0.5}, halign='center', valign='middle'
         )
         
-        # Статус получения (ИСПРАВЛЕНО: Поставили right: 0.94 — теперь отступ от правой стены зеркален левому отступу!)
         lbl_stat = Label(
             text="ПОЛУЧЕНО" if got else "НЕ ПОЛУЧЕНО", font_name=font_path, font_size='14sp', color=status_color, bold=True, 
             size_hint=(None, None), size=(200, 35), text_size=(200, 35), 
@@ -1556,25 +1571,37 @@ class AchievementsScreen(Screen):
         info_line.add_widget(lbl_date)
         info_line.add_widget(lbl_stat)
 
+        # Локальный FloatLayout для изоляции внутренних координат плашки
         text_group = FloatLayout(size_hint=(1, 1), pos_hint={'x': 0, 'y': 0})
         text_group.add_widget(name_lbl)
         text_group.add_widget(desc_lbl)
         text_group.add_widget(info_line)
 
+        # ФУНКЦИЯ ДИНАМИЧЕСКОГО СБОРЩИКА ВЫСОТЫ ПЛАШКИ
         def sync_row_height(*args):
+            # Жестко обновляем высоты из Kivy-текстур (sz[1] — чистая высота в пикселях)
             name_lbl.height = name_lbl.texture_size[1]
             desc_lbl.height = desc_lbl.texture_size[1]
-            total_h = 4 + name_lbl.height + 2 + desc_lbl.height + 8 + info_line.height + 6
-            row.height = max(82, total_h)
+            
+            # Твоя идеальная плотная математика из квестов: 4px верх + Текст + 2px зазор + Текст + 8px зазор + Инфо + 4px низ
+            total_h = 4 + name_lbl.height + 2 + desc_lbl.height + 8 + info_line.height + 4
+            
+            # Минимальный порог высоты 75px, чтобы пустые или короткие плашки оставались красивыми
+            row.height = max(75, total_h)
             ribbon_rect.size = (10, row.height)
+            
+            # Выстраиваем элементы сверху вниз относительно динамического потолка row.height
             name_lbl.pos_hint = {'x': 0.06, 'top': 1.0 - (4 / row.height)}
             desc_lbl.pos_hint = {'x': 0.06, 'top': name_lbl.pos_hint['top'] - (name_lbl.height / row.height) - (2 / row.height)}
-            # ИСПРАВЛЕНО: Позиция Y инфо-строки
-            info_line.pos_hint = {'x': 0, 'y': 6 / row.height}
+            
+            # Инфо-строка лежит идеально зеркально на расстоянии 4 пикселя от пола карточки
+            info_line.pos_hint = {'x': 0, 'y': 4 / row.height}
 
+        # Привязываем триггеры пересчета к тексту
         desc_lbl.bind(texture_size=sync_row_height)
         name_lbl.bind(texture_size=sync_row_height)
         row.bind(size=sync_row_height)
+
         row.add_widget(text_group)
         return row
     
