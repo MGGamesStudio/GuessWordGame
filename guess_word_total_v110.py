@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import random
 from platformdirs import user_data_dir
 from kivy.utils import platform
 
@@ -130,8 +131,8 @@ if START_MOBILE:
     os.environ["MGGAMES_MODE"] = "mobile"
     print("[MGGamesStudio] ЗАПУСК МОБИЛЬНОЙ ВЕРСИИ ИГРЫ")
     
-    config_x = 360
-    config_y = 640
+    config_x = 360 # 360
+    config_y = 640 # 640
     
     from kivy.config import Config
     Config.set('graphics', 'resizable', False)
@@ -149,16 +150,58 @@ if START_MOBILE:
                 if ach_key in achivements:
                     achivements[ach_key]["got"] = saved_data.get("got", False)
                     achivements[ach_key]["date"] = saved_data.get("date", "")
+
+        # =========================================================================
+        # ИСПРАВЛЕНО: Безопасный первый старт без вылетов, если сейв пустой
+        # =========================================================================
+        import time
+        import copy
         
+        current_time_struct = time.localtime()
+        current_day = current_time_struct.tm_mday
+        
+        last_update_day = PLAYER_STATS.get("last_update_day", -1)
         saved_quests = PLAYER_STATS.get("active_quests", {})
-        if saved_quests:
+
+        # Если день сменился ИЛИ в сейве вообще нет активных квестов (чистый старт!)
+        if current_day != last_update_day or not saved_quests:
+            print("[MGGamesStudio] Чистый старт или новый день! Генерируем 5 квестов...")
+            
+            commons = [k for k, v in all_quests.items() if v.get("type", "common") == "common"]
+            rares = [k for k, v in all_quests.items() if v.get("type", "common") == "rare"]
+            epics = [k for k, v in all_quests.items() if v.get("type", "common") == "epic"]
+            
+            # Страховка: проверяем, что в базе хватает квестов для выборки
+            if len(commons) >= 2 and len(rares) >= 2 and len(epics) >= 1:
+                chosen_keys = random.sample(commons, 2) + random.sample(rares, 2) + random.sample(epics, 1)
+            else:
+                chosen_keys = list(all_quests.keys())[:5]
+            
+            new_active_quests = {}
+            for key in chosen_keys:
+                new_active_quests[key] = copy.deepcopy(all_quests[key])
+                new_active_quests[key]["progress"] = 0
+                new_active_quests[key]["done"] = False
+                
+            PLAYER_STATS["active_quests"] = new_active_quests
+            PLAYER_STATS["last_update_day"] = current_day
+            save_game_progress(PLAYER_STATS)
+            saved_quests = new_active_quests
+        else:
+            # Если день тот же, просто синхронизируем прогресс
             for q_key, saved_data in saved_quests.items():
                 if q_key in all_quests:
                     all_quests[q_key]["progress"] = saved_data.get("progress", 0)
                     all_quests[q_key]["done"] = saved_data.get("done", False)
 
+        filtered_mobile_quests = {}
+        for q_key, q_val in all_quests.items():
+            if q_key in saved_quests:
+                filtered_mobile_quests[q_key] = q_val
+
         PLAYER_STATS["achivements_dict"] = achivements
-        PLAYER_STATS["quests_dict"] = all_quests
+        PLAYER_STATS["quests_dict"] = filtered_mobile_quests
+        
         guess_word_mobile_v110.start_mobile_game(ALL_WORDS, PLAYER_STATS, save_game_progress)
     except ModuleNotFoundError:
         print("[MGGamesStudio] Ошибка: Файл guess_word_mobile_v110.py не найден в этой папке!")
