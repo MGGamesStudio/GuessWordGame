@@ -687,10 +687,76 @@ class OnePlayerGameScreen(Screen):
 
         # 5. Проверка мгновенных квестов за ход
         if greens >= 3: self.check_and_advance_mobile_quest("q2", 1)
-        if yellows >= 5: self.check_and_advance_mobile_quest("q3", 1)
+        if greens < 5 and (greens + yellows) >= 3: self.check_and_advance_mobile_quest("q3", 1)
 
         # Передаем управление финалу раунда
         self.process_end_game_logic_mobile(check_word, yellows)
+
+    def check_mobile_achievements(self, last_win_attempt=None):
+        """Проверка условий выдачи достижений и начисление монет"""
+        global MOBILE_PLAYER_STATS
+        import time
+        
+        stats = MOBILE_PLAYER_STATS
+        ach_base = stats.get("achivements_dict", {})
+        if not ach_base:
+            return
+
+        def give_mobile_reward(ach_id):
+            if ach_id in ach_base and not ach_base[ach_id].get("got", False):
+                ach_base[ach_id]["got"] = True
+                ach_base[ach_id]["date"] = time.strftime("%d.%m.%Y")
+                
+                rewards = {"common": 30, "rare": 50, "epic": 500}
+                reward = rewards.get(ach_base[ach_id].get("type", "common"), 0)
+                    
+                stats["player_coins"] = stats.get("player_coins", 0) + reward
+                print(f"[MGGamesStudio] Достижение: {ach_base[ach_id]['name']}. +{reward} монет!")
+
+        # 1. Накопительные ачивки (победы/поражения)
+        t_wins, t_losses = stats.get("total_wins", 0), stats.get("total_losses", 0)
+        win_cond = {5: "ach_1", 10: "ach_2", 15: "ach_3", 20: "ach_4", 25: "ach_5"}
+        loss_cond = {5: "ach_6", 10: "ach_7", 15: "ach_8", 20: "ach_9", 25: "ach_10"}
+        
+        if t_wins in win_cond: give_mobile_reward(win_cond[t_wins])
+        if t_losses in loss_cond: give_mobile_reward(loss_cond[t_losses])
+
+        # 2. Ачивки за попытку
+        if last_win_attempt is not None:
+            attempt_cond = {i: f"ach_{i+10}" for i in range(1, 7)}
+            if last_win_attempt in attempt_cond:
+                give_mobile_reward(attempt_cond[last_win_attempt])
+                
+        # Синхронизация данных
+        stats["unlocked_achivements"] = {k: {"got": v["got"], "date": v["date"]} for k, v in ach_base.items()}
+
+    def check_and_advance_mobile_quest(self, quest_id, amount=1):
+        """Продвижение прогресса ежедневного квеста и начисление награды"""
+        global MOBILE_PLAYER_STATS, MOBILE_QUESTS
+        
+        if quest_id in MOBILE_QUESTS:
+            q = MOBILE_QUESTS[quest_id]
+            if q.get("done", False):
+                return
+                
+            q["progress"] = q.get("progress", 0) + amount
+            goal = q.get("goal", 1)
+            
+            if q["progress"] >= goal:
+                q["progress"] = goal
+                q["done"] = True
+                
+                # Начисляем награду за выполненный квест
+                reward = q.get("reward", 50)
+                MOBILE_PLAYER_STATS["player_coins"] = MOBILE_PLAYER_STATS.get("player_coins", 0) + reward
+                MOBILE_PLAYER_STATS["total_completed_quests"] = MOBILE_PLAYER_STATS.get("total_completed_quests", 0) + 1
+                print(f"[MGGamesStudio] Квест выполнен: {q['name']}. +{reward} монет!")
+                
+            # Синхронизируем изменения с профилем для сохранения
+            if "active_quests" in MOBILE_PLAYER_STATS:
+                if quest_id in MOBILE_PLAYER_STATS["active_quests"]:
+                    MOBILE_PLAYER_STATS["active_quests"][quest_id]["progress"] = q["progress"]
+                    MOBILE_PLAYER_STATS["active_quests"][quest_id]["done"] = q["done"]
 
     def handle_mobile_win(self):
         global MOBILE_PLAYER_STATS, MOBILE_QUESTS
@@ -870,72 +936,6 @@ class OnePlayerGameScreen(Screen):
             view.bind(on_dismiss=lambda x: self.press_exit_key(None))
             
         view.open()
-
-    def check_mobile_achievements(self, last_win_attempt=None):
-        """Проверка условий выдачи достижений и начисление монет"""
-        global MOBILE_PLAYER_STATS
-        import time
-        
-        stats = MOBILE_PLAYER_STATS
-        ach_base = stats.get("achivements_dict", {})
-        if not ach_base:
-            return
-
-        def give_mobile_reward(ach_id):
-            if ach_id in ach_base and not ach_base[ach_id].get("got", False):
-                ach_base[ach_id]["got"] = True
-                ach_base[ach_id]["date"] = time.strftime("%d.%m.%Y")
-                
-                rewards = {"common": 30, "rare": 50, "epic": 500}
-                reward = rewards.get(ach_base[ach_id].get("type", "common"), 0)
-                    
-                stats["player_coins"] = stats.get("player_coins", 0) + reward
-                print(f"[MGGamesStudio] Достижение: {ach_base[ach_id]['name']}. +{reward} монет!")
-
-        # 1. Накопительные ачивки (победы/поражения)
-        t_wins, t_losses = stats.get("total_wins", 0), stats.get("total_losses", 0)
-        win_cond = {5: "ach_1", 10: "ach_2", 15: "ach_3", 20: "ach_4", 25: "ach_5"}
-        loss_cond = {5: "ach_6", 10: "ach_7", 15: "ach_8", 20: "ach_9", 25: "ach_10"}
-        
-        if t_wins in win_cond: give_mobile_reward(win_cond[t_wins])
-        if t_losses in loss_cond: give_mobile_reward(loss_cond[t_losses])
-
-        # 2. Ачивки за попытку
-        if last_win_attempt is not None:
-            attempt_cond = {i: f"ach_{i+10}" for i in range(1, 7)}
-            if last_win_attempt in attempt_cond:
-                give_mobile_reward(attempt_cond[last_win_attempt])
-                
-        # Синхронизация данных
-        stats["unlocked_achivements"] = {k: {"got": v["got"], "date": v["date"]} for k, v in ach_base.items()}
-
-    def check_and_advance_mobile_quest(self, quest_id, amount=1):
-        """Продвижение прогресса ежедневного квеста и начисление награды"""
-        global MOBILE_PLAYER_STATS, MOBILE_QUESTS
-        
-        if quest_id in MOBILE_QUESTS:
-            q = MOBILE_QUESTS[quest_id]
-            if q.get("done", False):
-                return
-                
-            q["progress"] = q.get("progress", 0) + amount
-            goal = q.get("goal", 1)
-            
-            if q["progress"] >= goal:
-                q["progress"] = goal
-                q["done"] = True
-                
-                # Начисляем награду за выполненный квест
-                reward = q.get("reward", 50)
-                MOBILE_PLAYER_STATS["player_coins"] = MOBILE_PLAYER_STATS.get("player_coins", 0) + reward
-                MOBILE_PLAYER_STATS["total_completed_quests"] = MOBILE_PLAYER_STATS.get("total_completed_quests", 0) + 1
-                print(f"[MGGamesStudio] Квест выполнен: {q['name']}. +{reward} монет!")
-                
-            # Синхронизируем изменения с профилем для сохранения
-            if "active_quests" in MOBILE_PLAYER_STATS:
-                if quest_id in MOBILE_PLAYER_STATS["active_quests"]:
-                    MOBILE_PLAYER_STATS["active_quests"][quest_id]["progress"] = q["progress"]
-                    MOBILE_PLAYER_STATS["active_quests"][quest_id]["done"] = q["done"]
 
 class TwoPlayerGameScreen(Screen):
     def __init__(self, **kwargs):
@@ -2239,6 +2239,7 @@ class MobileApp(App):
         choose_theme(saved_theme)
         Window.clearcolor = color_bg
         
+        # ИСПРАВЛЕНО: Накрываем менеджер экранов единым фоном, который никогда не мигает!
         sm = ScreenManager(transition=NoTransition())
         sm.add_widget(MenuScreen(name='menu'))
         sm.add_widget(GameScreen(name='game'))
