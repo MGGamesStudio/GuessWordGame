@@ -1460,13 +1460,12 @@ class AchievementsScreen(Screen):
         
         return card
     
-    def create_achievement_row(self, name, description, is_got, ach_type="common", date_str=""):
-        """Создает плашку достижения с точным переносом цветов, смешивания и редкостей из ПК-версии"""
-        row = FloatLayout(size_hint_y=None, height=100)
+    def create_achievement_row(self, name, description, ach_data, got, date_str):
+        """Часть 1: Попиксельное смешивание цветов и точное чтение ключа 'type' из словаря лаунчера"""
+        row = FloatLayout(size_hint_y=None, height=110)
         
-        # --- МАТЕМАТИЧЕСКИЙ ПЕРЕНОС ЦВЕТОВ ИЗ RECT.LERP КЛАССА AchivementCard ---
+        # ЖЕСТКОЕ ИСПРАВЛЕНИЕ: Честный попиксельный расчет каналов (R, G, B) для Kivy-кортежей
         def lerp_color(c1, c2, factor):
-            """Вспомогательная функция для точного воспроизведения pygame.Color.lerp"""
             return (
                 c1[0] + (c2[0] - c1[0]) * factor,
                 c1[1] + (c2[1] - c1[1]) * factor,
@@ -1474,39 +1473,41 @@ class AchievementsScreen(Screen):
                 1.0
             )
 
-        # 1. Расчет цвета левой полосы (rare_color) в зависимости от типа редкости
-        if ach_type == "common":
-            type_text = "Обычное"
-            rare_color = lerp_color(color_text, color_bg, 0.3)
-        elif ach_type == "rare":
-            type_text = "Редкое"
-            rare_color = lerp_color(color_text, color_in_word, 0.5)
-        elif ach_type == "epic":
-            type_text = "Эпическое"
-            rare_color = lerp_color(color_text, color_correct, 0.6)
-        else:
-            type_text = "Обычное"
-            rare_color = lerp_color(color_text, color_bg, 0.3)
+        # ТОЧНОЕ СЧИТЫВАНИЕ: Берем ключ 'type' прямо из твоего словаря achivements!
+        r_type = "common"
+        if isinstance(ach_data, dict):
+            r_type = ach_data.get("type", "common").lower().strip()
 
-        # 2. Расчет фона карточки и текстов в зависимости от статуса получения (is_got)
-        if is_got:
+        # Выставляем правильный текст и базовый цвет редкости
+        if r_type == "rare":
+            rare_color = lerp_color(color_text, color_in_word, 0.5)
+            type_text = "Редкое"
+        elif r_type == "epic":
+            rare_color = lerp_color(color_text, color_correct, 0.6)
+            type_text = "Эпическое"
+        else:
+            rare_color = lerp_color(color_text, color_bg, 0.3)
+            type_text = "Обычное"
+
+        # Настраиваем фон карточки в зависимости от того, разблокирована ачивка или нет
+        if got:
             bg_color = color_blank
             text_color = color_text
-            status_str = "ПОЛУЧЕНО"
             status_color = color_correct
         else:
             bg_color = lerp_color(color_blank, color_bg, 0.5)
             text_color = lerp_color(color_text, color_bg, 0.4)
             rare_color = lerp_color(rare_color, color_bg, 0.3)
-            status_str = "НЕ ПОЛУЧЕНО"
             status_color = color_not_in_word
 
-        # Отрисовка подложки карточки и левой полосы
+        # Рисуем подложку
         with row.canvas.before:
             Color(*bg_color)
             bg_rect = RoundedRectangle(pos=row.pos, size=row.size, radius=[12])
+            
             Color(*rare_color)
-            ribbon_rect = RoundedRectangle(pos=row.pos, size=(10, 100), radius=[12, 0, 0, 12])
+            # Внутренние правые углы полоски — абсолютно острые (0), скруглены только левые внешние!
+            ribbon_rect = RoundedRectangle(pos=row.pos, size=(10, 110), radius=[(12, 12), (0, 0), (0, 0), (12, 12)])
             
         def sync_graphics(instance, value):
             bg_rect.pos = (instance.x + 15, instance.y)
@@ -1515,79 +1516,90 @@ class AchievementsScreen(Screen):
             ribbon_rect.size = (10, instance.height)
         row.bind(pos=sync_graphics, size=sync_graphics)
 
-        # 1. НАЗВАНИЕ (ИСПРАВЛЕНО: сдвинули x с 0.12 до 0.08, чтобы текст встал левее)
-        name_lbl = Label(
-            text=name.upper(), font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size='18sp', color=text_color, bold=True, size_hint=(None, None),
-            size=(400, 30), text_size=(400, 30), pos_hint={'x': 0.08, 'top': 0.88}, halign='left', valign='middle'
-        )
+        return self.fill_achievement_widgets(row, name, description, got, date_str, type_text, rare_color, text_color, status_color, bg_rect, ribbon_rect)
 
-        # 2. ОПИСАНИЕ (ИСПРАВЛЕНО: сдвинули x с 0.12 до 0.08, чтобы текст встал левее)
-        desc_lbl = Label(
-            text=description, font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size='13sp', color=text_color, size_hint=(None, None),
-            size=(400, 25), text_size=(400, 25), pos_hint={'x': 0.08, 'y': 0.15}, halign='left', valign='middle'
-        )
+    def fill_achievement_widgets(self, row, name, description, got, date_str, type_text, rarity_color, text_color, status_color, bg_rect, ribbon_rect):
+        """Часть 2: Исправлен хитбокс (35px) и смещение для даты"""
+        text_w = Window.width - 45
+        font_path = resource_path("ClearSans-Bold.ttf")
 
-        # БЛОК СПРАВА: Редкость + Статус получения
-        rarity_lbl = Label(
-            text=type_text, font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size='13sp', color=rare_color, bold=True, size_hint=(None, None),
-            size=(150, 25), text_size=(150, 25), pos_hint={'right': 0.92, 'top': 0.88}, halign='right', valign='middle'
-        )
-        status_lbl = Label(
-            text=status_str, font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size='14sp', color=status_color, bold=True, size_hint=(None, None),
-            size=(150, 25), text_size=(150, 25), pos_hint={'right': 0.92, 'y': 0.15}, halign='right', valign='middle'
-        )
+        # Компоненты текста
+        name_lbl = Label(text=name.upper(), font_name=font_path, font_size='18sp', color=text_color, bold=True, size_hint=(None, None), size=(text_w, 30), text_size=(text_w, 30), pos_hint={'x': 0.06, 'top': 0.92}, halign='left', valign='middle')
+        desc_lbl = Label(text=description, font_name=font_path, font_size='13sp', color=text_color, size_hint=(None, None), size=(text_w, 42), text_size=(text_w, 42), pos_hint={'x': 0.06, 'top': 0.66}, halign='left', valign='top')
 
-        # ИСПРАВЛЕНО: Переносим дату в правый блок по жестким координатам без изменения остального кода
-        if is_got and date_str:
-            date_lbl = Label(
-                text=f"Дата: {date_str}",
-                font_name=resource_path("ClearSans-Bold.ttf"),
-                font_size='11sp', 
-                color=color_not_in_word, 
-                size_hint=(None, None),
-                size=(150, 20), 
-                text_size=(150, 20),
-                pos_hint={'right': 0.92, 'center_y': 0.52}, 
-                halign='right', 
-                valign='middle'
-            )
-            row.add_widget(date_lbl)
+        # 3. НИЖНЯЯ ИНФО-СТРОКА (ИСПРАВЛЕНО: Вернули size_hint=(1, None), чтобы проценты считались от краев всей плашки!)
+        info_line = FloatLayout(size_hint=(1, None), height=35)
+        
+        # Редкость (Отступ от левого края — x: 0.06)
+        lbl_rare = Label(
+            text=type_text, font_name=font_path, font_size='13sp', color=rarity_color, bold=True, 
+            size_hint=(None, None), size=(120, 35), text_size=(120, 35), 
+            pos_hint={'x': 0.06, 'center_y': 0.5}, halign='left', valign='middle'
+        )
+        
+        # Дата открытия (Жестко по центру, ширина 240px в одну строку)
+        lbl_date = Label(
+            text=f"Дата: {date_str}" if (got and date_str) else "", 
+            font_name=font_path, font_size='12sp', color=color_not_in_word, bold=True, 
+            size_hint=(None, None), size=(240, 35), text_size=(240, 35), 
+            pos_hint={'center_x': 0.5, 'center_y': 0.5}, halign='center', valign='middle'
+        )
+        
+        # Статус получения (ИСПРАВЛЕНО: Поставили right: 0.94 — теперь отступ от правой стены зеркален левому отступу!)
+        lbl_stat = Label(
+            text="ПОЛУЧЕНО" if got else "НЕ ПОЛУЧЕНО", font_name=font_path, font_size='14sp', color=status_color, bold=True, 
+            size_hint=(None, None), size=(200, 35), text_size=(200, 35), 
+            pos_hint={'right': 0.94, 'center_y': 0.5}, halign='right', valign='middle'
+        )
+        
+        info_line.add_widget(lbl_rare)
+        info_line.add_widget(lbl_date)
+        info_line.add_widget(lbl_stat)
 
-        row.add_widget(name_lbl); row.add_widget(desc_lbl)
-        row.add_widget(rarity_lbl); row.add_widget(status_lbl)
+        text_group = FloatLayout(size_hint=(1, 1), pos_hint={'x': 0, 'y': 0})
+        text_group.add_widget(name_lbl)
+        text_group.add_widget(desc_lbl)
+        text_group.add_widget(info_line)
+
+        def sync_row_height(*args):
+            name_lbl.height = name_lbl.texture_size[1]
+            desc_lbl.height = desc_lbl.texture_size[1]
+            total_h = 4 + name_lbl.height + 2 + desc_lbl.height + 8 + info_line.height + 6
+            row.height = max(82, total_h)
+            ribbon_rect.size = (10, row.height)
+            name_lbl.pos_hint = {'x': 0.06, 'top': 1.0 - (4 / row.height)}
+            desc_lbl.pos_hint = {'x': 0.06, 'top': name_lbl.pos_hint['top'] - (name_lbl.height / row.height) - (2 / row.height)}
+            # ИСПРАВЛЕНО: Позиция Y инфо-строки
+            info_line.pos_hint = {'x': 0, 'y': 6 / row.height}
+
+        desc_lbl.bind(texture_size=sync_row_height)
+        name_lbl.bind(texture_size=sync_row_height)
+        row.bind(size=sync_row_height)
+        row.add_widget(text_group)
         return row
     
-    def build_achievements_list(self, launcher_ach):
-        """Читает, сортирует и выводит все достижения из лаунчера в вертикальный скролл"""
+    def build_achievements_list(self, launcher_achievements):
+        """Полный вывод достижений с автоматической сортировкой выполненных наверх"""
         self.ach_list_layout.clear_widgets()
         
-        # Настраиваем отступы между карточками и границами сетки (10px по бокам, 15px снизу)
-        self.ach_list_layout.padding = [10, 15, 10, 15]
-        
-        if not launcher_ach:
+        if not launcher_achievements:
             return
 
-        # СОРТИРОВКА ИЗ file_3: сначала открытые (got=True) уходят наверх списка
-        all_keys = list(launcher_ach.keys())
-        sorted_keys = sorted(all_keys, key=lambda k: launcher_ach[k].get("got", False), reverse=True)
+        # ВОССТАНОВЛЕНО: Полученные (got=True) всегда уходят на самый верх списка!
+        all_keys = list(launcher_achievements.keys())
+        sorted_keys = sorted(all_keys, key=lambda k: launcher_achievements[k].get("got", False), reverse=True)
         
         for ach_key in sorted_keys:
-            ach_data = launcher_ach[ach_key]
+            ach_data = launcher_achievements[ach_key]
             
-            # Строгое считывание данных по оригинальным ключам твоего проекта
-            name = ach_data.get("name", "Секретное")
+            name = ach_data.get("name", "Секретное достижение")
             description = ach_data.get("description", "")
-            is_got = ach_data.get("got", False)
-            ach_type = ach_data.get("type", "common")  # Передаем тип редкости (common/rare/epic)
-            date_str = ach_data.get("date", "")         # Передаем дату получения изpickle-файла
+            got = ach_data.get("got", False)
+            date_str = ach_data.get("date", "")
             
-            # Генерируем плашку по нашей новой схеме трех редкостей и бросаем в GridLayout
-            ach_row_widget = self.create_achievement_row(name, description, is_got, ach_type, date_str)
-            self.ach_list_layout.add_widget(ach_row_widget)
+            # Передаем весь словарь настроек ach_data для корректного чтения флагов редкости
+            row_widget = self.create_achievement_row(name, description, ach_data, got, date_str)
+            self.ach_list_layout.add_widget(row_widget)
 
     def refresh_stats_and_achievements(self):
         """Загружает данные лаунчера и строит карточки статистики строго в 2 ряда."""
