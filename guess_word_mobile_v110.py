@@ -1318,8 +1318,9 @@ class AchievementsScreen(Screen):
         
         # 3. На самый верхний слой укладываем горизонтальный скролл карточек статистики
         self.stats_scroll = ScrollView(size_hint=(1, None), do_scroll_x=True, do_scroll_y=False, bar_width=0)
-        from kivy.effects.dampedscroll import DampedScrollEffect
-        self.stats_scroll.effect_cls = DampedScrollEffect
+        # ИСПРАВЛЕНО: Заменили DampedScrollEffect на ScrollEffect, чтобы убрать пружину!
+        from kivy.effects.scroll import ScrollEffect
+        self.stats_scroll.effect_cls = ScrollEffect
         
         self.stats_container = BoxLayout(orientation='vertical', spacing=8, size_hint=(None, None))
         self.stats_row1 = BoxLayout(orientation='horizontal', spacing=10, size_hint=(None, None))
@@ -1340,8 +1341,9 @@ class AchievementsScreen(Screen):
         self.scroll_view = ScrollView(size_hint=(1, None), do_scroll_x=False, do_scroll_y=True, bar_width=0)
         
         # Жесткий стопор: отключаем резиновый оверскролл Kivy, чтобы список стопорился на краях
-        from kivy.effects.dampedscroll import DampedScrollEffect
-        self.scroll_view.effect_cls = DampedScrollEffect
+        # ИСПРАВЛЕНО: Заменили DampedScrollEffect на ScrollEffect, чтобы убрать пружину!
+        from kivy.effects.scroll import ScrollEffect
+        self.scroll_view.effect_cls = ScrollEffect
         
         # Вертикальная сетка в 1 столбец, которая будет автоматически растягиваться вниз
         self.ach_list_layout = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=[0])
@@ -1683,9 +1685,9 @@ class QuestsScreen(Screen):
         # Горизонтальный скролл для всей статистики квестов (убираем черную полосу через bar_width=0)
         self.stats_scroll = ScrollView(size_hint=(1, None), do_scroll_x=True, do_scroll_y=False, bar_width=0)
         
-        # Отключаем резиновый отскок Kivy, чтобы лента жестко стопорилась на границах
-        from kivy.effects.dampedscroll import DampedScrollEffect
-        self.stats_scroll.effect_cls = DampedScrollEffect
+        # ИСПРАВЛЕНО: Отключили пружину для панели стат, теперь она стопорится намертво
+        from kivy.effects.scroll import ScrollEffect
+        self.stats_scroll.effect_cls = ScrollEffect
         
         # Главный вертикальный контейнер-поезд под 2 строки
         self.stats_container = BoxLayout(orientation='vertical', spacing=8, size_hint=(None, None))
@@ -1706,9 +1708,9 @@ class QuestsScreen(Screen):
         # bar_width=0 наглухо убирает уродливую черную полосу скроллбара
         self.scroll_view = ScrollView(size_hint=(1, None), do_scroll_x=False, do_scroll_y=True, bar_width=0)
         
-        # Жесткий стопор: отключаем резиновый оверскролл Kivy, чтобы список стопорился на краях
-        from kivy.effects.dampedscroll import DampedScrollEffect
-        self.scroll_view.effect_cls = DampedScrollEffect
+        # ИСПРАВЛЕНО: Отключили пружину для списка квестов, теперь он стопорится намертво
+        from kivy.effects.scroll import ScrollEffect
+        self.scroll_view.effect_cls = ScrollEffect
         
         # Вертикальная сетка в 1 столбец, которая будет автоматически растягиваться вниз
         self.quests_list_layout = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=[0, 10, 0, 15])
@@ -1731,7 +1733,7 @@ class QuestsScreen(Screen):
         self.refresh_quests_data()
 
     def refresh_quests_data(self):
-        """Загружает данные лаунчера и строит карточки статистики квестов в 2 ряда."""
+        """Загружает отфильтрованные лаунчером данные и строит карточки статистики."""
         stats = MOBILE_PLAYER_STATS if ('MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS) else {}
         launcher_quests = MOBILE_QUESTS if ('MOBILE_QUESTS' in globals() and MOBILE_QUESTS) else {}
         
@@ -1740,23 +1742,22 @@ class QuestsScreen(Screen):
         losses = stats.get("total_losses", 0)
         streak = f"{stats.get('current_win_streak', 0)}/{stats.get('max_win_streak', 0)}"
         
-        # Считаем, сколько квестов выполнено (done == True) из всех 12 штук
+        # Считаем выполненные квесты из активной выбранной пятёрки
         done_count = sum(1 for q in launcher_quests.values() if q.get("done", False))
-        quests_ratio = f"{done_count}/{len(launcher_quests)}" if launcher_quests else "0/12"
+        quests_ratio = f"{done_count}/{len(launcher_quests)}" if launcher_quests else "0/5"
 
         self.stats_row1.clear_widgets()
         self.stats_row2.clear_widgets()
         
-        # Распределяем данные ровно по твоим цветам из ПК-версии
         row1_data = [
-            ("Монеты", str(coins), color_in_word),      # Жёлтый
-            ("Победы", str(wins), color_correct),       # Зелёный
-            ("Поражения", str(losses), color_text)      # Стандартный
+            ("Монеты", str(coins), color_in_word),
+            ("Победы", str(wins), color_correct),
+            ("Поражения", str(losses), color_text)
         ]
         
         row2_data = [
             ("Серия побед", streak, color_text),
-            ("Выполнено", quests_ratio, color_text)     # ИСПРАВЛЕНО: Вместо достижений пишем Выполнено!
+            ("Выполнено", quests_ratio, color_text)
         ]
 
         for item in row1_data:
@@ -1765,16 +1766,14 @@ class QuestsScreen(Screen):
         for item in row2_data:
             self.stats_row2.add_widget(self.create_card(*item))
 
-        # Задаем отступы от стен на 10 пикселей слева и справа
         self.stats_container.padding = [10, 0, 10, 0]
 
-        # Фиксируем ширину рельсов (3 карточки * 385px + зазоры 20px + боковые отступы 20px = 1195px)
         total_scroll_width = 3 * 385 + 2 * 10 + 20
-        
         self.stats_row1.size = (total_scroll_width - 20, 72)
         self.stats_row2.size = (total_scroll_width - 20, 72)
         self.stats_container.size = (total_scroll_width, 152)
 
+        # Выводим отфильтрованный список квестов на экран
         self.build_quests_list(launcher_quests)
 
     def reposition_elements(self, instance, size):
@@ -1782,42 +1781,43 @@ class QuestsScreen(Screen):
         win_w = Window.width
         win_h = Window.height
         
-        # Рассчитываем размер шрифта и рамку (Твоя идеальная рабочая формула из достижений!)
+        # ИСПРАВЛЕНО: Вернули красивый регистр текста строго по твоей задумке!
+        self.lbl_main_title.text = "Квесты"
+        
+        # Рассчитываем размер шрифта и рамку (Оригинальная рабочая формула)
         self.lbl_main_title.font_size = f"{min(win_w, win_h) * 0.08}px"
-        self.lbl_main_title.size = (win_w - 150, 100) # Дали высоту 100, чтобы буквы не резались по вертикали
+        self.lbl_main_title.size = (win_w - 150, 100) 
         self.lbl_main_title.text_size = self.lbl_main_title.size
         
         # Жестко центрируем по оси твоей кнопки Выйти
         btn_center_y = win_h - 54
         self.lbl_main_title.center_y = btn_center_y
-        self.lbl_main_title.x = 15
-
-        # Фиксируем высоту скролла под два ряда карточек ПК-размера (2 ряда * 72px + зазор 8px = 152px)
-        self.stats_scroll.height = 152
+        self.lbl_main_title.x = 15  
         
-        # Позиционируем строго под кнопочной зоной, опуская ниже на зазор в 15 пикселей
-        self.stats_scroll.pos = (0, win_h - 54 - 44 - 152 - 15)
-        
-        # Передаем эту же высоту внутреннему контейнеру
-        self.stats_container.height = 152
-
-        # Вычисляем высоту верхней зоны (высота шапки + высота 2 рядов стат + зазоры)
+        # Размеры верхней невидимой зоны и скролла статистики
         overlay_height = 280
-        
-        # Задаем размеры и позицию самому контейнеру подложки
-        self.top_overlay.height = overlay_height
-        self.top_overlay.pos = (0, win_h - overlay_height)
-        
-        # Синхронизируем графический прямоугольник
-        self.overlay_rect.size = (win_w, overlay_height)
-        self.overlay_rect.pos = (0, win_h - overlay_height)
+        if hasattr(self, 'top_overlay'):
+            self.top_overlay.height = overlay_height
+            self.top_overlay.pos = (0, win_h - overlay_height)
+            self.overlay_rect.size = (win_w, overlay_height)
+            self.overlay_rect.pos = (0, win_h - overlay_height)
+            
+        if hasattr(self, 'stats_scroll'):
+            self.stats_scroll.height = 152
+            self.stats_scroll.pos = (0, win_h - 54 - 44 - 152 - 15)
+            self.stats_container.height = 152
+            
+        if hasattr(self, 'scroll_view'):
+            self.scroll_view.size = (win_w, win_h - overlay_height - 15)
+            self.scroll_view.pos = (0, 10)
+            self.quests_list_layout.width = win_w
 
-        # Вертикальный скролл занимает всё оставшееся пространство от низа до панели стат (минус высота оверлея 280px)
-        self.scroll_view.size = (win_w, win_h - 280 - 15)
-        self.scroll_view.pos = (0, 10) # Небольшой зазор от пола телефона смартфона
-        
-        # Растягиваем ширину внутренней сетки под ширину экрана смартфона
-        self.quests_list_layout.width = win_w
+        # =========================================================================
+        # ИСПРАВЛЕНО: ПРИНУДИТЕЛЬНО ВЫТАЛКИВАЕМ ЗАГОЛОВОК НА САМЫЙ ВЕРХНИЙ СЛОЙ
+        # =========================================================================
+        if hasattr(self, 'lbl_main_title') and self.lbl_main_title in self.layout.children:
+            self.layout.remove_widget(self.lbl_main_title)
+            self.layout.add_widget(self.lbl_main_title, index=0) # index=0 намертво кладет поверх оверлея
 
     def create_card(self, label_text, val_text, val_color):
         """Создает карточку статистики с жестким разнесением текстов по углам и огромными хитбоксами"""
@@ -1873,22 +1873,32 @@ class QuestsScreen(Screen):
         return card
     
     def create_quest_row(self, name, description, progress, goal, reward, is_done, quest_type="common"):
-        """Часть 1: Увеличили высоту плитки квеста до 120px для длинных описаний"""
-        # ИСПРАВЛЕНО: Высота плашки теперь 120 пикселей
-        row = FloatLayout(size_hint_y=None, height=120)
+        """Часть 1: Динамический пересчет высоты плашки под любое количество строк текста"""
+        # Создаем базовый контейнер, высоту мы пересчитаем динамически ниже
+        row = FloatLayout(size_hint_y=None, height=110)
         
+        # ИСПРАВЛЕНО: Честный попиксельный расчет каналов (R, G, B) для Kivy-кортежей
         def lerp_color(c1, c2, factor):
-            return (c1 + (c2 - c1) * factor, c1 + (c2 - c1) * factor, c1 + (c2 - c1) * factor, 1.0)
+            return (
+                c1[0] + (c2[0] - c1[0]) * factor,
+                c1[1] + (c2[1] - c1[1]) * factor,
+                c1[2] + (c2[2] - c1[2]) * factor,
+                1.0
+            )
 
         qt = quest_type.lower().strip()
         if qt == "common":
             rare_color = lerp_color(color_text, color_bg, 0.3)
+            type_text = "Обычное"
         elif qt == "rare":
             rare_color = lerp_color(color_text, color_in_word, 0.5)
+            type_text = "Редкое"
         elif qt == "epic":
             rare_color = lerp_color(color_text, color_correct, 0.6)
+            type_text = "Эпическое"
         else:
             rare_color = lerp_color(color_text, color_bg, 0.3)
+            type_text = "Обычное"
 
         if is_done:
             bg_color = color_blank
@@ -1900,12 +1910,12 @@ class QuestsScreen(Screen):
             rare_color = lerp_color(rare_color, color_bg, 0.3)
             progress_color = color_not_in_word
 
+        # Отрисовка подложки и левой цветной полосы с ровными внутренними углами
         with row.canvas.before:
             Color(*bg_color)
             bg_rect = RoundedRectangle(pos=row.pos, size=row.size, radius=[12])
             Color(*rare_color)
-            # ИСПРАВЛЕНО: Высота левой полосы теперь тоже 120 пикселей
-            ribbon_rect = RoundedRectangle(pos=row.pos, size=(10, 120), radius=[12])
+            ribbon_rect = RoundedRectangle(pos=row.pos, size=(10, 110), radius=[(12, 12), (0, 0), (0, 0), (12, 12)])
             
         def sync_graphics(instance, value):
             bg_rect.pos = (instance.x + 15, instance.y)
@@ -1914,107 +1924,163 @@ class QuestsScreen(Screen):
             ribbon_rect.size = (10, instance.height)
         row.bind(pos=sync_graphics, size=sync_graphics)
 
-        return self.fill_quest_row_widgets(row, name, description, progress, goal, reward, text_color, progress_color)
+        return self.fill_quest_row_widgets(row, name, description, progress, goal, reward, text_color, progress_color, is_done, type_text, rare_color, bg_rect, ribbon_rect)
 
-    
-    def fill_quest_row_widgets(self, row, name, description, progress, goal, reward, text_color, progress_color):
-        """Часть 2: Наполнение плашки квеста текстовыми метками, наградой и прогрессом"""
+    def fill_quest_row_widgets(self, row, name, description, progress, goal, reward, text_color, progress_color, is_done, type_text, rarity_color, bg_rect, ribbon_rect):
+        """Часть 2: Исправленная резиновая плашка. Тексты привязаны к локальным координатам карточки!"""
         
-        # 1. БЛОК СЛЕВА: Название задания (Капсом, отступ 8%)
+        # Сбалансированная ширина для текста
+        text_w = Window.width - 45
+
+        # 1. НАЗВАНИЕ КВЕСТА (Высота управляется текстом)
         name_lbl = Label(
-            text=name.upper(), 
-            font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size='18sp', 
-            color=text_color, 
-            bold=True, 
-            size_hint=(None, None),
-            size=(400, 30), 
-            text_size=(400, 30), 
-            pos_hint={'x': 0.08, 'top': 0.88}, 
-            halign='left', 
-            valign='middle'
+            text=name.upper(), font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size='18sp', color=text_color, bold=True,
+            size_hint=(None, None), width=text_w, text_size=(text_w, None),
+            halign='left', valign='top'
         )
 
-        # 2. Описание условий квеста (Серое, под названием)
+        # 2. ОПИСАНИЕ КВЕСТА (Высота управляется текстом)
         desc_lbl = Label(
-            text=description, 
-            font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size='13sp', 
-            color=text_color, 
-            size_hint=(None, None),
-            size=(400, 25), 
-            text_size=(400, 25), 
-            pos_hint={'x': 0.08, 'y': 0.15}, 
-            halign='left', 
-            valign='middle'
+            text=description, font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size='13sp', color=text_color,
+            size_hint=(None, None), width=text_w, text_size=(text_w, None),
+            halign='left', valign='top'
         )
 
-        # 3. БЛОК СПРАВА: Награда и текущий прогресс задания
-        # Собираем правый блок в вертикальный BoxLayout, прижатый к правому краю (0.92)
-        right_box = BoxLayout(
-            orientation='vertical', 
-            spacing=2, 
-            size_hint=(None, None), 
-            size=(150, 80),
-            pos_hint={'right': 0.92, 'center_y': 0.5}
-        )
-
-        # Общие настройки текстового поля для правого блока
-        l_args = {
-            'font_name': resource_path("ClearSans-Bold.ttf"), 
-            'size_hint': (1, None),
-            'text_size': (150, None), 
-            'halign': 'right', 
-            'valign': 'middle'
-        }
-
-        # Выводим «Награда: X» сочным жёлтым цветом (color_in_word) вверху столбика
-        reward_txt = f"Награда: {reward}"
-        right_box.add_widget(Label(text=reward_txt, font_size='13sp', color=color_in_word, bold=True, height=22, **l_args))
-
-        # Пустая невидимая заглушка по центру столбика (для симметрии с датами ачивок)
-        right_box.add_widget(Label(size_hint=(1, None), height=18))
-
-        # Выводим текущий прогресс дня (например, «0/1» или «3/3») в самом низу столбика
-        progress_txt = f"{progress}/{goal}"
-        right_box.add_widget(Label(text=progress_txt, font_size='14sp', color=progress_color, bold=True, height=22, **l_args))
-
-        # Укладываем все слои на нашу графическую подложку
-        row.add_widget(name_lbl)
-        row.add_widget(desc_lbl)
-        row.add_widget(right_box)
+        # 3. НИЖНЯЯ ИНФО-СТРОКА (Высота 35px)
+        info_line = FloatLayout(size_hint=(1, None), height=35)
         
+        lbl_rare = Label(
+            text=type_text, font_name=resource_path("ClearSans-Bold.ttf"), 
+            font_size='13sp', color=rarity_color, bold=True, size_hint=(None, None),
+            size=(120, 35), text_size=(120, 35), pos_hint={'x': 0.06, 'center_y': 0.5},
+            halign='left', valign='middle'
+        )
+        
+        lbl_rew = Label(
+            text=f"Награда: {reward}", font_name=resource_path("ClearSans-Bold.ttf"), 
+            font_size='13sp', color=color_in_word, bold=True, size_hint=(None, None),
+            size=(150, 35), text_size=(150, 35), pos_hint={'center_x': 0.5, 'center_y': 0.5},
+            halign='center', valign='middle'
+        )
+        
+        status_txt = "ВЫПОЛНЕНО" if is_done else f"{progress}/{goal}"
+        lbl_stat = Label(
+            text=status_txt, font_name=resource_path("ClearSans-Bold.ttf"), 
+            font_size='14sp', color=progress_color, bold=True, size_hint=(None, None),
+            size=(200, 35), text_size=(200, 35), pos_hint={'right': 0.94, 'center_y': 0.5},
+            halign='right', valign='middle'
+        )
+        
+        info_line.add_widget(lbl_rare)
+        info_line.add_widget(lbl_rew)
+        info_line.add_widget(lbl_stat)
+
+        # Локальная группа для текстов, чтобы координаты не улетали на дно экрана
+        text_group = FloatLayout(size_hint=(1, 1), pos_hint={'x': 0, 'y': 0})
+        text_group.add_widget(name_lbl)
+        text_group.add_widget(desc_lbl)
+        text_group.add_widget(info_line)
+
+        # Функция честного пересчета высоты плашки (Финальные пиксельные правки)
+        def sync_row_height(*args):
+            # ИСПРАВЛЕНО: Добавили, чтобы брать строго высоту текста в пикселях!
+            name_lbl.height = name_lbl.texture_size[1]
+            desc_lbl.height = desc_lbl.texture_size[1]
+            
+            # Микро-математика: 4px верх + Название + 2px зазор + Описание + 8px зазор + Инфо (35px) + 4px низ
+            total_h = 4 + name_lbl.height + 2 + desc_lbl.height + 8 + info_line.height + 4
+            
+            # Уменьшаем минимальный пороговый размер до 75px, чтобы сделать карточки ультра-компактными
+            row.height = max(75, total_h)
+            ribbon_rect.size = (10, row.height)
+            
+            # Выстраиваем элементы сверху вниз с ювелирной точностью
+            name_lbl.pos_hint = {'x': 0.06, 'top': 1.0 - (4 / row.height)}
+            desc_lbl.pos_hint = {'x': 0.06, 'top': name_lbl.pos_hint['top'] - (name_lbl.height / row.height) - (2 / row.height)}
+            
+            # Инфо-строка стоит строго на зеркальном расстоянии 4 пикселя от пола карточки
+            info_line.pos_hint = {'x': 0, 'y': 4 / row.height}
+
+        # Привязываем автоматический пересчет
+        name_lbl.bind(texture_size=sync_row_height)
+        desc_lbl.bind(texture_size=sync_row_height)
+        row.bind(size=sync_row_height)
+
+        row.add_widget(text_group)
         return row
-    
+
     def build_quests_list(self, launcher_quests):
-        """Читает, сортирует и выводит все 12 ежедневных заданий в вертикальный скролл"""
+        """Полный вывод квестов с правильной сортировкой: выполненные уходят ВНИЗ списка"""
         self.quests_list_layout.clear_widgets()
-        
-        # Настраиваем отступы между карточками и границами сетки (10px по бокам, 15px снизу)
-        self.quests_list_layout.padding = [10, 15, 10, 15]
         
         if not launcher_quests:
             return
 
-        # СОРТИРОВКА ИЗ ОРИГИНАЛА: сначала выполненные (done=True) уходят наверх списка
+        # ИСПРАВЛЕНО: Сортируем так, чтобы выполненные (done=True) уходили в самый низ, как на ПК!
         all_keys = list(launcher_quests.keys())
-        sorted_keys = sorted(all_keys, key=lambda k: launcher_quests[k].get("done", False), reverse=True)
+        sorted_keys = sorted(all_keys, key=lambda k: launcher_quests[k].get("done", False), reverse=False)
         
         for q_key in sorted_keys:
             q_data = launcher_quests[q_key]
-            
-            # Безопасное считывание данных по оригинальным ключам твоего проекта
-            name = q_data.get("name", "Секретное задание")
-            description = q_data.get("description", "")
-            progress = q_data.get("progress", 0)
-            goal = q_data.get("goal", 1)
-            reward = q_data.get("reward", 50)
-            is_done = q_data.get("done", False)
-            quest_type = q_data.get("type", "common")  # Передаем тип редкости (common/rare/epic)
-            
-            # Генерируем сдвоенную плитку и бросаем её в GridLayout
-            quest_row_widget = self.create_quest_row(name, description, progress, goal, reward, is_done, quest_type)
+            quest_row_widget = self.create_quest_row(
+                q_data.get("name", "Секретное задание"),
+                q_data.get("description", ""),
+                q_data.get("progress", 0),
+                q_data.get("goal", 1),
+                q_data.get("reward", 50),
+                q_data.get("done", False),
+                q_data.get("type", "common")
+            )
             self.quests_list_layout.add_widget(quest_row_widget)
+
+    def update_daily_quests_mobile(self):
+        """Полный перенос функции update_daily_quests из guess_word_pc_v110.py"""
+        global MOBILE_PLAYER_STATS, MOBILE_QUESTS
+        import time
+        import copy
+
+        current_time_struct = time.localtime()
+        current_day = current_time_struct.tm_mday
+        
+        # Читаем день последнего сброса из файла сохранения
+        last_update_day = MOBILE_PLAYER_STATS.get("last_update_day", -1)
+
+        # Если день совпадает и в памяти уже крутится выбранная пятерка — ничего не сбрасываем
+        if current_day == last_update_day and MOBILE_PLAYER_STATS.get("active_quests"):
+            MOBILE_QUESTS = MOBILE_PLAYER_STATS["active_quests"]
+            return
+
+        # Наступил новый день! Выбираем 5 случайных квестов из полной базы данных (из 12 штук)
+        print("[MGGamesStudio] Новый день по местному времени! Выбираем 5 случайных квестов...")
+        
+        # Нам нужен доступ к полной статичной базе из 12 квестов, которую передал лаунчер
+        full_base_quests = MOBILE_PLAYER_STATS.get("quests_dict", {})
+        if not full_base_quests:
+            return
+
+        commons = [k for k, v in full_base_quests.items() if v.get("type", "common") == "common"]
+        rares = [k for k, v in full_base_quests.items() if v.get("type", "common") == "rare"]
+        epics = [k for k, v in full_base_quests.items() if v.get("type", "common") == "epic"]
+
+        # Рандомим строго по твоей формуле: 2 обычных, 2 редких, 1 эпический
+        chosen_keys = random.sample(commons, 2) + random.sample(rares, 2) + random.sample(epics, 1)
+
+        new_active_quests = {}
+        for key in chosen_keys:
+            new_active_quests[key] = copy.deepcopy(full_base_quests[key])
+            new_active_quests[key]["progress"] = 0
+            new_active_quests[key]["done"] = False
+
+        # Фиксируем выбранную пятерку и сегодняшний день в сохранении лаунчера
+        MOBILE_PLAYER_STATS["active_quests"] = new_active_quests
+        MOBILE_PLAYER_STATS["last_update_day"] = current_day
+        MOBILE_QUESTS = new_active_quests
+
+        # Моментально записываем изменения в скрытый файл json
+        if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
+            MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
 
 def create_stub_layout(screen_instance, text):
     layout = FloatLayout()
