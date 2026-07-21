@@ -612,134 +612,153 @@ class OnePlayerGameScreen(Screen):
                 self.current_word = self.current_word[:-1]
 
     def press_enter_key(self, instance):
-        """Срабатывает при нажатии на большую кнопку ВВОД в одиночной игре"""
+        """Шаг 3.1: Входная проверка слова на длину и наличие в словаре лаунчера"""
+        global MOBILE_PLAYER_STATS, MOBILE_QUESTS
+        
         if len(self.current_word) == 5:
             check_word = self.current_word.upper()
             
+            # Проверяем слово по глобальной базе данных лаунчера
             if 'MOBILE_ALL_WORDS' in globals() and MOBILE_ALL_WORDS and check_word in MOBILE_ALL_WORDS:
-                print(f"Слово валидно и найдено в словаре: {self.current_word}")
-                
-                row_statuses = ["not_in_word"] * 5
-                secret_chars = list(self.secret_word)
-                guess_chars = list(check_word)
-                
-                # ШАГ А: Ищем точные совпадения (Зелёные буквы)
-                for i in range(5):
-                    if guess_chars[i] == secret_chars[i]:
-                        row_statuses[i] = "correct"
-                        secret_chars[i] = None
-                        guess_chars[i] = b" "
-                        
-                # ШАГ Б: Ищем частичные совпадения (Жёлтые буквы)
-                for i in range(5):
-                    if guess_chars[i] != b" " and guess_chars[i] in secret_chars:
-                        row_statuses[i] = "in_word"
-                        idx = secret_chars.index(guess_chars[i])
-                        secret_chars[idx] = None
-                
-                # ШАГ В: Применяем цвета к бланкам Kivy на экране
-                start_idx = self.current_attempt * 5
-                for i in range(5):
-                    cell_idx = start_idx + i
-                    if cell_idx < len(self.cells):
-                        self.cells[cell_idx].change_type(row_statuses[i])
-
-                # ПОКРАСКА КНОПОК ВИРТУАЛЬНОЙ КЛАВИАТУРЫ
-                for i in range(5):
-                    char_in_guess = self.current_word[i].upper()
-                    status_for_char = row_statuses[i]
-                    
-                    for key_btn in self.keyboard_keys:
-                        if key_btn.text == char_in_guess:
-                            if key_btn.cell_status == "correct":
-                                continue
-                            elif key_btn.cell_status == "in_word" and status_for_char != "correct":
-                                continue
-                                
-                            if status_for_char == "correct":
-                                key_btn.base_color = color_correct
-                                key_btn.color = (1.0, 1.0, 1.0, 1.0)
-                            elif status_for_char == "in_word":
-                                key_btn.base_color = color_in_word
-                                key_btn.color = (0.0, 0.0, 0.0, 1.0)
-                            elif status_for_char == "not_in_word":
-                                key_btn.base_color = color_not_in_word
-                                key_btn.color = (1.0, 1.0, 1.0, 1.0)
-                                
-                            key_btn.cell_status = status_for_char
-                            key_btn.update_canvas()
-
-                # =========================================================================
-                # ЭКОНОМИКА И СТАТИСТИКА ОДИНОЧНОЙ ИГРЫ (КАЖДЫЙ ХОД)
-                # =========================================================================
-                turn_coins = 0
-                for status in row_statuses:
-                    if status == "correct":
-                        turn_coins += 5   # Зелёная буква
-                    elif status == "in_word":
-                        turn_coins += 2   # Жёлтая буква
-                    elif status == "not_in_word":
-                        turn_coins += 1   # Серая буква
-                
-                is_win = (check_word == self.secret_word)
-                if is_win:
-                    turn_coins += 10      # Бонус за победу!
-                
-                # Начисляем монеты в кошелек лаунчера за этот ход
-                if 'MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS is not None:
-                    if "player_coins" not in MOBILE_PLAYER_STATS:
-                        MOBILE_PLAYER_STATS["player_coins"] = 0
-                    MOBILE_PLAYER_STATS["player_coins"] += turn_coins
-                    print(f"[MGGamesStudio] Начислено за ход: +{turn_coins} монет. Баланс: {MOBILE_PLAYER_STATS['player_coins']}")
-
-                    # Если победа — обновляем статистику и стрики лаунчера
-                    if is_win:
-                        MOBILE_PLAYER_STATS["total_wins"] = MOBILE_PLAYER_STATS.get("total_wins", 0) + 1
-                        MOBILE_PLAYER_STATS["current_win_streak"] = MOBILE_PLAYER_STATS.get("current_win_streak", 0) + 1
-                        
-                        # Проверяем и обновляем максимальный стрик побед
-                        if MOBILE_PLAYER_STATS["current_win_streak"] > MOBILE_PLAYER_STATS.get("max_win_streak", 0):
-                            MOBILE_PLAYER_STATS["max_win_streak"] = MOBILE_PLAYER_STATS["current_win_streak"]
-                    
-                    # Если поражение на 6-й попытке
-                    elif self.current_attempt >= 5:
-                        MOBILE_PLAYER_STATS["total_losses"] = MOBILE_PLAYER_STATS.get("total_losses", 0) + 1
-                        MOBILE_PLAYER_STATS["current_win_streak"] = 0 # Стрик сгорает
-
-                    # МОМЕНТАЛЬНОЕ ПОШАГОВОЕ СОХРАНЕНИЕ В ФАЙЛ ЛАУНЧЕРА
-                    if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
-                        MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
-                # =========================================================================
-
-                # Проверяем победу для вывода плашки
-                if is_win:
-                    self.show_game_popup(
-                        "ПОБЕДА!", 
-                        f"Было загадано слово: {self.secret_word}",
-                        color_correct,
-                        is_end_game=True
-                    )
-                    return
-
-                # Переходим к следующей строке попыток
-                self.current_attempt += 1
-                self.current_word = ""
-                
-                # Если проиграли все 6 попыток
-                if self.current_attempt >= 6:
-                    self.show_game_popup(
-                        "ИГРА ОКОНЧЕНА", 
-                        f"Загаданное слово было: {self.secret_word}",
-                        color_not_in_word,
-                        is_end_game=True
-                    )
+                print(f"[MGGamesStudio] Слово найдено в словаре: {check_word}")
+                self.evaluate_word_colors_mobile(check_word)
             else:
-                self.show_game_popup(
-                    "Такого слова нет в словаре", 
-                    "или введенное слово состоит не из 5 букв.",
-                    color_text,
-                    is_end_game=False
-                )
+                self.check_and_advance_mobile_quest("q4", amount=1)
+                
+                if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
+                    MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
+                    
+                self.show_game_popup("Такого слова нет в словаре", "или введенное слово состоит не из 5 букв.", color_text, is_end_game=False)
+        else:
+            self.show_game_popup("Слово не из 5 букв", "Заполните все 5 ячеек перед вводом.", color_text, is_end_game=False)
+
+    def evaluate_word_colors_mobile(self, check_word):
+        """Шаг 3.2: Покраска ячеек, клавиатуры и подсчет монет за ход"""
+        global MOBILE_PLAYER_STATS, MOBILE_QUESTS
+        
+        # 1. Посимвольный расчет цветов (Зеленые и Желтые)
+        row_statuses = ["not_in_word"] * 5
+        sec_chars = list(self.secret_word)
+        g_chars = list(check_word)
+        
+        greens = 0
+        for i in range(5):
+            if g_chars[i] == sec_chars[i]:
+                row_statuses[i] = "correct"
+                sec_chars[i] = None
+                g_chars[i] = " "
+                greens += 1
+                
+        yellows = 0
+        for i in range(5):
+            if g_chars[i] != " " and g_chars[i] in sec_chars:
+                row_statuses[i] = "in_word"
+                idx = sec_chars.index(g_chars[i])
+                sec_chars[idx] = None
+                yellows += 1
+
+        # 2. Покраска ячеек на экране смартфона
+        start_idx = self.current_attempt * 5
+        for i in range(5):
+            cell_idx = start_idx + i
+            if cell_idx < len(self.cells):
+                self.cells[cell_idx].change_type(row_statuses[i])
+
+        # 3. Покраска кнопок виртуальной клавиатуры
+        for i in range(5):
+            char = self.current_word[i].upper()
+            status = row_statuses[i]
+            for btn in self.keyboard_keys:
+                if btn.text == char:
+                    if btn.cell_status == "correct": continue
+                    if btn.cell_status == "in_word" and status != "correct": continue
+                    
+                    if status == "correct": btn.base_color = color_correct
+                    elif status == "in_word": btn.base_color = color_in_word
+                    elif status == "not_in_word": btn.base_color = color_not_in_word
+                    btn.cell_status = status
+                    btn.update_canvas()
+
+        # 4. Экономика текущего хода
+        coins = sum(5 if s == "correct" else (2 if s == "in_word" else 1) for s in row_statuses)
+        if check_word == self.secret_word: coins += 10
+        
+        MOBILE_PLAYER_STATS["player_coins"] = MOBILE_PLAYER_STATS.get("player_coins", 0) + coins
+
+        # 5. Проверка мгновенных квестов за ход
+        if greens >= 3: self.check_and_advance_mobile_quest("q2", 1)
+        if yellows >= 5: self.check_and_advance_mobile_quest("q3", 1)
+
+        # Передаем управление финалу раунда
+        self.process_end_game_logic_mobile(check_word, yellows)
+
+    def handle_mobile_win(self):
+        global MOBILE_PLAYER_STATS, MOBILE_QUESTS
+        stats = MOBILE_PLAYER_STATS
+        
+        stats["total_wins"] = stats.get("total_wins", 0) + 1
+        stats["current_win_streak"] = stats.get("current_win_streak", 0) + 1
+        
+        if stats["current_win_streak"] > stats.get("max_win_streak", 0):
+            stats["max_win_streak"] = stats["current_win_streak"]
+            
+        self.check_mobile_achievements(last_win_attempt=self.current_attempt + 1)
+        
+        self.check_and_advance_mobile_quest("q1", 1)
+        self.check_and_advance_mobile_quest("q5", 1)
+        self.check_and_advance_mobile_quest("q11", 1)
+        
+        if self.current_attempt in (4, 5):
+            self.check_and_advance_mobile_quest("q6", 1)
+        if self.current_attempt <= 3:
+            self.check_and_advance_mobile_quest("q7", 1)
+        if self.current_attempt in (1, 2):
+            self.check_and_advance_mobile_quest("q9", 1)
+            
+        if not getattr(self, "used_delete_key", False):
+            self.check_and_advance_mobile_quest("q12", 1)
+            
+        if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
+            MOBILE_SAVE_FUNC(stats)
+            
+        self.show_game_popup("ПОБЕДА!", f"Было загадано слово: {self.secret_word}", color_correct, is_end_game=True)
+
+    def handle_mobile_loss(self):
+        global MOBILE_PLAYER_STATS, MOBILE_QUESTS
+        stats = MOBILE_PLAYER_STATS
+        
+        stats["total_losses"] = stats.get("total_losses", 0) + 1
+        stats["current_win_streak"] = 0
+        
+        if "active_quests" in stats and "q5" in stats["active_quests"]:
+            stats["active_quests"]["q5"]["progress"] = 0
+            if "q5" in MOBILE_QUESTS:
+                MOBILE_QUESTS["q5"]["progress"] = 0
+                
+        self.check_mobile_achievements(last_win_attempt=None)
+        self.check_and_advance_mobile_quest("q1", 1)
+        
+        if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
+            MOBILE_SAVE_FUNC(stats)
+            
+        self.show_game_popup("ИГРА ОКОНЧЕНА", f"Загаданное слово было: {self.secret_word}", color_not_in_word, is_end_game=True)
+
+    def process_end_game_logic_mobile(self, check_word, current_match_yellows):
+        global MOBILE_PLAYER_STATS, MOBILE_QUESTS
+        
+        grey_keys = sum(1 for btn in self.keyboard_keys if btn.cell_status == "not_in_word")
+        if grey_keys >= 10:
+            self.check_and_advance_mobile_quest("q8", 1)
+            
+        if check_word == self.secret_word:
+            self.handle_mobile_win()
+            return
+            
+        self.current_attempt += 1
+        self.current_word = ""
+        
+        if self.current_attempt >= 6:
+            self.handle_mobile_loss()
 
     def press_exit_key(self, instance):
         """Срабатывает при нажатии на ВЫХОД: сбрасывает поле и уводит в меню"""
@@ -851,6 +870,72 @@ class OnePlayerGameScreen(Screen):
             view.bind(on_dismiss=lambda x: self.press_exit_key(None))
             
         view.open()
+
+    def check_mobile_achievements(self, last_win_attempt=None):
+        """Проверка условий выдачи достижений и начисление монет"""
+        global MOBILE_PLAYER_STATS
+        import time
+        
+        stats = MOBILE_PLAYER_STATS
+        ach_base = stats.get("achivements_dict", {})
+        if not ach_base:
+            return
+
+        def give_mobile_reward(ach_id):
+            if ach_id in ach_base and not ach_base[ach_id].get("got", False):
+                ach_base[ach_id]["got"] = True
+                ach_base[ach_id]["date"] = time.strftime("%d.%m.%Y")
+                
+                rewards = {"common": 30, "rare": 50, "epic": 500}
+                reward = rewards.get(ach_base[ach_id].get("type", "common"), 0)
+                    
+                stats["player_coins"] = stats.get("player_coins", 0) + reward
+                print(f"[MGGamesStudio] Достижение: {ach_base[ach_id]['name']}. +{reward} монет!")
+
+        # 1. Накопительные ачивки (победы/поражения)
+        t_wins, t_losses = stats.get("total_wins", 0), stats.get("total_losses", 0)
+        win_cond = {5: "ach_1", 10: "ach_2", 15: "ach_3", 20: "ach_4", 25: "ach_5"}
+        loss_cond = {5: "ach_6", 10: "ach_7", 15: "ach_8", 20: "ach_9", 25: "ach_10"}
+        
+        if t_wins in win_cond: give_mobile_reward(win_cond[t_wins])
+        if t_losses in loss_cond: give_mobile_reward(loss_cond[t_losses])
+
+        # 2. Ачивки за попытку
+        if last_win_attempt is not None:
+            attempt_cond = {i: f"ach_{i+10}" for i in range(1, 7)}
+            if last_win_attempt in attempt_cond:
+                give_mobile_reward(attempt_cond[last_win_attempt])
+                
+        # Синхронизация данных
+        stats["unlocked_achivements"] = {k: {"got": v["got"], "date": v["date"]} for k, v in ach_base.items()}
+
+    def check_and_advance_mobile_quest(self, quest_id, amount=1):
+        """Продвижение прогресса ежедневного квеста и начисление награды"""
+        global MOBILE_PLAYER_STATS, MOBILE_QUESTS
+        
+        if quest_id in MOBILE_QUESTS:
+            q = MOBILE_QUESTS[quest_id]
+            if q.get("done", False):
+                return
+                
+            q["progress"] = q.get("progress", 0) + amount
+            goal = q.get("goal", 1)
+            
+            if q["progress"] >= goal:
+                q["progress"] = goal
+                q["done"] = True
+                
+                # Начисляем награду за выполненный квест
+                reward = q.get("reward", 50)
+                MOBILE_PLAYER_STATS["player_coins"] = MOBILE_PLAYER_STATS.get("player_coins", 0) + reward
+                MOBILE_PLAYER_STATS["total_completed_quests"] = MOBILE_PLAYER_STATS.get("total_completed_quests", 0) + 1
+                print(f"[MGGamesStudio] Квест выполнен: {q['name']}. +{reward} монет!")
+                
+            # Синхронизируем изменения с профилем для сохранения
+            if "active_quests" in MOBILE_PLAYER_STATS:
+                if quest_id in MOBILE_PLAYER_STATS["active_quests"]:
+                    MOBILE_PLAYER_STATS["active_quests"][quest_id]["progress"] = q["progress"]
+                    MOBILE_PLAYER_STATS["active_quests"][quest_id]["done"] = q["done"]
 
 class TwoPlayerGameScreen(Screen):
     def __init__(self, **kwargs):
