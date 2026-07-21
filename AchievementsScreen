@@ -1,0 +1,398 @@
+class AchievementsScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = FloatLayout()
+
+        # 1. Загружаем базовый макет с кнопкой (Самый нижний слой)
+        self.stub_layout = create_stub_layout(self, "")
+        self.layout.add_widget(self.stub_layout)
+        
+        # 2. Наша маскировочная подложка
+        self.top_overlay = FloatLayout(size_hint=(1, None))
+        with self.top_overlay.canvas.before:
+            Color(*color_bg)
+            self.overlay_rect = RoundedRectangle(pos=(0, 0), size=(360, 200), radius=[12])
+        self.layout.add_widget(self.top_overlay)
+
+        # =========================================================================
+        # ИСПРАВЛЕНО: ЖЁСТКО ПЕРЕВЕСИЛИ КНОПКУ ИЗ НИЖНЕГО СЛОЯ НА САМЫЙ ВЕРХ!
+        # =========================================================================
+        # Мы забираем кнопку из stub_layout, удаляем её оттуда и перекладываем поверх плашки
+        if self.stub_layout.children:
+            # Находим кнопку (обычно она первая в списке детей FloatLayout)
+            btn = [child for child in self.stub_layout.children if isinstance(child, MenuButton)][0]
+            self.stub_layout.remove_widget(btn)
+            self.layout.add_widget(btn) # Кладём на самый верхний рабочий слой!
+
+        # 3. Локальный заголовок "Достижения" (Тоже лежит сверху)
+        self.lbl_main_title = Label(
+            text="Достижения", 
+            font_name=resource_path("ClearSans-Bold.ttf"), 
+            bold=True, 
+            color=color_text,
+            size_hint=(None, None),
+            halign='left',
+            valign='middle'
+        )
+        self.layout.add_widget(self.lbl_main_title)
+        
+        # 3. На самый верхний слой укладываем горизонтальный скролл карточек статистики
+        self.stats_scroll = ScrollView(size_hint=(1, None), do_scroll_x=True, do_scroll_y=False, bar_width=0)
+        # ИСПРАВЛЕНО: Заменили DampedScrollEffect на ScrollEffect, чтобы убрать пружину!
+        from kivy.effects.scroll import ScrollEffect
+        self.stats_scroll.effect_cls = ScrollEffect
+        
+        self.stats_container = BoxLayout(orientation='vertical', spacing=8, size_hint=(None, None))
+        self.stats_row1 = BoxLayout(orientation='horizontal', spacing=10, size_hint=(None, None))
+        self.stats_row2 = BoxLayout(orientation='horizontal', spacing=10, size_hint=(None, None))
+        
+        self.stats_container.add_widget(self.stats_row1)
+        self.stats_container.add_widget(self.stats_row2)
+        self.stats_scroll.add_widget(self.stats_container)
+        self.layout.add_widget(self.stats_scroll)
+        
+        self.add_widget(self.layout)
+        self.bind(size=self.reposition_elements)
+
+        # =========================================================================
+        # ШАГ 1: Создаем вертикальный скролл для 16 плашек достижений
+        # =========================================================================
+        # bar_width=0 полностью убирает уродливую черную полосу скроллбара
+        self.scroll_view = ScrollView(size_hint=(1, None), do_scroll_x=False, do_scroll_y=True, bar_width=0)
+        
+        # Жесткий стопор: отключаем резиновый оверскролл Kivy, чтобы список стопорился на краях
+        # ИСПРАВЛЕНО: Заменили DampedScrollEffect на ScrollEffect, чтобы убрать пружину!
+        from kivy.effects.scroll import ScrollEffect
+        self.scroll_view.effect_cls = ScrollEffect
+        
+        # Вертикальная сетка в 1 столбец, которая будет автоматически растягиваться вниз
+        self.ach_list_layout = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=[0])
+        self.ach_list_layout.bind(minimum_height=self.ach_list_layout.setter('height'))
+        
+        # Собираем контейнеры вместе
+        self.scroll_view.add_widget(self.ach_list_layout)
+        
+        # КРИТИЧЕСКИ ВАЖНО: Добавляем на самый нижний слой FloatLayout, чтобы ачивки уплывали ПОД статы!
+        self.layout.add_widget(self.scroll_view)
+        
+        # Пересчитываем порядок слоев, чтобы скролл остался под top_overlay
+        if hasattr(self, 'top_overlay'):
+            self.layout.remove_widget(self.scroll_view)
+            # Вставляем на индекс 1 (сразу над фоновым макетом stub_layout, но под оверлеем)
+            self.layout.add_widget(self.scroll_view, index=len(self.layout.children))
+
+    def on_enter(self):
+        """Срабатывает автоматически при входе на экран достижений"""
+        self.refresh_stats_and_achievements()
+
+    def reposition_elements(self, instance, size):
+        """Полностью динамический расчет позиций для любого экрана телефона"""
+        win_w = Window.width
+        win_h = Window.height
+
+        # Вычисляем общую высоту верхней зоны (высота шапки + высота 2 рядов стат + зазоры)
+        # 54 (кнопка) + 44 (отступ) + 152 (статы) + 30 (зазоры) = примерно 280 пикселей
+        overlay_height = 280
+        
+        # Задаем размеры и позицию самому контейнеру подложки
+        self.top_overlay.height = overlay_height
+        self.top_overlay.pos = (0, win_h - overlay_height)
+        
+        # Синхронизируем графический прямоугольник RoundedRectangle
+        self.overlay_rect.size = (win_w, overlay_height)
+        self.overlay_rect.pos = (0, win_h - overlay_height)
+        
+        # Настройка шапки (Твой рабочий и выровненный вариант)
+        self.lbl_main_title.font_size = f"{min(win_w, win_h) * 0.08}px"
+        self.lbl_main_title.size = (win_w - 150, 54)
+        self.lbl_main_title.text_size = self.lbl_main_title.size
+        self.lbl_main_title.center_y = win_h - 54
+        self.lbl_main_title.x = 15
+        
+        # =========================================================================
+        # ДОБАВЛЕНО: Резиновое позиционирование двухэтажного блока под шапкой
+        # =========================================================================
+        # Высота блока: 2 ряда по 72px из file_3 + зазор 8px = 152px
+        self.stats_scroll.height = 152
+        
+        # Ставим строго под кнопочную зону (win_h - 54 - 44), опуская ниже на 15 пикселей зазора
+        self.stats_scroll.pos = (0, win_h - 54 - 44 - 152 - 15)
+        self.stats_container.height = 152
+
+        # Вертикальный скролл занимает всё оставшееся пространство от низа до панели стат
+        # Высота оверлея у нас была настроена (примерно 280px)
+        self.scroll_view.size = (win_w, win_h - 280 - 15)
+        self.scroll_view.pos = (0, 10) # Небольшой зазор от пола телефона
+        
+        # Растягиваем ширину внутренней сетки под ширину экрана смартфона
+        self.ach_list_layout.width = win_w
+
+    def create_card(self, label_text, val_text, val_color):
+        """Создает карточку статистики с огромными хитбоксами против любых переносов"""
+        card = FloatLayout(size_hint=(None, None), size=(385, 72))
+        
+        # Подложка плашки (светло-серая со скруглением 12)
+        with card.canvas.before:
+            Color(*color_blank)
+            r_rect = RoundedRectangle(pos=card.pos, size=card.size, radius=[12])
+        card.bind(pos=lambda inst, v: setattr(r_rect, 'pos', inst.pos), 
+                  size=lambda inst, v: setattr(r_rect, 'size', inst.size))
+        
+        # 1. ТЕКСТ ЯРЛЫКА (Слева, вернули оригинальный 20sp и дали огромный хитбокс 345px)
+        lbl_lbl = Label(
+            text=label_text, 
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size='20sp', 
+            color=color_not_in_word, 
+            size_hint=(None, None),
+            size=(345, 72),
+            text_size=(345, 72),  # ИСПРАВЛЕНО: Дали огромный хитбокс, чтобы ничего не переносилось
+            pos_hint={'x': 0.06, 'center_y': 0.5}, 
+            halign='left', 
+            valign='middle'
+        )
+        card.add_widget(lbl_lbl)
+        
+        # Оптический зум шрифта для больших чисел из твоей ПК-версии file_3
+        val_len = len(val_text)
+        if val_len >= 9:
+            v_font = '14sp'
+        elif val_len >= 6:
+            v_font = '20sp'
+        else:
+            v_font = '30sp'
+        
+        # 2. ЧИСЛОВОЕ ЗНАЧЕНИЕ (Справа, дали такой же огромный хитбокс 345px)
+        lbl_val = Label(
+            text=val_text, 
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size=v_font, 
+            color=val_color, 
+            bold=True, 
+            size_hint=(None, None),
+            size=(345, 72),
+            text_size=(345, 72),  # ИСПРАВЛЕНО: Дали огромный хитбокс, цифры никогда не улетят вниз
+            pos_hint={'right': 0.94, 'center_y': 0.5}, 
+            halign='right', 
+            valign='middle'
+        )
+        card.add_widget(lbl_val)
+        
+        return card
+    
+    def create_achievement_row(self, name, description, ach_data, got, date_str):
+        """Часть 1: Попиксельное смешивание цветов и точное чтение ключа 'type' из словаря лаунчера"""
+        row = FloatLayout(size_hint_y=None, height=110)
+        
+        # ЖЕСТКОЕ ИСПРАВЛЕНИЕ: Честный попиксельный расчет каналов (R, G, B) для Kivy-кортежей
+        def lerp_color(c1, c2, factor):
+            return (
+                c1[0] + (c2[0] - c1[0]) * factor,
+                c1[1] + (c2[1] - c1[1]) * factor,
+                c1[2] + (c2[2] - c1[2]) * factor,
+                1.0
+            )
+
+        # ТОЧНОЕ СЧИТЫВАНИЕ: Берем ключ 'type' прямо из твоего словаря achivements!
+        r_type = "common"
+        if isinstance(ach_data, dict):
+            r_type = ach_data.get("type", "common").lower().strip()
+
+        # Выставляем правильный текст и базовый цвет редкости
+        if r_type == "rare":
+            rare_color = lerp_color(color_text, color_in_word, 0.5)
+            type_text = "Редкое"
+        elif r_type == "epic":
+            rare_color = lerp_color(color_text, color_correct, 0.6)
+            type_text = "Эпическое"
+        else:
+            rare_color = lerp_color(color_text, color_bg, 0.3)
+            type_text = "Обычное"
+
+        # Настраиваем фон карточки в зависимости от того, разблокирована ачивка или нет
+        if got:
+            bg_color = color_blank
+            text_color = color_text
+            status_color = color_correct
+        else:
+            bg_color = lerp_color(color_blank, color_bg, 0.5)
+            text_color = lerp_color(color_text, color_bg, 0.4)
+            rare_color = lerp_color(rare_color, color_bg, 0.3)
+            status_color = color_not_in_word
+
+        # Рисуем подложку
+        with row.canvas.before:
+            Color(*bg_color)
+            bg_rect = RoundedRectangle(pos=row.pos, size=row.size, radius=[12])
+            
+            Color(*rare_color)
+            # Внутренние правые углы полоски — абсолютно острые (0), скруглены только левые внешние!
+            ribbon_rect = RoundedRectangle(pos=row.pos, size=(10, 110), radius=[(12, 12), (0, 0), (0, 0), (12, 12)])
+            
+        def sync_graphics(instance, value):
+            bg_rect.pos = (instance.x + 15, instance.y)
+            bg_rect.size = (instance.width - 30, instance.height)
+            ribbon_rect.pos = (instance.x + 15, instance.y)
+            ribbon_rect.size = (10, instance.height)
+        row.bind(pos=sync_graphics, size=sync_graphics)
+
+        return self.fill_achievement_widgets(row, name, description, got, date_str, type_text, rare_color, text_color, status_color, bg_rect, ribbon_rect)
+
+    def fill_achievement_widgets(self, row, name, description, got, date_str, type_text, rarity_color, text_color, status_color, bg_rect, ribbon_rect):
+        """Часть 2: Полностью динамическая высота плашки достижения на основе texture_size"""
+        
+        # Сбалансированная ширина для текста (6% отступы слева и справа)
+        text_w = Window.width - 45
+        font_path = resource_path("ClearSans-Bold.ttf")
+
+        # 1. НАЗВАНИЕ ДОСТИЖЕНИЯ (Высота управляется текстом, разрешен перенос на любое число строк!)
+        name_lbl = Label(
+            text=name.upper(), font_name=font_path,
+            font_size='18sp', color=text_color, bold=True,
+            size_hint=(None, None), width=text_w, text_size=(text_w, None),
+            halign='left', valign='top'
+        )
+        # Привязываем автоматический расчет высоты заголовка по тексту
+        name_lbl.bind(texture_size=lambda inst, sz: setattr(inst, 'height', sz[1]))
+
+        # 2. ОПИСАНИЕ ДОСТИЖЕНИЯ (Высота управляется текстом, растет строго вниз)
+        desc_lbl = Label(
+            text=description, font_name=font_path,
+            font_size='13sp', color=text_color,
+            size_hint=(None, None), width=text_w, text_size=(text_w, None),
+            halign='left', valign='top'
+        )
+        # Привязываем автоматический расчет высоты описания по тексту
+        desc_lbl.bind(texture_size=lambda inst, sz: setattr(inst, 'height', sz[1]))
+
+        # 3. НИЖНЯЯ ИНФО-СТРОКА (Высота 35px, статус прижат к right: 0.94 для идеальной симметрии!)
+        info_line = FloatLayout(size_hint=(1, None), height=35)
+        
+        lbl_rare = Label(
+            text=type_text, font_name=font_path, font_size='13sp', color=rarity_color, bold=True, 
+            size_hint=(None, None), size=(120, 35), text_size=(120, 35), 
+            pos_hint={'x': 0.06, 'center_y': 0.5}, halign='left', valign='middle'
+        )
+        
+        lbl_date = Label(
+            text=f"Дата: {date_str}" if (got and date_str) else "", 
+            font_name=font_path, font_size='12sp', color=color_not_in_word, bold=True, 
+            size_hint=(None, None), size=(240, 35), text_size=(240, 35), 
+            pos_hint={'center_x': 0.5, 'center_y': 0.5}, halign='center', valign='middle'
+        )
+        
+        lbl_stat = Label(
+            text="ПОЛУЧЕНО" if got else "НЕ ПОЛУЧЕНО", font_name=font_path, font_size='14sp', color=status_color, bold=True, 
+            size_hint=(None, None), size=(200, 35), text_size=(200, 35), 
+            pos_hint={'right': 0.94, 'center_y': 0.5}, halign='right', valign='middle'
+        )
+        
+        info_line.add_widget(lbl_rare)
+        info_line.add_widget(lbl_date)
+        info_line.add_widget(lbl_stat)
+
+        # Локальный FloatLayout для изоляции внутренних координат плашки
+        text_group = FloatLayout(size_hint=(1, 1), pos_hint={'x': 0, 'y': 0})
+        text_group.add_widget(name_lbl)
+        text_group.add_widget(desc_lbl)
+        text_group.add_widget(info_line)
+
+        # ФУНКЦИЯ ДИНАМИЧЕСКОГО СБОРЩИКА ВЫСОТЫ ПЛАШКИ
+        def sync_row_height(*args):
+            # Жестко обновляем высоты из Kivy-текстур (sz[1] — чистая высота в пикселях)
+            name_lbl.height = name_lbl.texture_size[1]
+            desc_lbl.height = desc_lbl.texture_size[1]
+            
+            # Твоя идеальная плотная математика из квестов: 4px верх + Текст + 2px зазор + Текст + 8px зазор + Инфо + 4px низ
+            total_h = 4 + name_lbl.height + 2 + desc_lbl.height + 8 + info_line.height + 4
+            
+            # Минимальный порог высоты 75px, чтобы пустые или короткие плашки оставались красивыми
+            row.height = max(75, total_h)
+            ribbon_rect.size = (10, row.height)
+            
+            # Выстраиваем элементы сверху вниз относительно динамического потолка row.height
+            name_lbl.pos_hint = {'x': 0.06, 'top': 1.0 - (4 / row.height)}
+            desc_lbl.pos_hint = {'x': 0.06, 'top': name_lbl.pos_hint['top'] - (name_lbl.height / row.height) - (2 / row.height)}
+            
+            # Инфо-строка лежит идеально зеркально на расстоянии 4 пикселя от пола карточки
+            info_line.pos_hint = {'x': 0, 'y': 4 / row.height}
+
+        # Привязываем триггеры пересчета к тексту
+        desc_lbl.bind(texture_size=sync_row_height)
+        name_lbl.bind(texture_size=sync_row_height)
+        row.bind(size=sync_row_height)
+
+        row.add_widget(text_group)
+        return row
+    
+    def build_achievements_list(self, launcher_achievements):
+        """Полный вывод достижений с автоматической сортировкой выполненных наверх"""
+        self.ach_list_layout.clear_widgets()
+        
+        if not launcher_achievements:
+            return
+
+        # ВОССТАНОВЛЕНО: Полученные (got=True) всегда уходят на самый верх списка!
+        all_keys = list(launcher_achievements.keys())
+        sorted_keys = sorted(all_keys, key=lambda k: launcher_achievements[k].get("got", False), reverse=True)
+        
+        for ach_key in sorted_keys:
+            ach_data = launcher_achievements[ach_key]
+            
+            name = ach_data.get("name", "Секретное достижение")
+            description = ach_data.get("description", "")
+            got = ach_data.get("got", False)
+            date_str = ach_data.get("date", "")
+            
+            # Передаем весь словарь настроек ach_data для корректного чтения флагов редкости
+            row_widget = self.create_achievement_row(name, description, ach_data, got, date_str)
+            self.ach_list_layout.add_widget(row_widget)
+
+    def refresh_stats_and_achievements(self):
+        """Загружает данные лаунчера и строит карточки статистики строго в 2 ряда."""
+        stats = MOBILE_PLAYER_STATS if ('MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS) else {}
+        launcher_ach = MOBILE_ACHIVEMENTS if ('MOBILE_ACHIVEMENTS' in globals() and MOBILE_ACHIVEMENTS) else {}
+        
+        coins = stats.get("player_coins", 0)
+        wins = stats.get("total_wins", 0)
+        losses = stats.get("total_losses", 0)
+        streak = f"{stats.get('current_win_streak', 0)}/{stats.get('max_win_streak', 0)}"
+        quests = stats.get("total_completed_quests", 0)
+        
+        got_count = sum(1 for ach in launcher_ach.values() if ach.get("got", False))
+        ach_ratio = f"{got_count}/{len(launcher_ach)}" if launcher_ach else "0/16"
+
+        self.stats_row1.clear_widgets()
+        self.stats_row2.clear_widgets()
+        
+        # Распределяем данные ровно по твоим цветам
+        row1_data = [
+            ("Монеты", str(coins), color_in_word),      # Жёлтый
+            ("Победы", str(wins), color_correct),       # Зелёный
+            ("Поражения", str(losses), color_text)      # Стандартный
+        ]
+        
+        row2_data = [
+            ("Серия побед", streak, color_text),
+            ("Достижения", ach_ratio, color_text),
+            ("Квесты", str(quests), color_text)
+        ]
+
+        for item in row1_data:
+            self.stats_row1.add_widget(self.create_card(*item))
+            
+        for item in row2_data:
+            self.stats_row2.add_widget(self.create_card(*item))
+
+        # ИСПРАВЛЕНО: Задаем отступы от стен на 10 пикселей именно для stats_container!
+        self.stats_container.padding = [10, 0, 10, 0]
+
+        # Фиксируем ширину (3 карточки * 385px + зазоры 20px + боковые отступы ленты 20px = 1195px)
+        total_scroll_width = 3 * 385 + 2 * 10 + 20
+        
+        self.stats_row1.size = (total_scroll_width - 20, 72)
+        self.stats_row2.size = (total_scroll_width - 20, 72)
+        self.stats_container.size = (total_scroll_width, 152)
+
+        # Добавь эту строчку в самый конец метода refresh_stats_and_achievements:
+        self.build_achievements_list(launcher_ach)
