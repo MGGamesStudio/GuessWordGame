@@ -856,7 +856,7 @@ def start_game_scene_1_1():
                                 game_grid[cell_idx].change_type("in_word")
                                 idx_in_remain = word_remain.index(current_letter)
                                 word_remain[idx_in_remain] = "_"
-                                player_coins += 3
+                                player_coins += 2
                                 
                                 current_match_yellows += 1
 
