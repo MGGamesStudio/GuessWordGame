@@ -278,6 +278,173 @@ class KeyButton(Button):
             
             RoundedRectangle(pos=self.pos, size=self.size, radius=[6])
 
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.behaviors import ButtonBehavior
+from kivy.graphics import Ellipse
+from kivy.graphics import Line
+from kivy.effects.scroll import ScrollEffect
+
+class ThemeCard(ButtonBehavior, FloatLayout):
+    def __init__(self, theme_id="classic", theme_name="Классика", theme_data=None, **kwargs):
+        # 1. СНАЧАЛА ЗАГРУЖАЕМ ВСЕ ДАННЫЕ И ПЕРЕМЕННЫЕ (ДО super())
+        self.is_active = False 
+        self.theme_id = theme_id
+        
+        if theme_data:
+            self.c_bg = theme_data.get('color_bg', color_bg)
+            self.c_text = theme_data.get('color_text', color_text)
+            self.c_correct = theme_data.get('color_correct', color_correct)
+            self.c_in_word = theme_data.get('color_in_word', color_in_word)
+            self.c_not_in_word = theme_data.get('color_not_in_word', color_not_in_word)
+            self.c_blank = theme_data.get('color_blank', color_blank)
+            self.c_key = theme_data.get('color_key', color_key)
+        else:
+            self.c_bg, self.c_text = color_bg, color_text
+            self.c_correct, self.c_in_word = color_correct, color_in_word
+            self.c_not_in_word, self.c_blank = color_not_in_word, color_blank
+            self.c_key = color_key
+
+        # Списки цветов теперь создаются тоже ДО super(), чтобы они всегда были доступны
+        self.block_colors = [self.c_blank, self.c_correct, self.c_in_word, self.c_not_in_word, self.c_blank]
+        self.text_colors  = [self.c_text, (1, 1, 1, 1), (0, 0, 0, 1), (1, 1, 1, 1), self.c_text]
+
+        # 2. И ТОЛЬКО ПОСЛЕ ЭТОГО ИНИЦИАЛИЗИРУЕМ ВИДЖЕТ
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+
+        # Отрисовка фона конкретной темы и кружка строго друг за другом
+        with self.canvas.before:
+            Color(*self.c_bg) # ЗАМЕНИЛИ color_bg НА self.c_bg, ЧТОБЫ ЦВЕТА ВЕРНУЛИСЬ
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[12])
+            
+            self.active_circle_color = Color(*self.c_correct)
+            self.active_circle = Ellipse(pos=(0, 0), size=(0, 0))
+            
+        # Название темы снизу (цветом текста конкретной темы!)
+        self.lbl_name = Label(
+            text=theme_name,
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size='18sp',
+            color=self.c_text,
+            bold=True,
+            size_hint=(None, None),
+            halign='center',
+            valign='middle'
+        )
+        self.lbl_name.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
+        self.add_widget(self.lbl_name)
+
+        self.tiles = []
+        self.tile_rects = []
+        self.tile_colors = []
+        
+        # Создаем 5 плиток "А"
+        for i in range(5):
+            lbl_a = Label(
+                text="A",
+                font_name=resource_path("ClearSans-Bold.ttf"),
+                font_size='22sp',
+                color=self.text_colors[i],
+                bold=True,
+                size_hint=(None, None),
+                halign='center',
+                valign='middle'
+            )
+            with self.canvas:
+                c_inst = Color(*self.block_colors[i])
+                rect = RoundedRectangle(pos=(0,0), size=(0,0), radius=[6])
+                self.tile_colors.append(c_inst)
+                self.tile_rects.append(rect)
+                
+            self.tiles.append(lbl_a)
+            self.add_widget(lbl_a)
+
+        # Отрисовка мини-клавиатуры цветом клавиш текущей темы (c_key)
+        self.kb_rects = []
+        self.kb_colors = []
+        with self.canvas:
+            for _ in range(20):
+                c_inst = Color(*self.c_key)
+                rect = RoundedRectangle(pos=(0,0), size=(0,0), radius=[3])
+                self.kb_colors.append(c_inst)
+                self.kb_rects.append(rect)
+            
+        self.bind(pos=self.update_graphics, size=self.update_graphics)
+
+        # Флаг: выбрана ли эта карточка игроком прямо сейчас
+        self.is_selected = False
+        
+        # Инструкция для жёлтой рамки выбора (рисуем в after, чтобы она была поверх всего)
+        with self.canvas.after:
+            self.select_line_color = Color(*color_in_word) # Твой жёлтый цвет
+            self.select_line = Line(width=2)
+
+    def update_graphics(self, instance, value):
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
+        
+        self.lbl_name.size = (self.width, 35)
+        self.lbl_name.pos = (self.x, self.y + 5)
+        
+        # Расчет сетки 1х5
+        tile_size = self.height * 0.33  
+        spacing = 8                     
+        total_grid_w = (tile_size * 5) + (spacing * 4)
+        start_x = self.x + (self.width - total_grid_w) / 2
+        tile_y = self.y + self.height - tile_size - 10
+        
+        for i, lbl_a in enumerate(self.tiles):
+            current_x = start_x + i * (tile_size + spacing)
+            lbl_a.size = (tile_size, tile_size)
+            lbl_a.pos = (current_x, tile_y)
+            lbl_a.text_size = (tile_size, tile_size)
+            
+            self.tile_colors[i].rgba = self.block_colors[i]
+            self.tile_rects[i].pos = (current_x, tile_y)
+            self.tile_rects[i].size = (tile_size, tile_size)
+
+        # Расчет мини-клавиатуры
+        kb_size = tile_size * 0.38  
+        kb_spacing_x = 4  
+        kb_spacing_y = 4  
+        total_kb_w = (kb_size * 10) + (kb_spacing_x * 9)
+        start_kb_x = self.x + (self.width - total_kb_w) / 2
+        start_kb_y = tile_y - (kb_size * 2 + kb_spacing_y) - 8
+        
+        for index in range(20):
+            row = index // 10  
+            col = index % 10   
+            kx = start_kb_x + col * (kb_size + kb_spacing_x)
+            ky = start_kb_y + (1 - row) * (kb_size + kb_spacing_y)
+            
+            self.kb_colors[index].rgba = self.c_key
+            self.kb_rects[index].pos = (kx, ky)
+            self.kb_rects[index].size = (kb_size, kb_size)
+
+        # --- РАСЧЕТ ИНДИКАТОРА АКТИВНОЙ ТЕМЫ ---
+        if self.is_active:
+            # Если тема активна, делаем аккуратный кружок диаметром 16 пикселей
+            circle_size = 16
+            # Смещаем его в правый верхний угол карточки с отступом 15px от краев
+            cx = self.x + self.width - circle_size - 15
+            cy = self.y + self.height - circle_size - 15
+            
+            self.active_circle_color.rgba = self.c_correct
+            self.active_circle.pos = (cx, cy)
+            self.active_circle.size = (circle_size, circle_size)
+        else:
+            # Если тема не активна, полностью скрываем кружок (размер 0)
+            self.active_circle.size = (0, 0)
+
+        # --- РАСЧЕТ РАМКИ ВЫБОРА ТЕМЫ ---
+        if self.is_selected:
+            # Если тема выбрана, рисуем рамку строго по контуру карточки со скруглением 12px
+            self.select_line_color.rgba = color_in_word
+            self.select_line.rounded_rectangle = (self.x, self.y, self.width, self.height, 12, 12, 12, 12)
+        else:
+            # Если тема не выбрана, убираем рамку (задаем нулевые координаты)
+            self.select_line.rounded_rectangle = (0, 0, 0, 0, 0)
+
 # ----- ИГРА ----
 class MenuScreen(Screen):
     def __init__(self, **kwargs):
@@ -1582,7 +1749,270 @@ class AchievementsScreen(Screen):
 class CustomizationScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.add_widget(create_stub_layout(self, "Кастомизация"))
+        self.layout = FloatLayout()
+        
+        with self.canvas.before:
+            Color(*color_bg)
+            self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
+            
+            Color(*color_bg)
+            self.top_pad_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[0])
+
+            Color(*color_bg)
+            self.bottom_pad_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[0])
+            
+            Color(*color_key)
+            self.block_coins_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[10])
+            self.block_theme_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[10])
+            self.block_status_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[10])
+            
+        self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
+        self.btn_back.font_size = '20sp'
+        self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'menu'))
+        
+        self.lbl_title = Label(
+            text="Кастомизация", 
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size='32sp', 
+            color=color_text, 
+            bold=True, 
+            size_hint=(None, None),
+            halign='left',
+            valign='middle'
+        )
+
+        # Тексты внутри блоков
+        self.lbl_coins_title = Label(text="Монеты:", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
+        self.lbl_theme_title = Label(text="Тема:", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
+        self.lbl_status_title = Label(text="Статус:", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
+
+        # Метка монет теперь горит цветом color_in_word
+        self.lbl_coins_val = Label(
+            text="0",  # Начальное значение (обновится в reposition_elements или при входе)
+            font_name=resource_path("ClearSans-Bold.ttf"), 
+            font_size='16sp', 
+            color=color_in_word,  # Поменяли на твой цвет
+            size_hint=(None, None), 
+            halign='center', 
+            valign='middle'
+        )
+        self.lbl_theme_val = Label(text="Классика", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
+        self.lbl_status_val = Label(text="Применено", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
+
+        for lbl in [self.lbl_coins_title, self.lbl_theme_title, self.lbl_status_title, self.lbl_coins_val, self.lbl_theme_val, self.lbl_status_val]:
+            lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
+
+        self.btn_action = MenuButton(text="КУПИТЬ", size_hint=(None, None))
+        self.btn_action.background_normal = 'atlas://data/images/defaulttheme/button_pressed'
+        self.btn_action.background_color = (0, 0, 0, 0)
+        self.btn_action.color = color_text
+        self.btn_action.font_size = '18sp'
+
+        with self.btn_action.canvas.before:
+            Color(*color_key)
+            self.rect_action = RoundedRectangle(pos=self.btn_action.pos, size=self.btn_action.size, radius=[12])
+
+        self.btn_sell = MenuButton(text="ПРОДАТЬ за 900", size_hint=(None, None))
+        self.btn_sell.background_normal = 'atlas://data/images/defaulttheme/button_pressed'
+        self.btn_sell.background_color = (0, 0, 0, 0)
+        self.btn_sell.color = color_text
+        self.btn_sell.font_size = '18sp'
+
+        with self.btn_sell.canvas.before:
+            Color(*color_key)
+            self.rect_sell = RoundedRectangle(pos=self.btn_sell.pos, size=self.btn_sell.size, radius=[12])
+
+        self.layout.add_widget(self.btn_action)
+        self.layout.add_widget(self.btn_sell)
+
+        self.layout.add_widget(self.lbl_title)
+        self.layout.add_widget(self.btn_back)
+        
+        self.layout.add_widget(self.lbl_coins_title)
+        self.layout.add_widget(self.lbl_theme_title)
+        self.layout.add_widget(self.lbl_status_title)
+        self.layout.add_widget(self.lbl_coins_val)
+        self.layout.add_widget(self.lbl_theme_val)
+        self.layout.add_widget(self.lbl_status_val)
+        
+        self.add_widget(self.layout)
+        self.bind(size=self.reposition_elements)
+
+        # Создаем окно прокрутки с жесткой остановкой без пружины
+        self.scroll_view = ScrollView(
+            size_hint=(None, None), 
+            do_scroll_x=False, 
+            do_scroll_y=True, 
+            bar_width=0,
+            effect_cls=ScrollEffect  # Переключаем на строгий эффект без баунса
+        )
+        
+        # Контейнер для списка тем (одна под другой)
+        self.scroll_content = BoxLayout(orientation='vertical', size_hint_y=None, spacing=15, padding=(15, 10))
+        self.scroll_content.bind(minimum_height=self.scroll_content.setter('height'))
+        
+        self.scroll_view.add_widget(self.scroll_content)
+        self.layout.add_widget(self.scroll_view)
+
+        # Оставляем эту строчку обязательно, она нужна для хранения карточек!
+        self.theme_cards = {} 
+        
+        # По умолчанию при старте выбираем "classic"
+        self.selected_theme_id = 'classic' 
+        
+        for t_id, t_data in color_themes.items():
+            t_title = t_data.get("color_name", t_id.capitalize())
+            card = ThemeCard(theme_id=t_id, theme_name=t_title, theme_data=t_data)
+            
+            # Привязываем выбор темы к клику на карточку
+            card.bind(on_release=lambda instance, x_id=t_id: self.select_theme(x_id))
+            
+            # По дефолту зажигаем зеленый индикатор у Классики
+            if t_id == 'classic':
+                card.is_active = True
+                card.update_graphics(card, card.size)
+                
+            self.theme_cards[t_id] = card
+            self.scroll_content.add_widget(card)
+            
+        # Активируем рамку выбора и тексты на верхней плашке для Классики
+        self.select_theme(self.selected_theme_id)
+
+    def reposition_elements(self, instance, size):
+        # Стучимся напрямую к запущенному приложению Кivy
+        app = App.get_running_app()
+        
+        # Список всех возможных мест, где игра или лаунчер могут хранить монеты player_coins
+        coins_found = None
+        
+        # 1. Проверяем в объекте приложения (app.stats или app.player_coins)
+        if hasattr(app, 'stats') and isinstance(app.stats, dict) and 'player_coins' in app.stats:
+            coins_found = app.stats['player_coins']
+        elif hasattr(app, 'player_coins'):
+            coins_found = app.player_coins
+            
+        # 2. Проверяем в менеджере экранов (self.manager.stats или self.manager.player_coins)
+        elif hasattr(self, 'manager') and self.manager:
+            if hasattr(self.manager, 'stats') and isinstance(self.manager.stats, dict) and 'player_coins' in self.manager.stats:
+                coins_found = self.manager.stats['player_coins']
+            elif hasattr(self.manager, 'player_coins'):
+                coins_found = self.manager.player_coins
+
+        # Если нашли монеты — выводим их на плашку, если нет — временно оставим старое число для теста
+        if coins_found is not None:
+            self.lbl_coins_val.text = str(coins_found)
+        else:
+            self.lbl_coins_val.text = "1250" # Страховочный тест, если экран запущен отдельно
+        win_w = Window.width
+        win_h = Window.height
+        
+        self.bg_rect.size = (win_w, win_h)
+        self.btn_back.pos = (win_w - 100 - 15, win_h - 54 - 44)
+        self.lbl_title.size = (win_w - 140, 54)
+        self.lbl_title.text_size = (win_w - 140, 54)
+        self.lbl_title.pos = (15, win_h - 54 - 44 + 20)
+        
+        top_pad_h = win_h * 0.12
+        top_pad_y = win_h - top_pad_h - 95
+        self.top_pad_rect.size = (win_w, top_pad_h)
+        self.top_pad_rect.pos = (0, top_pad_y)
+        
+        bottom_pad_h = win_h * 0.12
+        self.bottom_pad_rect.size = (win_w, bottom_pad_h)
+        self.bottom_pad_rect.pos = (0, 0)
+        
+        block_w = (win_w - 40) / 3
+        block_h = top_pad_h - 20
+        block_y = top_pad_y + 10
+        
+        x_coins = 10
+        x_theme = 10 + block_w + 10
+        x_status = 10 + block_w + 10 + block_w + 10
+        
+        self.block_coins_rect.size = (block_w, block_h)
+        self.block_coins_rect.pos = (x_coins, block_y)
+        
+        self.block_theme_rect.size = (block_w, block_h)
+        self.block_theme_rect.pos = (x_theme, block_y)
+        
+        self.block_status_rect.size = (block_w, block_h)
+        self.block_status_rect.pos = (x_status, block_y)
+        
+        row_h = block_h / 2
+        lbl_size = (block_w, row_h)
+        
+        y_titles = block_y + row_h
+        self.lbl_coins_title.size = lbl_size
+        self.lbl_coins_title.pos = (x_coins, y_titles)
+        self.lbl_theme_title.size = lbl_size
+        self.lbl_theme_title.pos = (x_theme, y_titles)
+        self.lbl_status_title.size = lbl_size
+        self.lbl_status_title.pos = (x_status, y_titles)
+        
+        y_vals = block_y
+        self.lbl_coins_val.size = lbl_size
+        self.lbl_coins_val.pos = (x_coins, y_vals)
+        self.lbl_theme_val.size = lbl_size
+        self.lbl_theme_val.pos = (x_theme, y_vals)
+        self.lbl_status_val.size = lbl_size
+        self.lbl_status_val.pos = (x_status, y_vals)
+
+        btn_w = (win_w - 30) / 2
+        btn_h = bottom_pad_h - 20
+        btn_y = 10 
+
+        self.btn_action.size = (btn_w, btn_h)
+        self.btn_action.pos = (10, btn_y)
+
+        self.btn_sell.size = (btn_w, btn_h)
+        self.btn_sell.pos = (10 + btn_w + 10, btn_y)
+
+        self.rect_action.pos = self.btn_action.pos
+        self.rect_action.size = self.btn_action.size
+
+        self.rect_sell.pos = self.btn_sell.pos
+        self.rect_sell.size = self.btn_sell.size
+
+        # Вычисляем верхнюю границу (где заканчивается верхняя плашка статусов)
+        scroll_top = top_pad_y - 15
+        
+        # Вычисляем нижнюю границу (где начинается нижняя плашка кнопок)
+        scroll_bottom = bottom_pad_h + 15
+        
+        # Высота прокручиваемой области — это всё пространство между ними
+        scroll_h = scroll_top - scroll_bottom
+        
+        # Настраиваем ScrollView строго под размеры экрана телефона
+        self.scroll_view.size = (win_w, scroll_h)
+        self.scroll_view.pos = (0, scroll_bottom)
+        
+        # Динамически задаем ширину и фиксированную высоту для КАЖДОЙ карточки внутри списка
+        for card in self.scroll_content.children:
+            card.size = (win_w - 30, 140)
+
+    def select_theme(self, theme_id):
+        self.selected_theme_id = theme_id
+        
+        # Переключаем рамки выбора
+        for t_id, card in self.theme_cards.items():
+            card.is_selected = (t_id == theme_id)
+            card.update_graphics(card, card.size)
+            
+        theme_data = color_themes[theme_id]
+        self.lbl_theme_val.text = theme_data.get("color_name", theme_id.capitalize())
+        
+        # Динамически меняем текст и ЦВЕТ статуса темы
+        if theme_data.get("unlocked", False):
+            if self.theme_cards[theme_id].is_active:
+                self.lbl_status_val.text = "Применено"
+                self.lbl_status_val.color = color_correct  # Поменяли на твой color_correct (зеленый)
+            else:
+                self.lbl_status_val.text = "Куплено"
+                self.lbl_status_val.color = (0, 0, 0, 1)  # Черный цвет для купленной темы
+        else:
+            price = theme_data.get('price', 1000)
+            self.lbl_status_val.text = f"{price} мон."
+            self.lbl_status_val.color = color_in_word  # Поменяли на твой color_in_word (желтый)
 
 class QuestsScreen(Screen):
     def __init__(self, **kwargs):
