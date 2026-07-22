@@ -1763,22 +1763,27 @@ class CustomizationScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
-        
+
         with self.canvas.before:
+            # Основной фон всего экрана кастомизации
             Color(*color_bg)
             self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
             
+            # ВАЖНО: Возвращаем большие фоновые плашки без скруглений для слияния
             Color(*color_bg)
             self.top_pad_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[0])
-
-            Color(*color_bg)
             self.bottom_pad_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[0])
             
-            Color(*color_key)
-            self.block_coins_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[10])
-            self.block_theme_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[10])
-            self.block_status_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[10])
+            # Переменные цвета и прямоугольники для 3 внутренних блоков (сверху)
+            self.top_coins_color = Color(*color_key)
+            self.block_coins_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[12])
             
+            self.top_theme_color = Color(*color_key)
+            self.block_theme_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[12])
+            
+            self.top_status_color = Color(*color_key)
+            self.block_status_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[12])
+
         self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
         self.btn_back.font_size = '20sp'
         self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'menu'))
@@ -1823,9 +1828,9 @@ class CustomizationScreen(Screen):
         self.btn_action.font_size = '18sp'
         self.btn_action.disabled_color = color_text 
 
-        # И только ПОСЛЕ этого вешаем на неё canvas инструкцию!
+        # Для нижних кнопок:
         with self.btn_action.canvas.before:
-            Color(*color_key)
+            self.btn_action_color = Color(*color_key) # Сохраняем ссылку
             self.rect_action = RoundedRectangle(pos=self.btn_action.pos, size=self.btn_action.size, radius=[12])
 
         # Аналогично для правой кнопки продажи
@@ -1837,7 +1842,7 @@ class CustomizationScreen(Screen):
         self.btn_sell.disabled_color = color_not_in_word
 
         with self.btn_sell.canvas.before:
-            Color(*color_key)
+            self.btn_sell_color = Color(*color_key) # Сохраняем ссылку
             self.rect_sell = RoundedRectangle(pos=self.btn_sell.pos, size=self.btn_sell.size, radius=[12])
 
         self.layout.add_widget(self.btn_action)
