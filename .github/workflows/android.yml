@@ -1,4 +1,4 @@
-\name: Build Android APK
+name: Build Android APK
 on: [push, pull_request]
 
 jobs:
@@ -18,7 +18,6 @@ jobs:
 
       - name: Build APK with Buildozer
         run: |
-          # Передаем "yes" прямо в команду сборки, чтобы автоматически принять все лицензии Google при скачивании SDK
           yes | ~/.local/bin/buildozer android debug
 
       - name: Upload APK Artifact
