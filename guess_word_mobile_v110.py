@@ -1459,7 +1459,157 @@ class TwoPlayerGameScreen(Screen):
 class HowToPlayScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.add_widget(create_stub_layout(self, "Как играть"))
+        self.layout = FloatLayout()
+        
+        # Кнопка НАЗАД в верхнем правом руку
+        self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
+        self.btn_back.font_size = '20sp'
+        self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'menu'))
+        self.layout.add_widget(self.btn_back)
+        
+        # Твой идеальный заголовок экрана
+        self.title_label = Label(
+            text="Как играть",
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size='28sp',
+            bold=True,
+            color=color_text,
+            size_hint=(None, None)
+        )
+        self.layout.add_widget(self.title_label)
+        
+        # Скролл-контейнер для мобильных устройств
+        self.scroll_view = ScrollView(size_hint=(None, None), do_scroll_x=False, do_scroll_y=True)
+        self.content_box = BoxLayout(orientation='vertical', spacing=20, size_hint_y=None, padding=[20, 10, 20, 20])
+        self.content_box.bind(minimum_height=self.content_box.setter('height'))
+        
+        # Списки для динамического перерасчета ширины текста в reposition_elements
+        self.title_labels = []
+        self.text_labels = []
+        self.row_labels = []
+
+        # --- Вспомогательные мини-функции для верстки контента ---
+        def add_title(text):
+            lbl = Label(text=text, font_name=resource_path("ClearSans-Bold.ttf"), font_size='18sp', 
+                        bold=True, color=color_in_word, size_hint_y=None, halign='left', valign='middle')
+            # Исправлено: берем высоту через val[1]
+            lbl.bind(texture_size=lambda inst, val: setattr(inst, 'height', val[1]))
+            self.title_labels.append(lbl)
+            self.content_box.add_widget(lbl)
+            
+        def add_text(text, custom_color=None):
+            lbl = Label(text=text, font_name=resource_path("ClearSans-Bold.ttf"), font_size='14sp', 
+                        color=custom_color if custom_color else color_text, size_hint_y=None, halign='left', valign='top')
+            # Исправлено: берем высоту через val[1]
+            lbl.bind(texture_size=lambda inst, val: setattr(inst, 'height', val[1]))
+            self.text_labels.append(lbl)
+            self.content_box.add_widget(lbl)
+            
+        def add_row(letter, status, description, text_col=None):
+            row = BoxLayout(orientation='horizontal', spacing=14, size_hint_y=None, height=54)
+            
+            # Ячейка с буквой, приподнятой на 5 пикселей вверх
+            cell = GameCell(size=(54, 54))
+            cell.text = letter
+            cell.change_type(status)
+            cell.text_size = cell.size
+            cell.halign = 'center'
+            cell.valign = 'middle'
+            cell.padding = [0, 0, 0, 5]
+            
+            desc = Label(text=description, font_name=resource_path("ClearSans-Bold.ttf"), font_size='14sp', 
+                        color=text_col if text_col else color_text, size_hint_y=None, halign='left', valign='top')
+            
+            # КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: берем строго высоту val[1] из кортежа texture_size
+            desc.bind(texture_size=lambda inst, val: [
+                setattr(inst, 'height', val[1]), 
+                setattr(row, 'height', max(54, val[1]))
+            ])
+            
+            row.add_widget(cell)
+            row.add_widget(desc)
+            self.row_labels.append(desc)
+            self.content_box.add_widget(row)
+
+        # --- ЗАПОЛНЕНИЕ ПОЛНЫМ ТЕКСТОМ ИЗ ПК-ВЕРСИИ ---
+        add_title("О ЧЕМ ЭТА ИГРА?")
+        add_text("Игра является цифровой головоломкой на логику и эрудицию.")
+        add_text("Ваша главная цель - за 6 попыток вычислить секретное слово.")
+        add_text("Загаданное слово всегда состоит строго из 5 букв.")
+        add_text("Вводите ваши варианты слов и следите за изменением цветов ячеек!")
+        add_text("Если вы потратите все 6 попыток и не угадаете - раунд завершится.", color_not_in_word)
+        
+        add_title("РАСШИФРОВКА ЦВЕТОВ ЯЧЕЕК:")
+        add_row("А", "blank", "- Цвет пустой клетки. Буква введена, но еще не подтверждена клавишей ВВОД.")
+        add_row("А", "not_in_word", "- Такой буквы нет в загаданном слове.\n  На клавиатуре клавиша станет серой.")
+        add_row("А", "in_word", "- Буква есть в слове, но в данный момент она стоит на другом месте.")
+        add_row("А", "correct", "- Буква угадана идеально и стоит на своем правильном месте!", color_correct)
+        add_text("Если все 5 букв в ряду загорелись зелёным - ВЫ ВЫИГРАЛИ!", color_correct)
+        add_text("Тратьте монеты в магазине Кастомизации, чтобы разблокировать новые цветовые палитры интерфейса.", color_not_in_word)
+        
+        add_title("ЭКОНОМИКА И ЗАРАБОТОК МОНЕТ:")
+        add_text("Каждая проверенная буква в раунде прибавляет монеты в ваш кошелёк:")
+        add_text("Зелёная ячейка (Точное попадание) - +5 монет", color_correct)
+        add_text("Жёлтая ячейка (Буква есть в слове) - +2 монеты", color_in_word)
+        add_text("Серая ячейка (Буквы нет в слове) - +1 монета", color_not_in_word)
+        add_text("Успешная полная победа в матче - +10 монет", color_correct)
+        
+        add_title("СИСТЕМА ДОСТИЖЕНИЙ:")
+        add_text("За выполнение особых условий во время игры вы получаете Достижения.")
+        add_text("При получении достижения оно показывается на экране.")
+        add_text("В зависимости от сложности, достижения выдают крупные бонусы:")
+        add_text("Лёгкие карточки наград - +30 монет")
+        add_text("Средние карточки наград - +50 монет", color_in_word)
+        add_text("Эпические карточки наград - +500 монет", color_correct)
+        
+        add_title("ЕЖЕДНЕВНЫЕ ЗАДАНИЯ И СЕРИИ:")
+        add_text("Каждые новые сутки строго в 00:00 игра выдаёт 5 случайных квестов.")
+        add_text("Выполняйте их в Одиночном режиме, чтобы забирать награды.")
+        add_text("Текст наград выполненных квестов на карточках становится серым.")
+        add_text("Копите непрерывные серии побед, чтобы увеличивать Серию побед.")
+        add_text("Внимание: ЛЮБОЕ поражение полностью сбрасывает Серию побед!", color_not_in_word)
+
+        self.scroll_view.add_widget(self.content_box)
+        self.layout.add_widget(self.scroll_view)
+        self.add_widget(self.layout)
+        
+        # Подписка на обновление размеров экрана
+        self.bind(size=self.reposition_elements)
+
+    def reposition_elements(self, instance, size):
+        win_w, win_h = Window.width, Window.height
+        
+        # Расчет верхней линии кнопок
+        btn_y = win_h - 54 - 44
+        self.btn_back.pos = (win_w - 100 - 15, btn_y)
+        
+        # Твой проверенный заголовок
+        self.title_label.texture_update()
+        self.title_label.size = self.title_label.texture_size
+        self.title_label.x = 15
+        self.title_label.y = btn_y + 15
+        
+        # Настройка скролл-зоны
+        self.scroll_view.size = (win_w, btn_y - 20)
+        self.scroll_view.pos = (0, 0)
+        
+        # ЖЕСТКОЕ ОТКЛЮЧЕНИЕ НАТЯГИВАНИЯ И ПОЛОСЫ ПРОКРУТКИ
+        self.scroll_view.effect_cls = ScrollEffect
+        if self.scroll_view.effect_cls:
+            self.scroll_view.effect_cls.bounces = False  # Отключает резиновое натягивание списка
+        self.scroll_view.bar_width = 0                   # Полностью убирает боковую полосу прокрутки
+        
+        # Перевод размеров в int для Kivy
+        text_width = int(win_w - 40)
+        row_text_width = int(win_w - 40 - 54 - 14)
+        
+        # Передаем тексту его честную ширину, чтобы Kivy переносил строки, а не обрубал их
+        for lbl in self.title_labels:
+            lbl.text_size = (text_width, None)
+        for lbl in self.text_labels:
+            lbl.text_size = (text_width, None)
+        for lbl in self.row_labels:
+            lbl.text_size = (row_text_width, None)
 
 class AchievementsScreen(Screen):
     def __init__(self, **kwargs):
