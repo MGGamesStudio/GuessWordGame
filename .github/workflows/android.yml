@@ -1,4 +1,4 @@
-name: Build Android APK
+\name: Build Android APK
 on: [push, pull_request]
 
 jobs:
@@ -16,15 +16,10 @@ jobs:
         run: |
           pip3 install --user buildozer
 
-      - name: Auto-accept Android Licenses
-        run: |
-          mkdir -p ~/.android
-          touch ~/.android/repositories.cfg
-          yes | ~/.local/bin/buildozer android licenses
-
       - name: Build APK with Buildozer
         run: |
-          ~/.local/bin/buildozer android debug
+          # Передаем "yes" прямо в команду сборки, чтобы автоматически принять все лицензии Google при скачивании SDK
+          yes | ~/.local/bin/buildozer android debug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
