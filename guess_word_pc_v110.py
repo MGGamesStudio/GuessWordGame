@@ -1140,7 +1140,7 @@ def start_game_scene_2():
             font_45.render_to(screen, (70, 260), "ЭКОНОМИКА И ЗАРАБОТОК МОНЕТ:", color_in_word)
             font_30.render_to(screen, (70, 340), "Каждая проверенная буква в раунде прибавляет монеты в ваш кошелёк:", color_text)
             font_30.render_to(screen, (100, 400), "Зелёная ячейка (Точное попадание) - +5 монет", color_correct)
-            font_30.render_to(screen, (100, 450), "Жёлтая ячейка (Буква есть в слове) - +3 монеты", color_in_word)
+            font_30.render_to(screen, (100, 450), "Жёлтая ячейка (Буква есть в слове) - +2 монеты", color_in_word)
             font_30.render_to(screen, (100, 500), "Серая ячейка (Буквы нет в слове) - +1 монета", color_not_in_word)
             font_30.render_to(screen, (100, 550), "Успешная полная победа в матче - +10 монет", color_correct)
 
