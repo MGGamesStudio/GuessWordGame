@@ -3,26 +3,13 @@ on: [push, pull_request]
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install System Dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y build-essential git ccache python3-dev python3-pip libffi-dev zlib1g-dev libssl-dev openjdk-17-jdk unzip python3-virtualenv
-
-      - name: Install Latest Buildozer from Source
-        run: |
-          # Теперь адрес указан полностью и без ошибок
-          pip3 install --user git+https://github.com
-
-      - name: Build APK with Buildozer
-        run: |
-          yes | ~/.local/bin/buildozer android debug
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+      # Используем официальный готовый сборщик от авторов Kivy
+      - name: Build with Buildozer
+        uses: Enteee/buildozer-action@v2
         with:
-          name: guess-word-apk
-          path: bin/*.apk
+          command: buildozer android debug
+          repository_root: .
