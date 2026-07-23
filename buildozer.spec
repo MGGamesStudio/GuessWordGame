@@ -1,5 +1,5 @@
 [app]
-title = Guess Word Game
+title = Угадай Слово
 package.name = guesswordgame
 package.domain = org.mggamesstudio
 source.dir = .
