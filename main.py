@@ -131,17 +131,6 @@ if START_MOBILE:
     os.environ["MGGAMES_MODE"] = "mobile"
     print("[MGGamesStudio] ЗАПУСК МОБИЛЬНОЙ ВЕРСИИ ИГРЫ")
     
-    config_x = 360 # 360
-    config_y = 640 # 640
-    
-    from kivy.config import Config
-    Config.set('graphics', 'resizable', False)
-    Config.set('graphics', 'width', f'{config_x}')
-    Config.set('graphics', 'height', f'{config_y}')
-    
-    from kivy.core.window import Window
-    Window.size = (config_x, config_y)
-    
     try:
         import guess_word_mobile_v110
         saved_ach = PLAYER_STATS.get("unlocked_achivements", {})
