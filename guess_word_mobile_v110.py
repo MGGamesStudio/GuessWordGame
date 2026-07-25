@@ -78,41 +78,28 @@ def redraw_all_screens():
     if not app or not app.root: 
         return
         
-    sm = app.root  # Твой ScreenManager
-    
-    # 1. Меняем цвет самого окна Kivy (на случай, если фон завязан на clearcolor)
+    sm = app.root
+
     Window.clearcolor = color_bg
 
-    # 2. Безопасно обновляем ВСЕ инструкции цвета на холсте менеджера экранов БЕЗ .clear()
     if hasattr(sm, 'canvas'):
-        # Проверяем .before холст
         if sm.canvas.before:
             for instr in sm.canvas.before.children:
                 if instr.__class__.__name__ == 'Color':
                     instr.rgba = color_bg
-        # Проверяем основной холст
         if sm.canvas.children:
             for instr in sm.canvas.children:
                 if instr.__class__.__name__ == 'Color':
-                    # Перекрашиваем только фоновые цвета (обычно они идут первыми)
                     instr.rgba = color_bg
-
-    # 3. Отключаем анимацию переходов на время перезагрузки
     old_transition = sm.transition
     sm.transition = NoTransition()
-    
-    # 4. Временно уходим на меню
     sm.current = 'menu'
-    
-    # 5. Собираем список всех экранов
     screens_to_recreate = [screen.name for screen in list(sm.screens)]
-    
-    # 6. Вычищаем все старые экраны из памяти
+
     for screen_name in screens_to_recreate:
         old_scr = sm.get_screen(screen_name)
         sm.remove_widget(old_scr)
-    
-    # 7. Пересоздаем все экраны с нуля с новыми глобальными цветами кнопок и текстов
+
     sm.add_widget(MenuScreen(name='menu'))
     sm.add_widget(GameScreen(name='game'))
     sm.add_widget(HowToPlayScreen(name='how_to_play'))
@@ -121,11 +108,8 @@ def redraw_all_screens():
     sm.add_widget(QuestsScreen(name='quests'))
     sm.add_widget(OnePlayerGameScreen(name='one_player_game'))
     sm.add_widget(TwoPlayerGameScreen(name='two_player_game'))
-    
-    # 8. Возвращаем игрока обратно в кастомизацию
+
     sm.current = 'customization'
-    
-    # 9. Восстанавливаем анимацию
     sm.transition = old_transition
 
 def apply_adaptive_fonts(screen_instance, cell_height, key_height):
