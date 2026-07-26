@@ -49,6 +49,35 @@ color_in_word = color_themes["classic"]["color_in_word"]
 color_not_in_word = color_themes["classic"]["color_not_in_word"]
 color_key = color_themes["classic"]["color_key"]
 
+# Универсальная функция подгонки шрифта для ЛЮБОГО Label в игре
+def fit_font_size(label, max_allowed_w, start_font_px):
+    """
+    Жестко подгоняет размер шрифта под максимальную ширину в пикселях.
+    Убирает text_size, чтобы исключить паразитные переносы строк Kivy.
+    """
+    label.text_size = (None, None)
+    current_font = int(start_font_px)
+    label.font_size = f"{current_font}px"
+    label.texture_update()
+    
+    # Сжимаем шрифт по пикселю, пока строка не уложится в рамки
+    while label.texture_size[0] > max_allowed_w and current_font > 8:
+        current_font -= 1
+        label.font_size = f"{current_font}px"
+        label.texture_update()
+
+# Универсальный хелпер для подготовки BoxLayout к ручной динамической верстке
+def prepare_layout_for_dynamic_sizes(container, child_widgets):
+    """
+    Отключает size_hint_y у дочерних элементов, чтобы BoxLayout
+    не растягивал их автоматически и слушался заданных в пикселях параметров.
+    """
+    container.size_hint_y = None
+    for widget in child_widgets:
+        widget.size_hint_y = None
+        if widget.parent is None:
+            container.add_widget(widget)
+
 def choose_theme(theme):
     global color_name, color_bg, color_text, color_blank, color_correct, color_in_word, color_not_in_word, color_key
     new_theme = color_themes[theme]
@@ -507,65 +536,122 @@ class ThemeCard(ButtonBehavior, FloatLayout):
 class MenuScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        layout = FloatLayout()
+        self.layout = FloatLayout()
         
-        layout.add_widget(Label(
+        # Главный заголовок
+        self.title_label = Label(
             text="Угадай слово", 
             font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size='52sp', 
             bold=True, 
             color=color_text,
-            size_hint=(1, None), 
-            height=80,
-            pos_hint={'center_x': 0.5, 'center_y': 0.88}))
+            size_hint=(None, None), 
+            halign='center', 
+            valign='middle'
+        )
         
-        buttons_container = BoxLayout(
+        # Контейнер для кнопок (отключаем size_hint по вертикали, чтобы BoxLayout слушался ручной высоты)
+        self.buttons_container = BoxLayout(
             orientation='vertical', 
-            spacing=14, 
-            size_hint=(0.93, None), 
-            height=476,
-            pos_hint={'center_x': 0.5, 'center_y': 0.50} )
+            size_hint=(None, None)
+        )
         
-        # Кнопки
-        btn_play = MenuButton(text="Играть", size_hint=(1, None), height=84)
-        btn_play.bind(on_release=lambda x: setattr(self.manager, 'current', 'game'))
-        buttons_container.add_widget(btn_play)
+        # Основные кнопки
+        self.buttons = [
+            MenuButton(text="Играть"),
+            MenuButton(text="Как играть"),
+            MenuButton(text="Достижения"),
+            MenuButton(text="Кастомизация")
+        ]
         
-        btn_how = MenuButton(text="Как играть", size_hint=(1, None), height=84)
-        btn_how.bind(on_release=lambda x: setattr(self.manager, 'current', 'how_to_play'))
-        buttons_container.add_widget(btn_how)
+        # Нижний ряд кнопок
+        self.bottom_row = BoxLayout(orientation='horizontal', size_hint=(1, None))
+        self.btn_quests = MenuButton(text="Квесты", size_hint=(0.5, 1))
+        self.btn_exit = MenuButton(text="Выйти", size_hint=(0.5, 1))
+        self.bottom_row.add_widget(self.btn_quests)
+        self.bottom_row.add_widget(self.btn_exit)
         
-        btn_achievements = MenuButton(text="Достижения", size_hint=(1, None), height=84)
-        btn_achievements.bind(on_release=lambda x: setattr(self.manager, 'current', 'achievements'))
-        buttons_container.add_widget(btn_achievements)
-        
-        btn_customization = MenuButton(text="Кастомизация", size_hint=(1, None), height=84)
-        btn_customization.bind(on_release=lambda x: setattr(self.manager, 'current', 'customization'))
-        buttons_container.add_widget(btn_customization)
-        
-        # Нижний ряд (Квесты и Выйти)
-        bottom_row = BoxLayout(orientation='horizontal', spacing=14, size_hint=(1, None), height=84)
-        
-        btn_quests = MenuButton(text="Квесты", size_hint=(0.5, 1))
-        btn_quests.bind(on_release=lambda x: setattr(self.manager, 'current', 'quests'))
-        bottom_row.add_widget(btn_quests)
-        
-        btn_exit = MenuButton(text="Выйти", size_hint=(0.5, 1))
-        btn_exit.bind(on_release=lambda x: App.get_running_app().stop())
-        bottom_row.add_widget(btn_exit)
-        
-        buttons_container.add_widget(bottom_row)
-        layout.add_widget(buttons_container)
-        
-        copy_label = Label(
+        # Принудительно ставим size_hint_y=None для корректной работы BoxLayout
+        for btn in self.buttons:
+            btn.size_hint_y = None
+            self.buttons_container.add_widget(btn)
+            
+        self.bottom_row.size_hint_y = None
+        self.buttons_container.add_widget(self.bottom_row)
+            
+        # Нижний копирайт
+        self.copy_label = Label(
             text="Угадай слово by MGGamesStudio. v.1.1.0", 
             font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size='11sp', 
-            color=color_not_in_word, 
-            pos_hint={'center_x': 0.5, 'center_y': 0.03})
-        layout.add_widget(copy_label)
+            color=color_not_in_word,
+            size_hint=(None, None),
+            halign='center',
+            valign='middle'
+        )
         
-        self.add_widget(layout)
+        self.layout.add_widget(self.title_label)
+        self.layout.add_widget(self.buttons_container)
+        self.layout.add_widget(self.copy_label)
+        self.add_widget(self.layout)
+        
+        self.bind(size=self.reposition_menu_elements)
+
+    def reposition_menu_elements(self, *args):
+        win_w, win_h = Window.width, Window.height
+        
+        # 1. Блок кнопок (ровно 50% высоты и 90% ширины экрана)
+        container_w = win_w * 0.9
+        container_h = win_h * 0.5
+        
+        self.buttons_container.size = (container_w, container_h)
+        self.buttons_container.center = (win_w / 2, win_h / 2)
+        
+        total_elements = 5
+        spacing_h = container_h * 0.03
+        self.buttons_container.spacing = spacing_h
+        
+        btn_h = (container_h - (spacing_h * (total_elements - 1))) / total_elements
+        
+        for btn in self.buttons:
+            btn.height = btn_h
+            btn.font_size = f"{int(btn_h * 0.36)}sp"
+            
+        self.bottom_row.height = btn_h
+        self.bottom_row.spacing = container_w * 0.04
+        self.btn_quests.font_size = f"{int(btn_h * 0.36)}sp"
+        self.btn_exit.font_size = f"{int(btn_h * 0.36)}sp"
+
+        # 2. Главный заголовок (высота строго 30% от свободного места сверху)
+        distance_to_top = win_h - self.buttons_container.top
+        title_h = distance_to_top * 0.30
+        title_w = win_w * 0.9
+        
+        self.title_label.size = (title_w, title_h)
+        
+        # Полностью убираем text_size, чтобы Kivy вообще не думал о переносах строки
+        self.title_label.text_size = (None, None)
+        
+        self.title_label.center_x = win_w / 2
+        self.title_label.y = self.buttons_container.top + (distance_to_top - title_h) / 2
+        
+        # Стартовый размер шрифта в пикселях
+        current_font_px = int(title_h * 0.8)
+        self.title_label.font_size = f"{current_font_px}px"
+        self.title_label.texture_update()
+        
+        # Жесткий цикл: пока ширина текста больше 90% экрана — уменьшаем шрифт
+        max_allowed_w = win_w * 0.9
+        while self.title_label.texture_size[0] > max_allowed_w and current_font_px > 10:
+            current_font_px -= 1
+            self.title_label.font_size = f"{current_font_px}px"
+            self.title_label.texture_update() # Принудительно перерисовываем текстуру для проверки ширины
+
+        # 3. Нижний копирайт
+        copy_h = win_h * 0.03
+        self.copy_label.size = (win_w * 0.9, copy_h)
+        self.copy_label.text_size = (win_w * 0.9, copy_h)
+        self.copy_label.center_x = win_w / 2
+        self.copy_label.y = win_h * 0.02
+        self.copy_label.font_size = f"{int(copy_h * 0.8)}sp"
 
 class GameScreen(Screen):
     def __init__(self, **kwargs):
@@ -2808,8 +2894,7 @@ class MobileApp(App):
 
         choose_theme(saved_theme)
         Window.clearcolor = color_bg
-        
-        # ИСПРАВЛЕНО: Накрываем менеджер экранов единым фоном, который никогда не мигает!
+
         sm = ScreenManager(transition=NoTransition())
         sm.add_widget(MenuScreen(name='menu'))
         sm.add_widget(GameScreen(name='game'))
@@ -2826,8 +2911,7 @@ def start_mobile_game(words_list, player_stats, save_function):
     MOBILE_ALL_WORDS = words_list
     MOBILE_PLAYER_STATS = player_stats
     MOBILE_SAVE_FUNC = save_function
-    
-    # Считывание достижений (Твой рабочий код)
+
     if "achivements_dict" in player_stats and player_stats["achivements_dict"]:
         MOBILE_ACHIVEMENTS = player_stats["achivements_dict"]
     else:
