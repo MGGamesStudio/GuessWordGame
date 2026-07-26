@@ -3,7 +3,6 @@ import sys
 import json
 import random
 from platformdirs import user_data_dir
-from kivy.utils import platform
 
 # ----- ДОСТИЖЕНИЯ -----
 achivements = {
@@ -55,7 +54,6 @@ try:
 except Exception:
     SAVE_FILE_PATH = "guess_word_save_file_guess_word_save_file.json"
 
-# Сохранение
 def load_words_list():
     words = resource_path("guess_word_words_list.txt")
     if not os.path.exists(words):
@@ -112,20 +110,7 @@ PLAYER_STATS = load_game_progress()
 
 print(f"[MGGamesStudio] Успешно загружено уникальных слов: {len(ALL_WORDS)}")
 
-# Лаунчер
-# "auto"   — игра сама определяет платформу (ПК на Pygame или телефон на Kivy)
-# "1"      — ПК ВЕРСИЯ
-# "2"      — МОБИЛЬНАЯ ВЕРСИЯ
-DEV_MODE = "auto"
-START_MOBILE = False
-
-if platform in ('android', 'ios'):
-    START_MOBILE = True
-else:
-    if DEV_MODE == "auto" or DEV_MODE == "1":
-        START_MOBILE = False
-    elif DEV_MODE == "2":
-        START_MOBILE = True
+START_MOBILE = True
 
 if START_MOBILE:
     os.environ["MGGAMES_MODE"] = "mobile"
@@ -140,9 +125,6 @@ if START_MOBILE:
                     achivements[ach_key]["got"] = saved_data.get("got", False)
                     achivements[ach_key]["date"] = saved_data.get("date", "")
 
-        # =========================================================================
-        # ИСПРАВЛЕНО: Безопасный первый старт без вылетов, если сейв пустой
-        # =========================================================================
         import time
         import copy
         
@@ -152,15 +134,13 @@ if START_MOBILE:
         last_update_day = PLAYER_STATS.get("last_update_day", -1)
         saved_quests = PLAYER_STATS.get("active_quests", {})
 
-        # Если день сменился ИЛИ в сейве вообще нет активных квестов (чистый старт!)
         if current_day != last_update_day or not saved_quests:
             print("[MGGamesStudio] Чистый старт или новый день! Генерируем 5 квестов...")
             
             commons = [k for k, v in all_quests.items() if v.get("type", "common") == "common"]
             rares = [k for k, v in all_quests.items() if v.get("type", "common") == "rare"]
             epics = [k for k, v in all_quests.items() if v.get("type", "common") == "epic"]
-            
-            # Страховка: проверяем, что в базе хватает квестов для выборки
+
             if len(commons) >= 2 and len(rares) >= 2 and len(epics) >= 1:
                 chosen_keys = random.sample(commons, 2) + random.sample(rares, 2) + random.sample(epics, 1)
             else:
@@ -177,7 +157,6 @@ if START_MOBILE:
             save_game_progress(PLAYER_STATS)
             saved_quests = new_active_quests
         else:
-            # Если день тот же, просто синхронизируем прогресс
             for q_key, saved_data in saved_quests.items():
                 if q_key in all_quests:
                     all_quests[q_key]["progress"] = saved_data.get("progress", 0)
