@@ -38,32 +38,6 @@ all_quests = {
     "q11": {"type": "epic", "name": "ЛИНГВИСТ-МАРАФОН", "description": "Одержите 5 побед за день.", "reward": 350, "goal": 5, "progress": 0, "done": False},
     "q12": {"type": "epic", "name": "ЮВЕЛИРНАЯ РАБОТА", "description": "Выиграйте игру, ни разу не нажав 'СТЕРЕТЬ'.", "reward": 350, "goal": 1, "progress": 0, "done": False}
 }
-# ----- ЦВЕТА -----
-color_themes = {
-    "classic": {"color_name": "Классика", "price": 0, "unlocked": True, "color_bg": (255/255, 255/255, 255/255, 1.0), "color_text": (31/255, 41/255, 55/255, 1.0), "color_blank": (229/255, 231/255, 235/255, 1.0), "color_correct": (34/255, 197/255, 94/255, 1.0), "color_in_word": (250/255, 204/255, 21/255, 1.0), "color_not_in_word": (148/255, 163/255, 184/255, 1.0), "color_key": (226/255, 232/255, 240/255, 1.0)},
-    "night": {"color_name": "Ночь", "price": 0, "unlocked": True, "color_bg": (15/255, 23/255, 42/255, 1.0), "color_text": (248/255, 250/255, 252/255, 1.0), "color_blank": (30/255, 41/255, 59/255, 1.0), "color_correct": (34/255, 197/255, 94/255, 1.0), "color_in_word": (234/255, 179/255, 8/255, 1.0), "color_not_in_word": (71/255, 85/255, 105/255, 1.0), "color_key": (51/255, 65/255, 85/255, 1.0)},
-    "ocean": {"color_name": "Океан", "price": 1000, "unlocked": False, "color_bg": (224/255, 242/255, 254/255, 1.0), "color_text": (15/255, 23/255, 42/255, 1.0), "color_blank": (186/255, 230/255, 253/255, 1.0), "color_correct": (2/255, 132/255, 199/255, 1.0), "color_in_word": (56/255, 189/255, 248/255, 1.0), "color_not_in_word": (148/255, 163/255, 184/255, 1.0), "color_key": (125/255, 211/255, 252/255, 1.0)},
-    "sunset": {"color_name": "Закат", "price": 1000, "unlocked": False, "color_bg": (255/255, 247/255, 237/255, 1.0), "color_text": (67/255, 20/255, 7/255, 1.0), "color_blank": (254/255, 215/255, 170/255, 1.0), "color_correct": (234/255, 88/255, 12/255, 1.0), "color_in_word": (251/255, 191/255, 36/255, 1.0), "color_not_in_word": (168/255, 162/255, 158/255, 1.0), "color_key": (253/255, 186/255, 116/255, 1.0)},
-    "sakura": {"color_name": "Сакура", "price": 1000, "unlocked": False, "color_bg": (255/255, 241/255, 242/255, 1.0), "color_text": (74/255, 4/255, 78/255, 1.0), "color_blank": (251/255, 207/255, 232/255, 1.0), "color_correct": (236/255, 72/255, 153/255, 1.0), "color_in_word": (244/255, 114/255, 182/255, 1.0), "color_not_in_word": (203/255, 213/255, 225/255, 1.0), "color_key": (253/255, 164/255, 175/255, 1.0)},
-    "forest": {"color_name": "Лес", "price": 1000, "unlocked": False, "color_bg": (240/255, 253/255, 244/255, 1.0), "color_text": (5/255, 46/255, 22/255, 1.0), "color_blank": (187/255, 247/255, 208/255, 1.0), "color_correct": (21/255, 128/255, 61/255, 1.0), "color_in_word": (101/255, 163/255, 13/255, 1.0), "color_not_in_word": (148/255, 163/255, 184/255, 1.0), "color_key": (134/255, 239/255, 172/255, 1.0)},
-    "royal": {"color_name": "Король", "price": 1000, "unlocked": False, "color_bg": (245/255, 243/255, 255/255, 1.0), "color_text": (46/255, 16/255, 101/255, 1.0), "color_blank": (221/255, 214/255, 254/255, 1.0), "color_correct": (124/255, 58/255, 237/255, 1.0), "color_in_word": (168/255, 85/255, 247/255, 1.0), "color_not_in_word": (148/255, 163/255, 184/255, 1.0), "color_key": (196/255, 181/255, 253/255, 1.0)},
-    "lava": {"color_name": "Лава", "price": 1000, "unlocked": False, "color_bg": (254/255, 242/255, 242/255, 1.0), "color_text": (69/255, 10/255, 10/255, 1.0), "color_blank": (254/255, 202/255, 202/255, 1.0), "color_correct": (220/255, 38/255, 38/255, 1.0), "color_in_word": (251/255, 146/255, 60/255, 1.0), "color_not_in_word": (156/255, 163/255, 175/255, 1.0), "color_key": (248/255, 113/255, 113/255, 1.0)},
-    "emerald": {"color_name": "Изумруд", "price": 1000, "unlocked": False, "color_bg": (236/255, 253/255, 245/255, 1.0), "color_text": (2/255, 44/255, 34/255, 1.0), "color_blank": (167/255, 243/255, 208/255, 1.0), "color_correct": (5/255, 150/255, 105/255, 1.0), "color_in_word": (16/255, 185/255, 129/255, 1.0), "color_not_in_word": (148/255, 163/255, 184/255, 1.0), "color_key": (110/255, 231/255, 183/255, 1.0)},
-    "candy": {"color_name": "Конфета", "price": 1000, "unlocked": False, "color_bg": (255/255, 247/255, 251/255, 1.0), "color_text": (131/255, 24/255, 67/255, 1.0), "color_blank": (249/255, 168/255, 212/255, 1.0), "color_correct": (236/255, 72/255, 153/255, 1.0), "color_in_word": (244/255, 114/255, 182/255, 1.0), "color_not_in_word": (203/255, 213/255, 225/255, 1.0), "color_key": (253/255, 164/255, 175/255, 1.0)},
-    "neon": {"color_name": "Неон", "price": 1000, "unlocked": False, "color_bg": (15/255, 23/255, 42/255, 1.0), "color_text": (255/255, 255/255, 255/255, 1.0), "color_blank": (51/255, 65/255, 85/255, 1.0), "color_correct": (0/255, 255/255, 136/255, 1.0), "color_in_word": (255/255, 230/255, 0/255, 1.0), "color_not_in_word": (100/255, 116/255, 139/255, 1.0), "color_key": (0/255, 217/255, 255/255, 1.0)},
-    "gold": {"color_name": "Золото", "price": 1000, "unlocked": False, "color_bg": (255/255, 251/255, 235/255, 1.0), "color_text": (120/255, 53/255, 15/255, 1.0), "color_blank": (253/255, 230/255, 138/255, 1.0), "color_correct": (217/255, 119/255, 6/255, 1.0), "color_in_word": (250/255, 204/255, 21/255, 1.0), "color_not_in_word": (168/255, 162/255, 158/255, 1.0), "color_key": (251/255, 191/255, 36/255, 1.0)}}
-
-MOBILE_ACHIVEMENTS = {}
-MOBILE_QUESTS = {}
-
-color_name = color_themes["classic"]["color_name"]
-color_bg = color_themes["classic"]["color_bg"]
-color_text = color_themes["classic"]["color_text"]
-color_blank = color_themes["classic"]["color_blank"]
-color_correct = color_themes["classic"]["color_correct"]
-color_in_word = color_themes["classic"]["color_in_word"]
-color_not_in_word = color_themes["classic"]["color_not_in_word"]
-color_key = color_themes["classic"]["color_key"]
 
 def resource_path(relative_path):
     try:
@@ -132,6 +106,8 @@ def save_game_progress(stats):
         print(f"[MGGamesStudio] Ошибка сохранения данных: {e}")
 
 # ============================================================
+# ==============  guess_word_mobile_v110.py  ================
+# ============================================================
 
 import os
 import sys
@@ -156,6 +132,33 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 from kivy.graphics import Color, RoundedRectangle
+
+# ----- ЦВЕТА -----
+color_themes = {
+    "classic": {"color_name": "Классика", "price": 0, "unlocked": True, "color_bg": (255/255, 255/255, 255/255, 1.0), "color_text": (31/255, 41/255, 55/255, 1.0), "color_blank": (229/255, 231/255, 235/255, 1.0), "color_correct": (34/255, 197/255, 94/255, 1.0), "color_in_word": (250/255, 204/255, 21/255, 1.0), "color_not_in_word": (148/255, 163/255, 184/255, 1.0), "color_key": (226/255, 232/255, 240/255, 1.0)},
+    "night": {"color_name": "Ночь", "price": 0, "unlocked": True, "color_bg": (15/255, 23/255, 42/255, 1.0), "color_text": (248/255, 250/255, 252/255, 1.0), "color_blank": (30/255, 41/255, 59/255, 1.0), "color_correct": (34/255, 197/255, 94/255, 1.0), "color_in_word": (234/255, 179/255, 8/255, 1.0), "color_not_in_word": (71/255, 85/255, 105/255, 1.0), "color_key": (51/255, 65/255, 85/255, 1.0)},
+    "ocean": {"color_name": "Океан", "price": 1000, "unlocked": False, "color_bg": (224/255, 242/255, 254/255, 1.0), "color_text": (15/255, 23/255, 42/255, 1.0), "color_blank": (186/255, 230/255, 253/255, 1.0), "color_correct": (2/255, 132/255, 199/255, 1.0), "color_in_word": (56/255, 189/255, 248/255, 1.0), "color_not_in_word": (148/255, 163/255, 184/255, 1.0), "color_key": (125/255, 211/255, 252/255, 1.0)},
+    "sunset": {"color_name": "Закат", "price": 1000, "unlocked": False, "color_bg": (255/255, 247/255, 237/255, 1.0), "color_text": (67/255, 20/255, 7/255, 1.0), "color_blank": (254/255, 215/255, 170/255, 1.0), "color_correct": (234/255, 88/255, 12/255, 1.0), "color_in_word": (251/255, 191/255, 36/255, 1.0), "color_not_in_word": (168/255, 162/255, 158/255, 1.0), "color_key": (253/255, 186/255, 116/255, 1.0)},
+    "sakura": {"color_name": "Сакура", "price": 1000, "unlocked": False, "color_bg": (255/255, 241/255, 242/255, 1.0), "color_text": (74/255, 4/255, 78/255, 1.0), "color_blank": (251/255, 207/255, 232/255, 1.0), "color_correct": (236/255, 72/255, 153/255, 1.0), "color_in_word": (244/255, 114/255, 182/255, 1.0), "color_not_in_word": (203/255, 213/255, 225/255, 1.0), "color_key": (253/255, 164/255, 175/255, 1.0)},
+    "forest": {"color_name": "Лес", "price": 1000, "unlocked": False, "color_bg": (240/255, 253/255, 244/255, 1.0), "color_text": (5/255, 46/255, 22/255, 1.0), "color_blank": (187/255, 247/255, 208/255, 1.0), "color_correct": (21/255, 128/255, 61/255, 1.0), "color_in_word": (101/255, 163/255, 13/255, 1.0), "color_not_in_word": (148/255, 163/255, 184/255, 1.0), "color_key": (134/255, 239/255, 172/255, 1.0)},
+    "royal": {"color_name": "Король", "price": 1000, "unlocked": False, "color_bg": (245/255, 243/255, 255/255, 1.0), "color_text": (46/255, 16/255, 101/255, 1.0), "color_blank": (221/255, 214/255, 254/255, 1.0), "color_correct": (124/255, 58/255, 237/255, 1.0), "color_in_word": (168/255, 85/255, 247/255, 1.0), "color_not_in_word": (148/255, 163/255, 184/255, 1.0), "color_key": (196/255, 181/255, 253/255, 1.0)},
+    "lava": {"color_name": "Лава", "price": 1000, "unlocked": False, "color_bg": (254/255, 242/255, 242/255, 1.0), "color_text": (69/255, 10/255, 10/255, 1.0), "color_blank": (254/255, 202/255, 202/255, 1.0), "color_correct": (220/255, 38/255, 38/255, 1.0), "color_in_word": (251/255, 146/255, 60/255, 1.0), "color_not_in_word": (156/255, 163/255, 175/255, 1.0), "color_key": (248/255, 113/255, 113/255, 1.0)},
+    "emerald": {"color_name": "Изумруд", "price": 1000, "unlocked": False, "color_bg": (236/255, 253/255, 245/255, 1.0), "color_text": (2/255, 44/255, 34/255, 1.0), "color_blank": (167/255, 243/255, 208/255, 1.0), "color_correct": (5/255, 150/255, 105/255, 1.0), "color_in_word": (16/255, 185/255, 129/255, 1.0), "color_not_in_word": (148/255, 163/255, 184/255, 1.0), "color_key": (110/255, 231/255, 183/255, 1.0)},
+    "candy": {"color_name": "Конфета", "price": 1000, "unlocked": False, "color_bg": (255/255, 247/255, 251/255, 1.0), "color_text": (131/255, 24/255, 67/255, 1.0), "color_blank": (249/255, 168/255, 212/255, 1.0), "color_correct": (236/255, 72/255, 153/255, 1.0), "color_in_word": (244/255, 114/255, 182/255, 1.0), "color_not_in_word": (203/255, 213/255, 225/255, 1.0), "color_key": (253/255, 164/255, 175/255, 1.0)},
+    "neon": {"color_name": "Неон", "price": 1000, "unlocked": False, "color_bg": (15/255, 23/255, 42/255, 1.0), "color_text": (255/255, 255/255, 255/255, 1.0), "color_blank": (51/255, 65/255, 85/255, 1.0), "color_correct": (0/255, 255/255, 136/255, 1.0), "color_in_word": (255/255, 230/255, 0/255, 1.0), "color_not_in_word": (100/255, 116/255, 139/255, 1.0), "color_key": (0/255, 217/255, 255/255, 1.0)},
+    "gold": {"color_name": "Золото", "price": 1000, "unlocked": False, "color_bg": (255/255, 251/255, 235/255, 1.0), "color_text": (120/255, 53/255, 15/255, 1.0), "color_blank": (253/255, 230/255, 138/255, 1.0), "color_correct": (217/255, 119/255, 6/255, 1.0), "color_in_word": (250/255, 204/255, 21/255, 1.0), "color_not_in_word": (168/255, 162/255, 158/255, 1.0), "color_key": (251/255, 191/255, 36/255, 1.0)}}
+
+MOBILE_ACHIVEMENTS = {}
+MOBILE_QUESTS = {}
+
+color_name = color_themes["classic"]["color_name"]
+color_bg = color_themes["classic"]["color_bg"]
+color_text = color_themes["classic"]["color_text"]
+color_blank = color_themes["classic"]["color_blank"]
+color_correct = color_themes["classic"]["color_correct"]
+color_in_word = color_themes["classic"]["color_in_word"]
+color_not_in_word = color_themes["classic"]["color_not_in_word"]
+color_key = color_themes["classic"]["color_key"]
 
 # Универсальная функция подгонки шрифта для ЛЮБОГО Label в игре
 def fit_font_size(label, max_allowed_w, start_font_px):
@@ -230,15 +233,17 @@ def redraw_all_screens():
                     instr.rgba = color_bg
     old_transition = sm.transition
     sm.transition = NoTransition()
-    sm.current = 'menu'
+    sm.current = 'main'
     screens_to_recreate = [screen.name for screen in list(sm.screens)]
 
     for screen_name in screens_to_recreate:
         old_scr = sm.get_screen(screen_name)
         sm.remove_widget(old_scr)
 
+    sm.add_widget(MainScreen(name='main'))
     sm.add_widget(MenuScreen(name='menu'))
-    sm.add_widget(GameScreen(name='game'))
+    sm.add_widget(PlayScreen(name='play'))
+    sm.add_widget(OptionsScreen(name='options'))
     sm.add_widget(HowToPlayScreen(name='how_to_play'))
     sm.add_widget(AchievementsScreen(name='achievements'))
     sm.add_widget(CustomizationScreen(name='customization'))
@@ -641,7 +646,7 @@ class ThemeCard(ButtonBehavior, FloatLayout):
         return super().on_touch_down(touch)
 
 # ----- ИГРА ----
-class MenuScreen(Screen):
+class MainScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -663,36 +668,27 @@ class MenuScreen(Screen):
             size_hint=(None, None)
         )
         
-        # Основные кнопки
+        # Три кнопки верхнего уровня: Играть / Меню / Настройки
         self.buttons = [
             MenuButton(text="Играть"),
-            MenuButton(text="Как играть"),
-            MenuButton(text="Достижения"),
-            MenuButton(text="Кастомизация")
+            MenuButton(text="Меню"),
+            MenuButton(text="Настройки")
         ]
+        for btn in self.buttons:
+            btn.font_name = resource_path("ClearSans-Bold.ttf")
 
-        # Привязка нажатий к переходам между экранами (в исходном коде отсутствовала)
-        self.buttons[0].bind(on_release=lambda x: setattr(self.manager, 'current', 'game'))
-        self.buttons[1].bind(on_release=lambda x: setattr(self.manager, 'current', 'how_to_play'))
-        self.buttons[2].bind(on_release=lambda x: setattr(self.manager, 'current', 'achievements'))
-        self.buttons[3].bind(on_release=lambda x: setattr(self.manager, 'current', 'customization'))
-        
-        # Нижний ряд кнопок
-        self.bottom_row = BoxLayout(orientation='horizontal', size_hint=(1, None))
-        self.btn_quests = MenuButton(text="Квесты", size_hint=(0.5, 1))
-        self.btn_exit = MenuButton(text="Выйти", size_hint=(0.5, 1))
-        self.btn_quests.bind(on_release=lambda x: setattr(self.manager, 'current', 'quests'))
-        self.btn_exit.bind(on_release=lambda x: App.get_running_app().stop())
-        self.bottom_row.add_widget(self.btn_quests)
-        self.bottom_row.add_widget(self.btn_exit)
+        # "Играть" выделяем акцентным зелёным цветом темы (color_correct), остальные - обычные
+        self.buttons[0].base_color = color_correct
+        self.buttons[0].color = (1.0, 1.0, 1.0, 1.0)
+
+        self.buttons[0].bind(on_release=lambda x: setattr(self.manager, 'current', 'play'))
+        self.buttons[1].bind(on_release=lambda x: setattr(self.manager, 'current', 'menu'))
+        self.buttons[2].bind(on_release=lambda x: setattr(self.manager, 'current', 'options'))
         
         # Принудительно ставим size_hint_y=None для корректной работы BoxLayout
         for btn in self.buttons:
             btn.size_hint_y = None
             self.buttons_container.add_widget(btn)
-            
-        self.bottom_row.size_hint_y = None
-        self.buttons_container.add_widget(self.bottom_row)
             
         # Нижний копирайт
         self.copy_label = Label(
@@ -710,9 +706,10 @@ class MenuScreen(Screen):
         self.add_widget(self.layout)
         
         self.bind(size=self.reposition_menu_elements)
+        self.reposition_menu_elements()
 
     def reposition_menu_elements(self, *args):
-        win_w, win_h = Window.width, Window.height
+        win_w, win_h = self.width, self.height
         
         # 1. Блок кнопок (ровно 50% высоты и 90% ширины экрана)
         container_w = win_w * 0.9
@@ -721,8 +718,8 @@ class MenuScreen(Screen):
         self.buttons_container.size = (container_w, container_h)
         self.buttons_container.center = (win_w / 2, win_h / 2)
         
-        total_elements = 5
-        spacing_h = container_h * 0.03
+        total_elements = 3
+        spacing_h = container_h * 0.07
         self.buttons_container.spacing = spacing_h
         
         btn_h = (container_h - (spacing_h * (total_elements - 1))) / total_elements
@@ -730,11 +727,6 @@ class MenuScreen(Screen):
         for btn in self.buttons:
             btn.height = btn_h
             btn.font_size = f"{int(btn_h * 0.36)}sp"
-            
-        self.bottom_row.height = btn_h
-        self.bottom_row.spacing = container_w * 0.04
-        self.btn_quests.font_size = f"{int(btn_h * 0.36)}sp"
-        self.btn_exit.font_size = f"{int(btn_h * 0.36)}sp"
 
         # 2. Главный заголовок (высота строго 30% от свободного места сверху)
         distance_to_top = win_h - self.buttons_container.top
@@ -761,62 +753,227 @@ class MenuScreen(Screen):
             self.title_label.font_size = f"{current_font_px}px"
             self.title_label.texture_update() # Принудительно перерисовываем текстуру для проверки ширины
 
-        # 3. Нижний копирайт
+        # 3. Нижний копирайт (тот же принцип, что и у заголовка - никогда не переносится, шрифт сам уменьшается)
         copy_h = win_h * 0.03
-        self.copy_label.size = (win_w * 0.9, copy_h)
-        self.copy_label.text_size = (win_w * 0.9, copy_h)
+        self.copy_label.text_size = (None, None)
         self.copy_label.center_x = win_w / 2
         self.copy_label.y = win_h * 0.02
-        self.copy_label.font_size = f"{int(copy_h * 0.8)}sp"
 
-class GameScreen(Screen):
+        copy_font_px = int(copy_h * 0.9)
+        self.copy_label.font_size = f"{copy_font_px}px"
+        self.copy_label.texture_update()
+
+        max_copy_w = win_w * 0.94
+        while self.copy_label.texture_size[0] > max_copy_w and copy_font_px > 6:
+            copy_font_px -= 1
+            self.copy_label.font_size = f"{copy_font_px}px"
+            self.copy_label.texture_update()
+
+        self.copy_label.size = self.copy_label.texture_size
+
+class MenuScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        layout = FloatLayout()
-        
-        btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
-        btn_back.pos = (Window.width - 100 - 15, Window.height - 54 - 44)
-        btn_back.font_size = '20sp'
-        btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'menu'))
-        layout.add_widget(btn_back)
-        
-        layout.add_widget(Label(
-            text="ВЫБЕРИТЕ РЕЖИМ ИГРЫ", 
+        self.layout = FloatLayout()
+
+        self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
+        self.btn_back.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_back.font_size = '20sp'
+        self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'main'))
+        self.layout.add_widget(self.btn_back)
+
+        self.title_label = Label(
+            text="Меню",
             font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size='26sp', 
-            bold=True, 
+            bold=True,
             color=color_text,
-            size_hint=(1, None), 
-            height=60,
-            pos_hint={'center_x': 0.5, 'center_y': 0.85}
-        ))
-        
-        mode_container = BoxLayout(
-            orientation='vertical', 
-            spacing=55, 
-            size_hint=(None, None), 
-            size=(350, 440),
-            pos_hint={'center_x': 0.5, 'center_y': 0.5}
+            size_hint=(None, None),
+            halign='left',
+            valign='middle'
         )
-        
-        btn_1p = ModeButton(
+        self.layout.add_widget(self.title_label)
+
+        self.buttons_container = BoxLayout(orientation='vertical', size_hint=(None, None))
+
+        self.buttons = [
+            MenuButton(text="Как играть"),
+            MenuButton(text="Достижения"),
+            MenuButton(text="Кастомизация"),
+            MenuButton(text="Квесты")
+        ]
+        for btn in self.buttons:
+            btn.font_name = resource_path("ClearSans-Bold.ttf")
+            btn.size_hint_y = None
+            self.buttons_container.add_widget(btn)
+
+        self.buttons[0].bind(on_release=lambda x: setattr(self.manager, 'current', 'how_to_play'))
+        self.buttons[1].bind(on_release=lambda x: setattr(self.manager, 'current', 'achievements'))
+        self.buttons[2].bind(on_release=lambda x: setattr(self.manager, 'current', 'customization'))
+        self.buttons[3].bind(on_release=lambda x: setattr(self.manager, 'current', 'quests'))
+
+        self.layout.add_widget(self.buttons_container)
+        self.add_widget(self.layout)
+
+        self.bind(size=self.reposition_elements)
+        self.reposition_elements()
+
+    def reposition_elements(self, *args):
+        win_w, win_h = Window.width, Window.height
+
+        self.btn_back.pos = (win_w - 100 - 15, win_h - 54 - 44)
+
+        self.title_label.size = (win_w * 0.6, win_h * 0.06)
+        self.title_label.text_size = self.title_label.size
+        self.title_label.pos = (win_w * 0.06, win_h - 44 - self.title_label.height)
+        self.title_label.font_size = f"{int(win_h * 0.035)}sp"
+
+        container_w = win_w * 0.9
+        container_h = win_h * 0.6
+        self.buttons_container.size = (container_w, container_h)
+        self.buttons_container.center = (win_w / 2, win_h / 2)
+
+        total_elements = 4
+        spacing_h = container_h * 0.05
+        self.buttons_container.spacing = spacing_h
+
+        btn_h = (container_h - (spacing_h * (total_elements - 1))) / total_elements
+        for btn in self.buttons:
+            btn.height = btn_h
+            btn.font_size = f"{int(btn_h * 0.34)}sp"
+
+class OptionsScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = FloatLayout()
+
+        self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
+        self.btn_back.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_back.font_size = '20sp'
+        self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'main'))
+        self.layout.add_widget(self.btn_back)
+
+        self.title_label = Label(
+            text="Настройки",
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            bold=True,
+            color=color_text,
+            size_hint=(None, None),
+            halign='left',
+            valign='middle'
+        )
+        self.layout.add_widget(self.title_label)
+
+        # Заглушка - раздел ещё не спроектирован
+        self.placeholder_label = Label(
+            text="Раздел в разработке",
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            color=color_not_in_word,
+            size_hint=(None, None),
+            halign='center',
+            valign='middle'
+        )
+        self.layout.add_widget(self.placeholder_label)
+
+        # Временно кнопка выхода живёт тут, пока не спроектирован полноценный экран настроек
+        self.btn_exit = MenuButton(text="Выйти из игры")
+        self.btn_exit.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_exit.bind(on_release=lambda x: App.get_running_app().stop())
+        self.layout.add_widget(self.btn_exit)
+
+        self.add_widget(self.layout)
+        self.bind(size=self.reposition_elements)
+        self.reposition_elements()
+
+    def reposition_elements(self, *args):
+        win_w, win_h = Window.width, Window.height
+
+        self.btn_back.pos = (win_w - 100 - 15, win_h - 54 - 44)
+
+        self.title_label.size = (win_w * 0.8, win_h * 0.06)
+        self.title_label.text_size = self.title_label.size
+        self.title_label.pos = (win_w * 0.06, win_h - 44 - self.title_label.height)
+        self.title_label.font_size = f"{int(win_h * 0.035)}sp"
+
+        self.placeholder_label.size = (win_w * 0.8, win_h * 0.06)
+        self.placeholder_label.text_size = self.placeholder_label.size
+        self.placeholder_label.center = (win_w / 2, win_h / 2 + win_h * 0.05)
+        self.placeholder_label.font_size = f"{int(win_h * 0.022)}sp"
+
+        self.btn_exit.size = (win_w * 0.7, win_h * 0.08)
+        self.btn_exit.center = (win_w / 2, win_h * 0.25)
+        self.btn_exit.font_size = f"{int(win_h * 0.024)}sp"
+
+class PlayScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = FloatLayout()
+
+        self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
+        self.btn_back.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_back.font_size = '20sp'
+        self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'main'))
+        self.layout.add_widget(self.btn_back)
+
+        self.title_label = Label(
+            text="ВЫБЕРИТЕ РЕЖИМ ИГРЫ",
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            bold=True,
+            color=color_text,
+            size_hint=(None, None),
+            halign='center',
+            valign='middle'
+        )
+        self.layout.add_widget(self.title_label)
+
+        self.mode_container = BoxLayout(
+            orientation='vertical',
+            size_hint=(None, None)
+        )
+
+        self.btn_1p = ModeButton(
             title_text="1 ИГРОК", 
             description_text="С достижениями и монетами", 
             description_color=color_correct,
             on_release=lambda x: setattr(self.manager, 'current', 'one_player_game')
         )
-        mode_container.add_widget(btn_1p)
+        self.mode_container.add_widget(self.btn_1p)
         
-        btn_2p = ModeButton(
+        self.btn_2p = ModeButton(
             title_text="2 ИГРОКА", 
             description_text="Без достижений и монет", 
             description_color=color_not_in_word,
             on_release=lambda x: setattr(self.manager, 'current', 'two_player_game')
         )
-        mode_container.add_widget(btn_2p)
+        self.mode_container.add_widget(self.btn_2p)
         
-        layout.add_widget(mode_container)
-        self.add_widget(layout)
+        self.layout.add_widget(self.mode_container)
+        self.add_widget(self.layout)
+
+        self.bind(size=self.reposition_elements)
+        self.reposition_elements()
+
+    def reposition_elements(self, *args):
+        win_w, win_h = Window.width, Window.height
+
+        self.btn_back.pos = (win_w - 100 - 15, win_h - 54 - 44)
+
+        self.title_label.size = (win_w * 0.9, win_h * 0.08)
+        self.title_label.text_size = (None, None)
+        self.title_label.center_x = win_w / 2
+        self.title_label.y = win_h * 0.82
+        self.title_label.font_size = f"{int(win_h * 0.032)}sp"
+
+        container_w = min(win_w * 0.85, 420)
+        container_h = win_h * 0.55
+        self.mode_container.size = (container_w, container_h)
+        self.mode_container.center = (win_w / 2, win_h * 0.42)
+
+        spacing_v = container_h * 0.12
+        self.mode_container.spacing = spacing_v
+        card_h = (container_h - spacing_v) / 2
+
+        for card in (self.btn_1p, self.btn_2p):
+            card.size = (container_w, card_h)
 
 class OnePlayerGameScreen(Screen):
     def __init__(self, **kwargs):
@@ -1190,7 +1347,7 @@ class OnePlayerGameScreen(Screen):
 
     def press_exit_key(self, instance):
         self.reset_game()
-        self.manager.current = 'game'
+        self.manager.current = 'play'
 
     def reset_game(self):
         for cell in self.cells:
@@ -1555,7 +1712,7 @@ class TwoPlayerGameScreen(Screen):
 
     def press_exit_key(self, instance):
         self.reset_game()
-        self.manager.current = 'game'
+        self.manager.current = 'play'
 
     def reset_game(self):
         self.stage = "setup"
@@ -3012,8 +3169,10 @@ class MobileApp(App):
         Window.clearcolor = color_bg
 
         sm = ScreenManager(transition=NoTransition())
+        sm.add_widget(MainScreen(name='main'))
         sm.add_widget(MenuScreen(name='menu'))
-        sm.add_widget(GameScreen(name='game'))
+        sm.add_widget(PlayScreen(name='play'))
+        sm.add_widget(OptionsScreen(name='options'))
         sm.add_widget(HowToPlayScreen(name='how_to_play'))
         sm.add_widget(AchievementsScreen(name='achievements'))
         sm.add_widget(CustomizationScreen(name='customization'))
