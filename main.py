@@ -115,6 +115,7 @@ import random
 
 from kivy.app import App
 from kivy.core.window import Window
+from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
@@ -123,6 +124,11 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.modalview import ModalView
 from kivy.uix.scrollview import ScrollView
+
+# Защитные отступы сверху/снизу, чтобы кнопки и текст никогда не попадали
+# под системные шторки Android (статус-бар сверху, жесты/навигация снизу)
+TOP_SAFE_MARGIN = dp(32)
+BOTTOM_SAFE_MARGIN = dp(28)
 
 def resource_path(relative_path):
     try:
@@ -188,6 +194,27 @@ def prepare_layout_for_dynamic_sizes(container, child_widgets):
         widget.size_hint_y = None
         if widget.parent is None:
             container.add_widget(widget)
+
+def position_header(title_label, back_btn, win_w, win_h):
+    """
+    Стандартная шапка экрана: заголовок слева, кнопка "Назад" справа сверху.
+    Учитывает верхний защитный отступ (TOP_SAFE_MARGIN), чтобы не попадать
+    под статус-бар Android. Возвращает Y-координату, ниже которой уже
+    безопасно располагать остальной контент экрана.
+    """
+    back_w, back_h = dp(92), dp(48)
+    back_btn.size = (back_w, back_h)
+    back_btn.pos = (win_w - back_w - dp(14), win_h - TOP_SAFE_MARGIN - back_h)
+    fit_font_size(back_btn, back_w - dp(18), back_h * 0.42)
+
+    title_box_w = win_w * 0.55
+    title_h = min(win_h * 0.05, dp(32))
+    title_label.pos = (win_w * 0.05, win_h - TOP_SAFE_MARGIN - title_h)
+    fit_font_size(title_label, title_box_w, title_h * 0.85)
+    title_label.size = (title_box_w, title_h)
+    title_label.text_size = (title_box_w, title_h)
+
+    return win_h - TOP_SAFE_MARGIN - title_h - dp(12)
 
 def choose_theme(theme):
     global color_name, color_bg, color_text, color_blank, color_correct, color_in_word, color_not_in_word, color_key
@@ -276,9 +303,10 @@ def apply_adaptive_fonts(screen_instance, cell_height, key_height):
         key.padding = [0, 0, 0, key_pad_bottom]
 
     sys_pad_bottom = key_height * 0.07
-    
-    for btn in [screen_instance.btn_erase, screen_instance.btn_exit, screen_instance.btn_enter]:
-        btn.font_size = f"{key_font_size_px}px"
+
+    for btn in screen_instance.system_buttons:
+        btn.text_size = (None, None)
+        fit_font_size(btn, btn.width * 0.88, key_font_size_px)
         btn.text_size = btn.size
         btn.halign = 'center'
         btn.valign = 'middle'
@@ -710,66 +738,47 @@ class MainScreen(Screen):
 
     def reposition_menu_elements(self, *args):
         win_w, win_h = self.width, self.height
-        
-        # 1. Блок кнопок (ровно 50% высоты и 90% ширины экрана)
-        container_w = win_w * 0.9
-        container_h = win_h * 0.5
-        
-        self.buttons_container.size = (container_w, container_h)
-        self.buttons_container.center = (win_w / 2, win_h / 2)
-        
-        total_elements = 3
-        spacing_h = container_h * 0.07
-        self.buttons_container.spacing = spacing_h
-        
-        btn_h = (container_h - (spacing_h * (total_elements - 1))) / total_elements
-        
-        for btn in self.buttons:
-            btn.height = btn_h
-            btn.font_size = f"{int(btn_h * 0.36)}sp"
 
-        # 2. Главный заголовок (высота строго 30% от свободного места сверху)
-        distance_to_top = win_h - self.buttons_container.top
-        title_h = distance_to_top * 0.30
-        title_w = win_w * 0.9
-        
-        self.title_label.size = (title_w, title_h)
-        
-        # Полностью убираем text_size, чтобы Kivy вообще не думал о переносах строки
-        self.title_label.text_size = (None, None)
-        
-        self.title_label.center_x = win_w / 2
-        self.title_label.y = self.buttons_container.top + (distance_to_top - title_h) / 2
-        
-        # Стартовый размер шрифта в пикселях
-        current_font_px = int(title_h * 0.8)
-        self.title_label.font_size = f"{current_font_px}px"
-        self.title_label.texture_update()
-        
-        # Жесткий цикл: пока ширина текста больше 90% экрана — уменьшаем шрифт
-        max_allowed_w = win_w * 0.9
-        while self.title_label.texture_size[0] > max_allowed_w and current_font_px > 10:
-            current_font_px -= 1
-            self.title_label.font_size = f"{current_font_px}px"
-            self.title_label.texture_update() # Принудительно перерисовываем текстуру для проверки ширины
+        top_limit = win_h - TOP_SAFE_MARGIN
+        bottom_limit = BOTTOM_SAFE_MARGIN
 
-        # 3. Нижний копирайт (тот же принцип, что и у заголовка - никогда не переносится, шрифт сам уменьшается)
-        copy_h = win_h * 0.03
+        # 1. Копирайт внизу - размещаем первым, снизу вверх, шрифт всегда влезает по ширине
+        copy_h = dp(16)
         self.copy_label.text_size = (None, None)
         self.copy_label.center_x = win_w / 2
-        self.copy_label.y = win_h * 0.02
-
-        copy_font_px = int(copy_h * 0.9)
-        self.copy_label.font_size = f"{copy_font_px}px"
-        self.copy_label.texture_update()
-
-        max_copy_w = win_w * 0.94
-        while self.copy_label.texture_size[0] > max_copy_w and copy_font_px > 6:
-            copy_font_px -= 1
-            self.copy_label.font_size = f"{copy_font_px}px"
-            self.copy_label.texture_update()
-
+        self.copy_label.y = bottom_limit
+        fit_font_size(self.copy_label, win_w * 0.92, copy_h)
         self.copy_label.size = self.copy_label.texture_size
+
+        # 2. Блок кнопок: высота каждой кнопки разумно ограничена сверху (max_btn_h),
+        # чтобы на очень высоких экранах кнопки не раздувались до нелепых размеров
+        available_h = top_limit - bottom_limit - self.copy_label.height - dp(12)
+        container_w = win_w * 0.9
+        total_elements = 3
+        spacing_h = dp(14)
+        max_btn_h = dp(84)
+
+        btn_h = (available_h * 0.55 - spacing_h * (total_elements - 1)) / total_elements
+        btn_h = max(min(btn_h, max_btn_h), dp(48))
+        container_h = btn_h * total_elements + spacing_h * (total_elements - 1)
+
+        self.buttons_container.size = (container_w, container_h)
+        self.buttons_container.spacing = spacing_h
+        self.buttons_container.center_x = win_w / 2
+        self.buttons_container.center_y = bottom_limit + self.copy_label.height + dp(12) + available_h * 0.5
+
+        for btn in self.buttons:
+            btn.height = btn_h
+            # Ширина текста реально проверяется и шрифт уменьшается, если не влезает
+            fit_font_size(btn, container_w - dp(36), btn_h * 0.42)
+
+        # 3. Главный заголовок - в оставшемся месте сверху
+        distance_to_top = top_limit - self.buttons_container.top
+        title_h = min(distance_to_top * 0.6, dp(60))
+        self.title_label.size = (win_w * 0.9, title_h)
+        self.title_label.center_x = win_w / 2
+        self.title_label.y = self.buttons_container.top + (distance_to_top - title_h) / 2
+        fit_font_size(self.title_label, win_w * 0.9, title_h * 0.85)
 
 class MenuScreen(Screen):
     def __init__(self, **kwargs):
@@ -818,28 +827,30 @@ class MenuScreen(Screen):
         self.reposition_elements()
 
     def reposition_elements(self, *args):
-        win_w, win_h = Window.width, Window.height
+        win_w, win_h = self.width, self.height
 
-        self.btn_back.pos = (win_w - 100 - 15, win_h - 54 - 44)
+        content_top = position_header(self.title_label, self.btn_back, win_w, win_h)
 
-        self.title_label.size = (win_w * 0.6, win_h * 0.06)
-        self.title_label.text_size = self.title_label.size
-        self.title_label.pos = (win_w * 0.06, win_h - 44 - self.title_label.height)
-        self.title_label.font_size = f"{int(win_h * 0.035)}sp"
+        bottom_limit = BOTTOM_SAFE_MARGIN
+        available_h = content_top - bottom_limit
 
         container_w = win_w * 0.9
-        container_h = win_h * 0.6
-        self.buttons_container.size = (container_w, container_h)
-        self.buttons_container.center = (win_w / 2, win_h / 2)
-
         total_elements = 4
-        spacing_h = container_h * 0.05
-        self.buttons_container.spacing = spacing_h
+        spacing_h = dp(12)
+        max_btn_h = dp(76)
 
-        btn_h = (container_h - (spacing_h * (total_elements - 1))) / total_elements
+        btn_h = (available_h - spacing_h * (total_elements - 1)) / total_elements
+        btn_h = max(min(btn_h, max_btn_h), dp(44))
+        container_h = btn_h * total_elements + spacing_h * (total_elements - 1)
+
+        self.buttons_container.size = (container_w, container_h)
+        self.buttons_container.spacing = spacing_h
+        self.buttons_container.center_x = win_w / 2
+        self.buttons_container.center_y = bottom_limit + available_h * 0.5
+
         for btn in self.buttons:
             btn.height = btn_h
-            btn.font_size = f"{int(btn_h * 0.34)}sp"
+            fit_font_size(btn, container_w - dp(36), btn_h * 0.4)
 
 class OptionsScreen(Screen):
     def __init__(self, **kwargs):
@@ -885,23 +896,24 @@ class OptionsScreen(Screen):
         self.reposition_elements()
 
     def reposition_elements(self, *args):
-        win_w, win_h = Window.width, Window.height
+        win_w, win_h = self.width, self.height
 
-        self.btn_back.pos = (win_w - 100 - 15, win_h - 54 - 44)
+        content_top = position_header(self.title_label, self.btn_back, win_w, win_h)
+        bottom_limit = BOTTOM_SAFE_MARGIN
 
-        self.title_label.size = (win_w * 0.8, win_h * 0.06)
-        self.title_label.text_size = self.title_label.size
-        self.title_label.pos = (win_w * 0.06, win_h - 44 - self.title_label.height)
-        self.title_label.font_size = f"{int(win_h * 0.035)}sp"
+        placeholder_h = dp(24)
+        self.placeholder_label.text_size = (None, None)
+        self.placeholder_label.center_x = win_w / 2
+        self.placeholder_label.y = content_top - (content_top - bottom_limit) * 0.35
+        fit_font_size(self.placeholder_label, win_w * 0.85, placeholder_h)
+        self.placeholder_label.size = self.placeholder_label.texture_size
 
-        self.placeholder_label.size = (win_w * 0.8, win_h * 0.06)
-        self.placeholder_label.text_size = self.placeholder_label.size
-        self.placeholder_label.center = (win_w / 2, win_h / 2 + win_h * 0.05)
-        self.placeholder_label.font_size = f"{int(win_h * 0.022)}sp"
-
-        self.btn_exit.size = (win_w * 0.7, win_h * 0.08)
-        self.btn_exit.center = (win_w / 2, win_h * 0.25)
-        self.btn_exit.font_size = f"{int(win_h * 0.024)}sp"
+        btn_w = min(win_w * 0.7, dp(340))
+        btn_h = dp(52)
+        self.btn_exit.size = (btn_w, btn_h)
+        self.btn_exit.center_x = win_w / 2
+        self.btn_exit.center_y = bottom_limit + (content_top - bottom_limit) * 0.18
+        fit_font_size(self.btn_exit, btn_w - dp(32), btn_h * 0.4)
 
 class PlayScreen(Screen):
     def __init__(self, **kwargs):
@@ -953,27 +965,39 @@ class PlayScreen(Screen):
         self.reposition_elements()
 
     def reposition_elements(self, *args):
-        win_w, win_h = Window.width, Window.height
+        win_w, win_h = self.width, self.height
 
-        self.btn_back.pos = (win_w - 100 - 15, win_h - 54 - 44)
+        back_w, back_h = dp(92), dp(48)
+        self.btn_back.size = (back_w, back_h)
+        self.btn_back.pos = (win_w - back_w - dp(14), win_h - TOP_SAFE_MARGIN - back_h)
+        fit_font_size(self.btn_back, back_w - dp(18), back_h * 0.42)
 
-        self.title_label.size = (win_w * 0.9, win_h * 0.08)
-        self.title_label.text_size = (None, None)
+        title_h = min(win_h * 0.055, dp(38))
+        self.title_label.size = (win_w * 0.85, title_h)
         self.title_label.center_x = win_w / 2
-        self.title_label.y = win_h * 0.82
-        self.title_label.font_size = f"{int(win_h * 0.032)}sp"
+        self.title_label.y = win_h - TOP_SAFE_MARGIN - title_h - dp(8)
+        fit_font_size(self.title_label, win_w * 0.85, title_h * 0.8)
 
-        container_w = min(win_w * 0.85, 420)
-        container_h = win_h * 0.55
+        content_top = self.title_label.y - dp(6)
+        bottom_limit = BOTTOM_SAFE_MARGIN
+
+        container_w = min(win_w * 0.85, dp(420))
+        container_h = min((content_top - bottom_limit) * 0.85, dp(440))
         self.mode_container.size = (container_w, container_h)
-        self.mode_container.center = (win_w / 2, win_h * 0.42)
+        self.mode_container.center_x = win_w / 2
+        self.mode_container.center_y = bottom_limit + (content_top - bottom_limit) * 0.5
 
-        spacing_v = container_h * 0.12
+        spacing_v = container_h * 0.1
         self.mode_container.spacing = spacing_v
         card_h = (container_h - spacing_v) / 2
 
         for card in (self.btn_1p, self.btn_2p):
             card.size = (container_w, card_h)
+            half_h = card_h * 0.5
+            fit_font_size(card.title_label, container_w * 0.85, half_h * 0.55)
+            card.title_label.text_size = (container_w, half_h)
+            fit_font_size(card.sub_label, container_w * 0.85, half_h * 0.32)
+            card.sub_label.text_size = (container_w, half_h)
 
 class OnePlayerGameScreen(Screen):
     def __init__(self, **kwargs):
@@ -997,17 +1021,19 @@ class OnePlayerGameScreen(Screen):
         self.btn_erase.font_size = '22sp'
         self.btn_erase.bind(on_release=self.press_erase_key)
 
-        self.btn_exit = KeyButton(text="ВЫХОД", size=(100, 50))
-        self.btn_exit.font_size = '22sp'
-        self.btn_exit.bind(on_release=self.press_exit_key)
-
         self.btn_enter = KeyButton(text="ВВОД", size=(100, 50))
         self.btn_enter.font_size = '22sp'
         self.btn_enter.bind(on_release=self.press_enter_key)
+
+        self.system_buttons = [self.btn_erase, self.btn_enter]
         
         self.layout.add_widget(self.btn_erase)
-        self.layout.add_widget(self.btn_exit)
         self.layout.add_widget(self.btn_enter)
+
+        # Кнопка "Выход" переехала в стандартный верхний правый угол (как везде в игре)
+        self.btn_exit_top = MenuButton(text="Выход", size_hint=(None, None), size=(92, 48))
+        self.btn_exit_top.bind(on_release=self.press_exit_key)
+        self.layout.add_widget(self.btn_exit_top)
 
         self.lines = ["ЙЦУКЕНГШЩЗХЪ", "ФЫВАПРОЛДЖЭ", "ЯЧСМИТЬБЮЁ"]
         self.letter_buttons = []
@@ -1026,6 +1052,7 @@ class OnePlayerGameScreen(Screen):
                 
         self.add_widget(self.layout)
         self.bind(size=self.reposition_elements)
+        self.reposition_elements(None, None)
 
         # ----- ИГРА ----
         self.current_word = ""
@@ -1035,9 +1062,17 @@ class OnePlayerGameScreen(Screen):
         self.reset_game()
 
     def reposition_elements(self, instance, size):
-        win_w = Window.width
-        win_h = Window.height
+        win_w = self.width
+        win_h = self.height
         self.bg_rect.size = (win_w, win_h)
+        self.bg_rect.pos = (0, 0)
+
+        # Верхняя резервная зона: статус-бар + кнопка "Выход"
+        top_reserved = TOP_SAFE_MARGIN + dp(48) + dp(10)
+        bottom_reserved = BOTTOM_SAFE_MARGIN
+
+        self.btn_exit_top.pos = (win_w - self.btn_exit_top.width - dp(14), win_h - TOP_SAFE_MARGIN - self.btn_exit_top.height)
+        fit_font_size(self.btn_exit_top, self.btn_exit_top.width - dp(18), self.btn_exit_top.height * 0.42)
 
         CELL_SPACING_X = 5
         CELL_SPACING_Y = 5
@@ -1049,7 +1084,7 @@ class OnePlayerGameScreen(Screen):
         CELL_HEIGHT = CELL_WIDTH * 1.243  
 
         total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
-        max_allowed_height = win_h * 0.65
+        max_allowed_height = (win_h - top_reserved - bottom_reserved) * 0.68
 
         if total_blanks_height > max_allowed_height:
 
@@ -1062,7 +1097,7 @@ class OnePlayerGameScreen(Screen):
             cell.size = (CELL_WIDTH, CELL_HEIGHT)
 
         start_blank_x = side_margin
-        start_blank_y = win_h - CELL_HEIGHT - 5
+        start_blank_y = win_h - top_reserved - CELL_HEIGHT
         
         cell_idx = 0
         for row in range(6):
@@ -1072,7 +1107,7 @@ class OnePlayerGameScreen(Screen):
                     self.cells[cell_idx].update_canvas()
                     cell_idx += 1
 
-        bottom_blanks_line = (win_h - 5) - total_blanks_height
+        bottom_blanks_line = (win_h - top_reserved) - total_blanks_height
 
         KEY_SPACING_X = 4
         avail_w = win_w - 16 - 44
@@ -1080,17 +1115,17 @@ class OnePlayerGameScreen(Screen):
 
         KEY_SPACING_Y = 4
 
-        avail_h = bottom_blanks_line - 16 - 12
+        avail_h = bottom_blanks_line - bottom_reserved - 12
         KEY_HEIGHT = avail_h / 4
 
         for key in self.keyboard_keys:
             key.size = (KEY_WIDTH, KEY_HEIGHT)
 
         row_heights = [
-            8,
-            8 + (KEY_HEIGHT + KEY_SPACING_Y),
-            8 + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
-            8 + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
+            bottom_reserved,
+            bottom_reserved + (KEY_HEIGHT + KEY_SPACING_Y),
+            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
+            bottom_reserved + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
         ]
 
         line_to_height_idx = {0: 2, 1: 1, 2: 0}
@@ -1103,9 +1138,10 @@ class OnePlayerGameScreen(Screen):
                 key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
                 key.update_canvas()
 
-        SYS_SPACING = 4
-        avail_sys_w = win_w - 16 - (2 * SYS_SPACING)
-        SYS_WIDTH = avail_sys_w / 3
+        # Нижний ряд - теперь только 2 клавиши (Стереть/Ввод), они заняли место освободившееся после Выхода
+        SYS_SPACING = 6
+        avail_sys_w = win_w - 16 - SYS_SPACING
+        SYS_WIDTH = avail_sys_w / 2
         
         start_sys_x = 8
         
@@ -1113,11 +1149,7 @@ class OnePlayerGameScreen(Screen):
         self.btn_erase.size = (SYS_WIDTH, KEY_HEIGHT)
         self.btn_erase.update_canvas()
         
-        self.btn_exit.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights[3])
-        self.btn_exit.size = (SYS_WIDTH, KEY_HEIGHT)
-        self.btn_exit.update_canvas()
-        
-        self.btn_enter.pos = (start_sys_x + 2 * (SYS_WIDTH + SYS_SPACING), row_heights[3])
+        self.btn_enter.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights[3])
         self.btn_enter.size = (SYS_WIDTH, KEY_HEIGHT)
         self.btn_enter.update_canvas()
 
@@ -1362,7 +1394,7 @@ class OnePlayerGameScreen(Screen):
             key_btn.cell_status = "blank"
             key_btn.update_canvas()
 
-        for btn in [self.btn_erase, self.btn_enter, self.btn_exit]:
+        for btn in self.system_buttons:
             btn.base_color = color_key
             btn.color = color_text
             btn.update_canvas()
@@ -1467,18 +1499,20 @@ class TwoPlayerGameScreen(Screen):
         self.btn_erase = KeyButton(text="СТЕРЕТЬ", size=(100, 50))
         self.btn_erase.font_size = '22sp'
         self.btn_erase.bind(on_release=self.press_erase_key)
-        
-        self.btn_exit = KeyButton(text="ВЫХОД", size=(100, 50))
-        self.btn_exit.font_size = '22sp'
-        self.btn_exit.bind(on_release=self.press_exit_key)
 
         self.btn_enter = KeyButton(text="ВВОД", size=(100, 50))
         self.btn_enter.font_size = '22sp'
         self.btn_enter.bind(on_release=self.press_enter_key)
+
+        self.system_buttons = [self.btn_erase, self.btn_enter]
         
         self.layout.add_widget(self.btn_erase)
-        self.layout.add_widget(self.btn_exit)
         self.layout.add_widget(self.btn_enter)
+
+        # Кнопка "Выход" переехала в стандартный верхний правый угол (как везде в игре)
+        self.btn_exit_top = MenuButton(text="Выход", size_hint=(None, None), size=(92, 48))
+        self.btn_exit_top.bind(on_release=self.press_exit_key)
+        self.layout.add_widget(self.btn_exit_top)
 
         self.lines = ["ЙЦУКЕНГШЩЗХЪ", "ФЫВАПРОЛДЖЭ", "ЯЧСМИТЬБЮЁ"]
         self.letter_buttons = []
@@ -1505,11 +1539,19 @@ class TwoPlayerGameScreen(Screen):
         self.stage = "setup"
 
         self.reset_game()
+        self.reposition_elements(None, None)
 
     def reposition_elements(self, instance, size):
-        win_w = Window.width
-        win_h = Window.height
+        win_w = self.width
+        win_h = self.height
         self.bg_rect.size = (win_w, win_h)
+        self.bg_rect.pos = (0, 0)
+
+        top_reserved = TOP_SAFE_MARGIN + dp(48) + dp(10)
+        bottom_reserved = BOTTOM_SAFE_MARGIN
+
+        self.btn_exit_top.pos = (win_w - self.btn_exit_top.width - dp(14), win_h - TOP_SAFE_MARGIN - self.btn_exit_top.height)
+        fit_font_size(self.btn_exit_top, self.btn_exit_top.width - dp(18), self.btn_exit_top.height * 0.42)
 
         CELL_SPACING_X = 5
         CELL_SPACING_Y = 5
@@ -1519,7 +1561,7 @@ class TwoPlayerGameScreen(Screen):
         CELL_HEIGHT = CELL_WIDTH * 1.243  
 
         total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
-        max_allowed_height = win_h * 0.65
+        max_allowed_height = (win_h - top_reserved - bottom_reserved) * 0.68
 
         if total_blanks_height > max_allowed_height:
             total_blanks_height = max_allowed_height
@@ -1530,41 +1572,45 @@ class TwoPlayerGameScreen(Screen):
         for cell in self.cells:
             cell.size = (CELL_WIDTH, CELL_HEIGHT)
 
-        virtual_bottom_line = (win_h - 5) - total_blanks_height
+        virtual_bottom_line = (win_h - top_reserved) - total_blanks_height
         KEY_SPACING_X = 4
         avail_w = win_w - 16 - 44
         KEY_WIDTH = avail_w / 12  
         KEY_SPACING_Y = 4
-        avail_h = virtual_bottom_line - 16 - 12
+        avail_h = virtual_bottom_line - bottom_reserved - 12
         KEY_HEIGHT = avail_h / 4  
 
         row_heights = [
-            8,
-            8 + (KEY_HEIGHT + KEY_SPACING_Y),
-            8 + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
-            8 + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
+            bottom_reserved,
+            bottom_reserved + (KEY_HEIGHT + KEY_SPACING_Y),
+            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
+            bottom_reserved + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
         ]
 
         start_blank_x = side_margin
         
         if self.stage == "setup":
             kbd_top_y = row_heights[3] + KEY_HEIGHT
+            top_boundary = win_h - top_reserved
 
-            total_free_space_y = win_h - kbd_top_y
+            total_free_space_y = top_boundary - kbd_top_y
             start_blank_y = kbd_top_y + (total_free_space_y - CELL_HEIGHT) // 2
 
-            space_above_cells = win_h - (start_blank_y + CELL_HEIGHT)
+            space_above_cells = top_boundary - (start_blank_y + CELL_HEIGHT)
             center_above_y = (start_blank_y + CELL_HEIGHT) + (space_above_cells // 2)
 
+            fit_font_size(self.lbl_title, win_w * 0.9, dp(26))
+            fit_font_size(self.lbl_subtitle, win_w * 0.85, dp(15))
             self.lbl_title.pos = (win_w // 2 - self.lbl_title.width // 2, center_above_y + 15)
             self.lbl_subtitle.pos = (win_w // 2 - self.lbl_subtitle.width // 2, center_above_y - 15)
 
             space_below_cells = start_blank_y - kbd_top_y
             center_below_y = kbd_top_y + (space_below_cells // 2)
 
+            fit_font_size(self.lbl_error, win_w * 0.85, dp(16))
             self.lbl_error.pos = (win_w // 2 - self.lbl_error.width // 2, center_below_y - self.lbl_error.height // 2)
         else:
-            start_blank_y = win_h - CELL_HEIGHT - 5
+            start_blank_y = win_h - top_reserved - CELL_HEIGHT
 
         cell_idx = 0
         for row in range(6):
@@ -1589,21 +1635,18 @@ class TwoPlayerGameScreen(Screen):
                 key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
                 key.update_canvas()
 
-        SYS_SPACING = 4
-        avail_sys_w = win_w - 16 - (2 * SYS_SPACING)
-        SYS_WIDTH = avail_sys_w / 3
+        SYS_SPACING = 6
+        avail_sys_w = win_w - 16 - SYS_SPACING
+        SYS_WIDTH = avail_sys_w / 2
         start_sys_x = 8
         
-        for btn in [self.btn_erase, self.btn_exit, self.btn_enter]:
+        for btn in self.system_buttons:
             btn.size = (SYS_WIDTH, KEY_HEIGHT)
 
         self.btn_erase.pos = (start_sys_x, row_heights[3])
         self.btn_erase.update_canvas()
         
-        self.btn_exit.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights[3])
-        self.btn_exit.update_canvas()
-        
-        self.btn_enter.pos = (start_sys_x + 2 * (SYS_WIDTH + SYS_SPACING), row_heights[3])
+        self.btn_enter.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights[3])
         self.btn_enter.update_canvas()
 
         apply_adaptive_fonts(self, CELL_HEIGHT, KEY_HEIGHT)
@@ -1735,7 +1778,7 @@ class TwoPlayerGameScreen(Screen):
             key_btn.cell_status = "blank"
             key_btn.update_canvas()
 
-        for btn in [self.btn_erase, self.btn_enter, self.btn_exit]:
+        for btn in self.system_buttons:
             btn.base_color = color_key
             btn.color = color_text
             btn.update_canvas()
@@ -1849,10 +1892,10 @@ class HowToPlayScreen(Screen):
             self.content_box.add_widget(lbl)
             
         def add_row(letter, status, description, text_col=None):
-            row = BoxLayout(orientation='horizontal', spacing=14, size_hint_y=None, height=54)
+            row = BoxLayout(orientation='horizontal', spacing=14, size_hint_y=None, height=dp(54))
             
             # Ячейка с буквой, приподнятой на 5 пикселей вверх
-            cell = GameCell(size=(54, 54))
+            cell = GameCell(size=(dp(54), dp(54)))
             cell.text = letter
             cell.change_type(status)
             cell.text_size = cell.size
@@ -1866,7 +1909,7 @@ class HowToPlayScreen(Screen):
             # КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: берем строго высоту val[1] из кортежа texture_size
             desc.bind(texture_size=lambda inst, val: [
                 setattr(inst, 'height', val[1]), 
-                setattr(row, 'height', max(54, val[1]))
+                setattr(row, 'height', max(dp(54), val[1]))
             ])
             
             row.add_widget(cell)
@@ -1918,23 +1961,26 @@ class HowToPlayScreen(Screen):
         
         # Подписка на обновление размеров экрана
         self.bind(size=self.reposition_elements)
+        self.reposition_elements(None, None)
 
     def reposition_elements(self, instance, size):
-        win_w, win_h = Window.width, Window.height
-        
-        # Расчет верхней линии кнопок
-        btn_y = win_h - 54 - 44
-        self.btn_back.pos = (win_w - 100 - 15, btn_y)
-        
-        # Твой проверенный заголовок
-        self.title_label.texture_update()
-        self.title_label.size = self.title_label.texture_size
-        self.title_label.x = 15
-        self.title_label.y = btn_y + 15
-        
-        # Настройка скролл-зоны
-        self.scroll_view.size = (win_w, btn_y - 20)
-        self.scroll_view.pos = (0, 0)
+        win_w, win_h = self.width, self.height
+
+        # Расчет верхней линии кнопок (с защитным отступом от статус-бара)
+        back_w, back_h = dp(92), dp(48)
+        btn_y = win_h - TOP_SAFE_MARGIN - back_h
+        self.btn_back.size = (back_w, back_h)
+        self.btn_back.pos = (win_w - back_w - dp(14), btn_y)
+        fit_font_size(self.btn_back, back_w - dp(18), back_h * 0.42)
+
+        # Заголовок экрана - подгоняем шрифт под ширину, чтобы не переполнялся
+        fit_font_size(self.title_label, win_w * 0.55, dp(26))
+        self.title_label.x = dp(15)
+        self.title_label.y = btn_y + (back_h - self.title_label.height) / 2
+
+        # Настройка скролл-зоны (с защитным отступом снизу от жестовой навигации)
+        self.scroll_view.size = (win_w, btn_y - BOTTOM_SAFE_MARGIN)
+        self.scroll_view.pos = (0, BOTTOM_SAFE_MARGIN)
         
         # ЖЕСТКОЕ ОТКЛЮЧЕНИЕ НАТЯГИВАНИЯ И ПОЛОСЫ ПРОКРУТКИ
         self.scroll_view.effect_cls = ScrollEffect
@@ -2018,13 +2064,15 @@ class AchievementsScreen(Screen):
             self.layout.remove_widget(self.scroll_view)
             self.layout.add_widget(self.scroll_view, index=len(self.layout.children))
 
+        self.reposition_elements(None, None)
+
     def on_enter(self):
         self.refresh_stats_and_achievements()
 
     def reposition_elements(self, instance, size):
-        win_w = Window.width
-        win_h = Window.height
-        overlay_height = 280
+        win_w = self.width
+        win_h = self.height
+        overlay_height = min(win_h * 0.32, dp(230))
 
         self.top_overlay.height = overlay_height
         self.top_overlay.pos = (0, win_h - overlay_height)
@@ -2032,25 +2080,54 @@ class AchievementsScreen(Screen):
         self.overlay_rect.size = (win_w, overlay_height)
         self.overlay_rect.pos = (0, win_h - overlay_height)
 
-        self.lbl_main_title.font_size = f"{min(win_w, win_h) * 0.08}px"
-        self.lbl_main_title.size = (win_w - 150, 54)
+        back_w, back_h = dp(92), dp(48)
+        back_btn = None
+        for child in self.layout.children:
+            if isinstance(child, MenuButton):
+                back_btn = child
+                break
+        if back_btn is not None:
+            back_btn.size = (back_w, back_h)
+            back_btn.pos = (win_w - back_w - dp(14), win_h - TOP_SAFE_MARGIN - back_h)
+            fit_font_size(back_btn, back_w - dp(18), back_h * 0.42)
+
+        title_h = min(win_h * 0.05, dp(34))
+        self.lbl_main_title.size = (win_w - back_w - dp(45), title_h)
+        self.lbl_main_title.text_size = (None, None)
+        fit_font_size(self.lbl_main_title, win_w - back_w - dp(45), title_h * 0.85)
         self.lbl_main_title.text_size = self.lbl_main_title.size
-        self.lbl_main_title.center_y = win_h - 54
-        self.lbl_main_title.x = 15
+        self.lbl_main_title.y = win_h - TOP_SAFE_MARGIN - title_h
+        self.lbl_main_title.x = dp(15)
 
-        self.stats_scroll.height = 152
+        stats_h = dp(70) * 2 + dp(8)
+        self.stats_scroll.height = stats_h
+        self.stats_scroll.size_hint_x = 1
+        self.stats_scroll.do_scroll_x = False
+        self.stats_scroll.pos = (0, win_h - title_h - TOP_SAFE_MARGIN - dp(12) - stats_h)
+        self.stats_container.size = (win_w, stats_h)
+        self.stats_container.padding = [dp(12), 0, dp(12), 0]
 
-        self.stats_scroll.pos = (0, win_h - 54 - 44 - 152 - 15)
-        self.stats_container.height = 152
+        row_w = win_w - dp(24)
+        self.stats_row1.size = (row_w, dp(70))
+        self.stats_row2.size = (row_w, dp(70))
+        self.stats_row1.spacing = dp(8)
+        self.stats_row2.spacing = dp(8)
 
-        self.scroll_view.size = (win_w, win_h - 280 - 15)
-        self.scroll_view.pos = (0, 10)
+        for row in (self.stats_row1, self.stats_row2):
+            for card in row.children:
+                if hasattr(card, 'label_ref'):
+                    fit_font_size(card.label_ref, row_w / 3 * 0.85, dp(15))
+                    fit_font_size(card.value_ref, row_w / 3 * 0.85, dp(22))
+
+        list_top = self.stats_scroll.y - dp(10)
+        self.scroll_view.size = (win_w, list_top - BOTTOM_SAFE_MARGIN)
+        self.scroll_view.pos = (0, BOTTOM_SAFE_MARGIN)
 
         self.ach_list_layout.width = win_w
 
     def create_card(self, label_text, val_text, val_color):
-        """Создает карточку статистики с огромными хитбоксами против любых переносов"""
-        card = FloatLayout(size_hint=(None, None), size=(385, 72))
+        """Создаёт адаптивную карточку статистики - тянется по размеру родителя, шрифт всегда влезает"""
+        card = FloatLayout(size_hint=(1, 1))
         
         # Подложка плашки (светло-серая со скруглением 12)
         with card.canvas.before:
@@ -2059,46 +2136,31 @@ class AchievementsScreen(Screen):
         card.bind(pos=lambda inst, v: setattr(r_rect, 'pos', inst.pos), 
                   size=lambda inst, v: setattr(r_rect, 'size', inst.size))
         
-        # 1. ТЕКСТ ЯРЛЫКА (Слева, вернули оригинальный 20sp и дали огромный хитбокс 345px)
         lbl_lbl = Label(
             text=label_text, 
             font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size='20sp', 
-            color=color_not_in_word, 
-            size_hint=(None, None),
-            size=(345, 72),
-            text_size=(345, 72),  # ИСПРАВЛЕНО: Дали огромный хитбокс, чтобы ничего не переносилось
-            pos_hint={'x': 0.06, 'center_y': 0.5}, 
-            halign='left', 
+            color=color_not_in_word,
+            size_hint=(1, 0.45),
+            pos_hint={'x': 0, 'y': 0.48},
+            halign='center', 
             valign='middle'
         )
         card.add_widget(lbl_lbl)
         
-        # Оптический зум шрифта для больших чисел из твоей ПК-версии file_3
-        val_len = len(val_text)
-        if val_len >= 9:
-            v_font = '14sp'
-        elif val_len >= 6:
-            v_font = '20sp'
-        else:
-            v_font = '30sp'
-        
-        # 2. ЧИСЛОВОЕ ЗНАЧЕНИЕ (Справа, дали такой же огромный хитбокс 345px)
         lbl_val = Label(
             text=val_text, 
             font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size=v_font, 
             color=val_color, 
             bold=True, 
-            size_hint=(None, None),
-            size=(345, 72),
-            text_size=(345, 72),  # ИСПРАВЛЕНО: Дали огромный хитбокс, цифры никогда не улетят вниз
-            pos_hint={'right': 0.94, 'center_y': 0.5}, 
-            halign='right', 
+            size_hint=(1, 0.5),
+            pos_hint={'x': 0, 'y': 0.02},
+            halign='center', 
             valign='middle'
         )
         card.add_widget(lbl_val)
-        
+
+        card.label_ref = lbl_lbl
+        card.value_ref = lbl_val
         return card
     
     def create_achievement_row(self, name, description, ach_data, got, date_str):
@@ -2163,7 +2225,7 @@ class AchievementsScreen(Screen):
         """Часть 2: Полностью динамическая высота плашки достижения на основе texture_size"""
         
         # Сбалансированная ширина для текста (6% отступы слева и справа)
-        text_w = Window.width - 45
+        text_w = self.width - 45
         font_path = resource_path("ClearSans-Bold.ttf")
 
         # 1. НАЗВАНИЕ ДОСТИЖЕНИЯ (Высота управляется текстом, разрешен перенос на любое число строк!)
@@ -2186,27 +2248,37 @@ class AchievementsScreen(Screen):
         # Привязываем автоматический расчет высоты описания по тексту
         desc_lbl.bind(texture_size=lambda inst, sz: setattr(inst, 'height', sz[1]))
 
-        # 3. НИЖНЯЯ ИНФО-СТРОКА (Высота 35px, статус прижат к right: 0.94 для идеальной симметрии!)
-        info_line = FloatLayout(size_hint=(1, None), height=35)
-        
+        # 3. НИЖНЯЯ ИНФО-СТРОКА: три РАВНЫХ сегмента (rarity/дата/статус), каждый со своей
+        # реальной подгонкой шрифта под ширину - раньше фиксированные 120/240/200px
+        # налезали друг на друга на узких экранах
+        info_h = dp(30)
+        info_line = FloatLayout(size_hint=(1, None), height=info_h)
+        seg_w = max((self.width - dp(24)) / 3, dp(60))
+
         lbl_rare = Label(
-            text=type_text, font_name=font_path, font_size='13sp', color=rarity_color, bold=True, 
-            size_hint=(None, None), size=(120, 35), text_size=(120, 35), 
-            pos_hint={'x': 0.06, 'center_y': 0.5}, halign='left', valign='middle'
+            text=type_text, font_name=font_path, color=rarity_color, bold=True,
+            size_hint=(None, None), size=(seg_w, info_h),
+            pos_hint={'x': 0.03, 'center_y': 0.5}, halign='left', valign='middle'
         )
-        
+        fit_font_size(lbl_rare, seg_w - dp(8), dp(13))
+        lbl_rare.text_size = (seg_w, info_h)
+
         lbl_date = Label(
-            text=f"Дата: {date_str}" if (got and date_str) else "", 
-            font_name=font_path, font_size='12sp', color=color_not_in_word, bold=True, 
-            size_hint=(None, None), size=(240, 35), text_size=(240, 35), 
+            text=f"Дата: {date_str}" if (got and date_str) else "",
+            font_name=font_path, color=color_not_in_word, bold=True,
+            size_hint=(None, None), size=(seg_w, info_h),
             pos_hint={'center_x': 0.5, 'center_y': 0.5}, halign='center', valign='middle'
         )
-        
+        fit_font_size(lbl_date, seg_w - dp(8), dp(12))
+        lbl_date.text_size = (seg_w, info_h)
+
         lbl_stat = Label(
-            text="ПОЛУЧЕНО" if got else "НЕ ПОЛУЧЕНО", font_name=font_path, font_size='14sp', color=status_color, bold=True, 
-            size_hint=(None, None), size=(200, 35), text_size=(200, 35), 
-            pos_hint={'right': 0.94, 'center_y': 0.5}, halign='right', valign='middle'
+            text="ПОЛУЧЕНО" if got else "НЕ ПОЛУЧЕНО", font_name=font_path, color=status_color, bold=True,
+            size_hint=(None, None), size=(seg_w, info_h),
+            pos_hint={'right': 0.97, 'center_y': 0.5}, halign='right', valign='middle'
         )
+        fit_font_size(lbl_stat, seg_w - dp(8), dp(13))
+        lbl_stat.text_size = (seg_w, info_h)
         
         info_line.add_widget(lbl_rare)
         info_line.add_widget(lbl_date)
@@ -2303,13 +2375,8 @@ class AchievementsScreen(Screen):
         for item in row2_data:
             self.stats_row2.add_widget(self.create_card(*item))
 
-        self.stats_container.padding = [10, 0, 10, 0]
-
-        total_scroll_width = 3 * 385 + 2 * 10 + 20
-        
-        self.stats_row1.size = (total_scroll_width - 20, 72)
-        self.stats_row2.size = (total_scroll_width - 20, 72)
-        self.stats_container.size = (total_scroll_width, 152)
+        # Пересчитываем реальные размеры сразу после создания карточек
+        self.reposition_elements(None, None)
 
         self.build_achievements_list(launcher_ach)
 
@@ -2460,6 +2527,7 @@ class CustomizationScreen(Screen):
             
         # Активируем рамку выбора один раз при заходе
         self.select_theme(self.selected_theme_id)
+        self.reposition_elements(None, None)
 
     def reposition_elements(self, instance, size):
         # Объявляем чтение глобальной переменной со статистикой от лаунчера
@@ -2471,23 +2539,30 @@ class CustomizationScreen(Screen):
         else:
             # Если по какой-то причине переменная недоступна, пишем 0
             self.lbl_coins_val.text = "0"
-        win_w = Window.width
-        win_h = Window.height
+        win_w = self.width
+        win_h = self.height
         
         self.bg_rect.size = (win_w, win_h)
-        self.btn_back.pos = (win_w - 100 - 15, win_h - 54 - 44)
-        self.lbl_title.size = (win_w - 140, 54)
-        self.lbl_title.text_size = (win_w - 140, 54)
-        self.lbl_title.pos = (15, win_h - 54 - 44 + 20)
+
+        back_w, back_h = dp(92), dp(48)
+        self.btn_back.size = (back_w, back_h)
+        self.btn_back.pos = (win_w - back_w - dp(14), win_h - TOP_SAFE_MARGIN - back_h)
+        fit_font_size(self.btn_back, back_w - dp(18), back_h * 0.42)
+
+        title_h = min(win_h * 0.05, dp(34))
+        fit_font_size(self.lbl_title, win_w - back_w - dp(45), title_h * 0.85)
+        self.lbl_title.size = (win_w - back_w - dp(45), title_h)
+        self.lbl_title.text_size = self.lbl_title.size
+        self.lbl_title.pos = (dp(15), win_h - TOP_SAFE_MARGIN - title_h)
         
         top_pad_h = win_h * 0.12
-        top_pad_y = win_h - top_pad_h - 95
+        top_pad_y = win_h - TOP_SAFE_MARGIN - title_h - dp(10) - top_pad_h
         self.top_pad_rect.size = (win_w, top_pad_h)
         self.top_pad_rect.pos = (0, top_pad_y)
         
         bottom_pad_h = win_h * 0.12
         self.bottom_pad_rect.size = (win_w, bottom_pad_h)
-        self.bottom_pad_rect.pos = (0, 0)
+        self.bottom_pad_rect.pos = (0, BOTTOM_SAFE_MARGIN)
         
         block_w = (win_w - 40) / 3
         block_h = top_pad_h - 20
@@ -2527,7 +2602,7 @@ class CustomizationScreen(Screen):
 
         btn_w = (win_w - 30) / 2
         btn_h = bottom_pad_h - 20
-        btn_y = 10 
+        btn_y = BOTTOM_SAFE_MARGIN + dp(10)
 
         self.btn_action.size = (btn_w, btn_h)
         self.btn_action.pos = (10, btn_y)
@@ -2545,7 +2620,7 @@ class CustomizationScreen(Screen):
         scroll_top = top_pad_y - 15
         
         # Вычисляем нижнюю границу (где начинается нижняя плашка кнопок)
-        scroll_bottom = bottom_pad_h + 15
+        scroll_bottom = bottom_pad_h + BOTTOM_SAFE_MARGIN + dp(15)
         
         # Высота прокручиваемой области — это всё пространство между ними
         scroll_h = scroll_top - scroll_bottom
@@ -2818,6 +2893,8 @@ class QuestsScreen(Screen):
             self.layout.remove_widget(self.scroll_view)
             self.layout.add_widget(self.scroll_view, index=len(self.layout.children))
 
+        self.reposition_elements(None, None)
+
     def on_enter(self):
         self.refresh_quests_data()
 
@@ -2853,44 +2930,68 @@ class QuestsScreen(Screen):
         for item in row2_data:
             self.stats_row2.add_widget(self.create_card(*item))
 
-        self.stats_container.padding = [10, 0, 10, 0]
-
-        total_scroll_width = 3 * 385 + 2 * 10 + 20
-        self.stats_row1.size = (total_scroll_width - 20, 72)
-        self.stats_row2.size = (total_scroll_width - 20, 72)
-        self.stats_container.size = (total_scroll_width, 152)
+        # Пересчитываем реальные размеры сразу после создания карточек
+        self.reposition_elements(None, None)
 
         self.build_quests_list(launcher_quests)
 
     def reposition_elements(self, instance, size):
-        win_w = Window.width
-        win_h = Window.height
+        win_w = self.width
+        win_h = self.height
 
         self.lbl_main_title.text = "Квесты"
 
-        self.lbl_main_title.font_size = f"{min(win_w, win_h) * 0.08}px"
-        self.lbl_main_title.size = (win_w - 150, 100) 
+        back_w, back_h = dp(92), dp(48)
+        back_btn = None
+        for child in self.layout.children:
+            if isinstance(child, MenuButton):
+                back_btn = child
+                break
+        if back_btn is not None:
+            back_btn.size = (back_w, back_h)
+            back_btn.pos = (win_w - back_w - dp(14), win_h - TOP_SAFE_MARGIN - back_h)
+            fit_font_size(back_btn, back_w - dp(18), back_h * 0.42)
+
+        title_h = min(win_h * 0.05, dp(34))
+        self.lbl_main_title.text_size = (None, None)
+        fit_font_size(self.lbl_main_title, win_w - back_w - dp(45), title_h * 0.85)
+        self.lbl_main_title.size = (win_w - back_w - dp(45), title_h)
         self.lbl_main_title.text_size = self.lbl_main_title.size
-        
-        btn_center_y = win_h - 54
-        self.lbl_main_title.center_y = btn_center_y
-        self.lbl_main_title.x = 15  
-        
-        overlay_height = 280
+        self.lbl_main_title.y = win_h - TOP_SAFE_MARGIN - title_h
+        self.lbl_main_title.x = dp(15)
+
+        overlay_height = min(win_h * 0.32, dp(230))
         if hasattr(self, 'top_overlay'):
             self.top_overlay.height = overlay_height
             self.top_overlay.pos = (0, win_h - overlay_height)
             self.overlay_rect.size = (win_w, overlay_height)
             self.overlay_rect.pos = (0, win_h - overlay_height)
-            
+
+        stats_h = dp(70) * 2 + dp(8)
         if hasattr(self, 'stats_scroll'):
-            self.stats_scroll.height = 152
-            self.stats_scroll.pos = (0, win_h - 54 - 44 - 152 - 15)
-            self.stats_container.height = 152
-            
+            self.stats_scroll.height = stats_h
+            self.stats_scroll.do_scroll_x = False
+            self.stats_scroll.pos = (0, win_h - title_h - TOP_SAFE_MARGIN - dp(12) - stats_h)
+            self.stats_container.size = (win_w, stats_h)
+            self.stats_container.padding = [dp(12), 0, dp(12), 0]
+
+            row_w = win_w - dp(24)
+            self.stats_row1.size = (row_w, dp(70))
+            self.stats_row2.size = (row_w, dp(70))
+            self.stats_row1.spacing = dp(8)
+            self.stats_row2.spacing = dp(8)
+
+            for row in (self.stats_row1, self.stats_row2):
+                n = max(len(row.children), 1)
+                for card in row.children:
+                    if hasattr(card, 'label_ref'):
+                        fit_font_size(card.label_ref, row_w / n * 0.85, dp(15))
+                        fit_font_size(card.value_ref, row_w / n * 0.85, dp(22))
+
         if hasattr(self, 'scroll_view'):
-            self.scroll_view.size = (win_w, win_h - overlay_height - 15)
-            self.scroll_view.pos = (0, 10)
+            list_top = self.stats_scroll.y - dp(10) if hasattr(self, 'stats_scroll') else win_h - overlay_height
+            self.scroll_view.size = (win_w, list_top - BOTTOM_SAFE_MARGIN)
+            self.scroll_view.pos = (0, BOTTOM_SAFE_MARGIN)
             self.quests_list_layout.width = win_w
 
         if hasattr(self, 'lbl_main_title') and self.lbl_main_title in self.layout.children:
@@ -2898,7 +2999,8 @@ class QuestsScreen(Screen):
             self.layout.add_widget(self.lbl_main_title, index=0)
 
     def create_card(self, label_text, val_text, val_color):
-        card = FloatLayout(size_hint=(None, None), size=(385, 72))
+        """Создаёт адаптивную карточку статистики - тянется по размеру родителя, шрифт всегда влезает"""
+        card = FloatLayout(size_hint=(1, 1))
         
         with card.canvas.before:
             Color(*color_blank)
@@ -2909,40 +3011,28 @@ class QuestsScreen(Screen):
         lbl_lbl = Label(
             text=label_text, 
             font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size='20sp', 
-            color=color_not_in_word, 
-            size_hint=(None, None),
-            size=(345, 72),
-            text_size=(345, 72),
-            pos_hint={'x': 0.06, 'center_y': 0.5}, 
-            halign='left', 
+            color=color_not_in_word,
+            size_hint=(1, 0.45),
+            pos_hint={'x': 0, 'y': 0.48},
+            halign='center', 
             valign='middle'
         )
         card.add_widget(lbl_lbl)
         
-        val_len = len(val_text)
-        if val_len >= 9:
-            v_font = '14sp'
-        elif val_len >= 6:
-            v_font = '20sp'
-        else:
-            v_font = '30sp'
-        
         lbl_val = Label(
             text=val_text, 
             font_name=resource_path("ClearSans-Bold.ttf"),
-            font_size=v_font, 
             color=val_color, 
             bold=True, 
-            size_hint=(None, None),
-            size=(345, 72),
-            text_size=(345, 72),
-            pos_hint={'right': 0.94, 'center_y': 0.5}, 
-            halign='right', 
+            size_hint=(1, 0.5),
+            pos_hint={'x': 0, 'y': 0.02},
+            halign='center', 
             valign='middle'
         )
         card.add_widget(lbl_val)
-        
+
+        card.label_ref = lbl_lbl
+        card.value_ref = lbl_val
         return card
     
     def create_quest_row(self, name, description, progress, goal, reward, is_done, quest_type="common"):
@@ -2996,7 +3086,7 @@ class QuestsScreen(Screen):
         return self.fill_quest_row_widgets(row, name, description, progress, goal, reward, text_color, progress_color, is_done, type_text, rare_color, bg_rect, ribbon_rect)
 
     def fill_quest_row_widgets(self, row, name, description, progress, goal, reward, text_color, progress_color, is_done, type_text, rarity_color, bg_rect, ribbon_rect):
-        text_w = Window.width - 45
+        text_w = self.width - 45
         name_lbl = Label(
             text=name.upper(), font_name=resource_path("ClearSans-Bold.ttf"),
             font_size='18sp', color=text_color, bold=True,
@@ -3011,29 +3101,39 @@ class QuestsScreen(Screen):
             halign='left', valign='top'
         )
 
-        info_line = FloatLayout(size_hint=(1, None), height=35)
-        
+        # Три РАВНЫХ сегмента (rarity/награда/статус), каждый со своей подгонкой шрифта -
+        # раньше фиксированные 120/150/200px налезали друг на друга на узких экранах
+        info_h = dp(30)
+        info_line = FloatLayout(size_hint=(1, None), height=info_h)
+        seg_w = max((self.width - dp(24)) / 3, dp(60))
+
         lbl_rare = Label(
-            text=type_text, font_name=resource_path("ClearSans-Bold.ttf"), 
-            font_size='13sp', color=rarity_color, bold=True, size_hint=(None, None),
-            size=(120, 35), text_size=(120, 35), pos_hint={'x': 0.06, 'center_y': 0.5},
+            text=type_text, font_name=resource_path("ClearSans-Bold.ttf"),
+            color=rarity_color, bold=True, size_hint=(None, None),
+            size=(seg_w, info_h), pos_hint={'x': 0.03, 'center_y': 0.5},
             halign='left', valign='middle'
         )
-        
+        fit_font_size(lbl_rare, seg_w - dp(8), dp(13))
+        lbl_rare.text_size = (seg_w, info_h)
+
         lbl_rew = Label(
-            text=f"Награда: {reward}", font_name=resource_path("ClearSans-Bold.ttf"), 
-            font_size='13sp', color=color_in_word, bold=True, size_hint=(None, None),
-            size=(150, 35), text_size=(150, 35), pos_hint={'center_x': 0.5, 'center_y': 0.5},
+            text=f"Награда: {reward}", font_name=resource_path("ClearSans-Bold.ttf"),
+            color=color_in_word, bold=True, size_hint=(None, None),
+            size=(seg_w, info_h), pos_hint={'center_x': 0.5, 'center_y': 0.5},
             halign='center', valign='middle'
         )
+        fit_font_size(lbl_rew, seg_w - dp(8), dp(13))
+        lbl_rew.text_size = (seg_w, info_h)
         
         status_txt = "ВЫПОЛНЕНО" if is_done else f"{progress}/{goal}"
         lbl_stat = Label(
-            text=status_txt, font_name=resource_path("ClearSans-Bold.ttf"), 
-            font_size='14sp', color=progress_color, bold=True, size_hint=(None, None),
-            size=(200, 35), text_size=(200, 35), pos_hint={'right': 0.94, 'center_y': 0.5},
+            text=status_txt, font_name=resource_path("ClearSans-Bold.ttf"),
+            color=progress_color, bold=True, size_hint=(None, None),
+            size=(seg_w, info_h), pos_hint={'right': 0.97, 'center_y': 0.5},
             halign='right', valign='middle'
         )
+        fit_font_size(lbl_stat, seg_w - dp(8), dp(14))
+        lbl_stat.text_size = (seg_w, info_h)
         
         info_line.add_widget(lbl_rare)
         info_line.add_widget(lbl_rew)
@@ -3140,9 +3240,9 @@ def create_stub_layout(screen_instance, text):
     btn_back = MenuButton(
         text="Назад", 
         size_hint=(None, None), 
-        size=(100, 54)
+        size=(dp(92), dp(48))
     )
-    btn_back.pos = (Window.width - 100 - 15, Window.height - 54 - 44)
+    btn_back.pos = (Window.width - dp(92) - dp(14), Window.height - TOP_SAFE_MARGIN - dp(48))
     btn_back.font_size = '20sp' 
     btn_back.bind(on_release=lambda x: setattr(screen_instance.manager, 'current', 'menu'))
     layout.add_widget(btn_back)
