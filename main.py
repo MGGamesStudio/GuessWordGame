@@ -2051,9 +2051,9 @@ class HowToPlayScreen(Screen):
             self.content_box.add_widget(lbl)
             
         def add_row(letter, status, description, text_col=None):
-            row = BoxLayout(orientation='horizontal', spacing=14, size_hint_y=None, height=dp(30))
+            row = BoxLayout(orientation='horizontal', spacing=14, size_hint_y=None, height=dp(28))
 
-            cell = GameCell(size=(dp(30), dp(30)))
+            cell = GameCell(size=(dp(28), dp(28)))
             cell.text = letter
             cell.change_type(status)
             cell.text_size = cell.size
@@ -2067,7 +2067,7 @@ class HowToPlayScreen(Screen):
 
             desc.bind(texture_size=lambda inst, val: [
                 setattr(inst, 'height', val[1]), 
-                setattr(row, 'height', max(dp(30), val[1]))
+                setattr(row, 'height', max(dp(28), val[1]))
             ])
             
             row.add_widget(cell)
