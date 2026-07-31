@@ -2046,19 +2046,18 @@ class HowToPlayScreen(Screen):
         def add_text(text, custom_color=None):
             lbl = Label(text=text, font_name=resource_path("ClearSans-Bold.ttf"), font_size='14sp', 
                         color=custom_color if custom_color else color_text, size_hint_y=None, halign='left', valign='top')
-            # Исправлено: берем высоту через val[1]
             lbl.bind(texture_size=lambda inst, val: setattr(inst, 'height', val[1]))
             self.text_labels.append(lbl)
             self.content_box.add_widget(lbl)
             
         def add_row(letter, status, description, text_col=None):
-            row = BoxLayout(orientation='horizontal', spacing=14, size_hint_y=None, height=dp(34))
-            
-            # Ячейка с буквой, приподнятой на 5 пикселей вверх
-            cell = GameCell(size=(dp(34), dp(34)))
+            row = BoxLayout(orientation='horizontal', spacing=14, size_hint_y=None, height=dp(30))
+
+            cell = GameCell(size=(dp(30), dp(30)))
             cell.text = letter
             cell.change_type(status)
             cell.text_size = cell.size
+            cell.font_size = '20sp'
             cell.halign = 'center'
             cell.valign = 'middle'
             cell.padding = [0, 0, 0, 5]
@@ -2068,7 +2067,7 @@ class HowToPlayScreen(Screen):
 
             desc.bind(texture_size=lambda inst, val: [
                 setattr(inst, 'height', val[1]), 
-                setattr(row, 'height', max(dp(34), val[1]))
+                setattr(row, 'height', max(dp(30), val[1]))
             ])
             
             row.add_widget(cell)
