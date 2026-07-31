@@ -1080,31 +1080,11 @@ class PlayScreen(Screen):
 
         content_top = self.category_label.y - dp(12)
         bottom_limit = BOTTOM_SAFE_MARGIN
-
-        # Стартовый размер шрифта описания - заведомо разумный, но не жёстко
-        # заданный: если конкретный текст всё равно короче отведённой ширины,
-        # он отрисуется как есть, а не будет искусственно растянут.
         desc_font_start = min(win_h * 0.02, dp(40))
-        # Заголовок карточки считается НЕ от своего блока, а от РЕАЛЬНОГО
-        # шрифта описания этой же карточки (title всегда заметно крупнее
-        # description, а не просто "что влезло в отдельно посчитанный блок").
         TITLE_TO_DESC_RATIO = 2
-        # Верхний потолок на высоту блока описания - просто защита на случай,
-        # если в будущем режиме окажется очень длинный текст; в норме описание
-        # короче и в это ограничение не упирается.
         desc_h_cap = min(win_h * 0.16, dp(120))
-
-        # Место под сноску пока резервируем приблизительно (по стартовому
-        # размеру шрифта описания) - её точный размер посчитаем ПОСЛЕ карточек,
-        # когда будет известен реальный (возможно ужатый) шрифт описания
         footer_gap = dp(14)
         footer_h_reserved = desc_font_start
-
-        # Карточки режимов: количество карточек - не хардкод, а результат
-        # данных (self.offline_modes). Высота каждой карточки подгоняется под
-        # РЕАЛЬНОЕ содержимое (а не бронирует место под условные 3 строки) -
-        # поэтому короткое описание в одну строку больше не оставляет пустоты
-        # снизу, а длинное в 2-3 строки не обрезается.
         count = len(self.mode_buttons)
         card_w = win_w * 0.93
         card_pad_h = dp(13)
@@ -1117,22 +1097,15 @@ class PlayScreen(Screen):
         def layout_cards(font_scale):
             total_h = 0.0
             for card in self.mode_buttons:
-                # 1) Описание: подгоняем перенос строк под текст, затем берём
-                # РЕАЛЬНУЮ высоту получившегося блока (1, 2 или 3 строки)
                 fit_font_size_wrapped(card.sub_label, desc_max_w, desc_h_cap, desc_font_start * font_scale)
                 desc_real_h = card.sub_label.texture_size[1]
                 card.sub_label.height = desc_real_h
                 card.sub_label.text_size = (desc_max_w, desc_real_h)
-
-                # 2) Заголовок - целимся заметно крупнее описания ЭТОЙ карточки,
-                # затем тоже меряем реальную высоту и отдаём под неё ровно блок
                 title_target_font = card.sub_label.font_size * TITLE_TO_DESC_RATIO
                 fit_font_size(card.title_label, title_max_w, title_target_font)
                 title_real_h = card.title_label.texture_size[1]
                 card.title_label.height = title_real_h
                 card.title_label.text_size = (title_max_w, title_real_h)
-
-                # 3) Высота карточки = сумма реальных кусков, без запаса "на всякий случай"
                 this_card_h = card_pad_top + title_real_h + card_inner_gap + desc_real_h + card_pad_bottom
                 card.padding = [card_pad_h, card_pad_top, card_pad_h, card_pad_bottom]
                 card.spacing = card_inner_gap
@@ -1145,10 +1118,6 @@ class PlayScreen(Screen):
         total_cards_h = layout_cards(1.0)
 
         available_for_cards = content_top - bottom_limit - footer_h_reserved - footer_gap
-
-        # На совсем маленьких экранах реальный контент может не влезть - тогда
-        # пересчитываем карточки заново с уменьшенным стартовым шрифтом (а не
-        # просто обрезаем уже готовые блоки, чтобы текст и рамка не разъезжались)
         if count > 0 and total_cards_h > 0 and total_cards_h > available_for_cards:
             scale = max(available_for_cards / total_cards_h, 0.55)
             total_cards_h = layout_cards(scale)
@@ -1158,15 +1127,10 @@ class PlayScreen(Screen):
         self.mode_container.center_x = win_w / 2
         self.mode_container.top = content_top
 
-        # Сноска "Больше режимов нет." - того же размера шрифта, что и зелёное
-        # описание карточек (берём реальный, уже подогнанный шрифт первой
-        # карточки, а не свой собственный маленький размер)
         desc_final_font_px = self.mode_buttons[0].sub_label.font_size if self.mode_buttons else desc_font_start
         self.footer_label.text_size = (None, None)
         fit_font_size(self.footer_label, win_w * 0.85, desc_final_font_px)
         self.footer_label.size = self.footer_label.texture_size
-
-        # Сноска - по центру, сразу под последней карточкой
         self.footer_label.center_x = win_w / 2
         self.footer_label.top = self.mode_container.y - footer_gap
 
@@ -1201,7 +1165,6 @@ class OnePlayerGameScreen(Screen):
         self.layout.add_widget(self.btn_erase)
         self.layout.add_widget(self.btn_enter)
 
-        # Кнопка "Выход" переехала в стандартный верхний правый угол (как везде в игре)
         self.btn_exit_top = MenuButton(text="Назад", size_hint=(None, None), size=(dp(92), dp(48)))
         self.btn_exit_top.bind(on_release=self.press_exit_key)
         self.layout.add_widget(self.btn_exit_top)
@@ -1239,7 +1202,6 @@ class OnePlayerGameScreen(Screen):
         self.bg_rect.size = (win_w, win_h)
         self.bg_rect.pos = (0, 0)
 
-        # Верхняя резервная зона: статус-бар + кнопка "Назад" + зазор до сетки
         GRID_GAP = dp(6)
         top_reserved = TOP_SAFE_MARGIN + dp(48) + GRID_GAP
         bottom_reserved = BOTTOM_SAFE_MARGIN
@@ -2090,10 +2052,10 @@ class HowToPlayScreen(Screen):
             self.content_box.add_widget(lbl)
             
         def add_row(letter, status, description, text_col=None):
-            row = BoxLayout(orientation='horizontal', spacing=14, size_hint_y=None, height=dp(42))
+            row = BoxLayout(orientation='horizontal', spacing=14, size_hint_y=None, height=dp(34))
             
             # Ячейка с буквой, приподнятой на 5 пикселей вверх
-            cell = GameCell(size=(dp(42), dp(42)))
+            cell = GameCell(size=(dp(34), dp(34)))
             cell.text = letter
             cell.change_type(status)
             cell.text_size = cell.size
@@ -2103,11 +2065,10 @@ class HowToPlayScreen(Screen):
             
             desc = Label(text=description, font_name=resource_path("ClearSans-Bold.ttf"), font_size='14sp', 
                         color=text_col if text_col else color_text, size_hint_y=None, halign='left', valign='top')
-            
-            # КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: берем строго высоту val[1] из кортежа texture_size
+
             desc.bind(texture_size=lambda inst, val: [
                 setattr(inst, 'height', val[1]), 
-                setattr(row, 'height', max(dp(42), val[1]))
+                setattr(row, 'height', max(dp(34), val[1]))
             ])
             
             row.add_widget(cell)
@@ -2115,7 +2076,6 @@ class HowToPlayScreen(Screen):
             self.row_labels.append(desc)
             self.content_box.add_widget(row)
 
-        # --- ЗАПОЛНЕНИЕ ПОЛНЫМ ТЕКСТОМ ИЗ ПК-ВЕРСИИ ---
         add_title("О ЧЕМ ЭТА ИГРА?")
         add_text("Игра является цифровой головоломкой на логику и эрудицию.")
         add_text("Ваша главная цель - за 6 попыток вычислить секретное слово.")
@@ -2156,8 +2116,7 @@ class HowToPlayScreen(Screen):
         self.scroll_view.add_widget(self.content_box)
         self.layout.add_widget(self.scroll_view)
         self.add_widget(self.layout)
-        
-        # Подписка на обновление размеров экрана
+
         self.bind(size=self.reposition_elements)
         self.reposition_elements(None, None)
         Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
@@ -2165,15 +2124,12 @@ class HowToPlayScreen(Screen):
     def reposition_elements(self, instance, size):
         win_w, win_h = self.width, self.height
 
-        # Расчет верхней линии кнопок (с защитным отступом от статус-бара)
         back_w, back_h = dp(92), dp(48)
         btn_y = win_h - TOP_SAFE_MARGIN - back_h
         self.btn_back.size = (back_w, back_h)
         self.btn_back.pos = (win_w - back_w - dp(14), btn_y)
         fit_font_size(self.btn_back, back_w - dp(18), back_h * 0.42)
 
-        # Заголовок экрана - подгоняем шрифт под РЕАЛЬНО доступную ширину (окно минус
-        # кнопка "Назад"), чтобы никогда не налезал ни на кнопку, ни на край экрана
         title_max_w = max(win_w - back_w - dp(14) - dp(15) - dp(10), dp(60))
         title_h = min(win_h * 0.05, dp(32))
         fit_font_size(self.title_label, title_max_w, title_h * 0.85)
@@ -2182,21 +2138,17 @@ class HowToPlayScreen(Screen):
         self.title_label.x = dp(15)
         self.title_label.y = win_h - TOP_SAFE_MARGIN - title_h + (title_h - self.title_label.height) / 2
 
-        # Настройка скролл-зоны (с защитным отступом снизу от жестовой навигации)
         self.scroll_view.size = (win_w, btn_y - BOTTOM_SAFE_MARGIN)
         self.scroll_view.pos = (0, BOTTOM_SAFE_MARGIN)
-        
-        # ЖЕСТКОЕ ОТКЛЮЧЕНИЕ НАТЯГИВАНИЯ И ПОЛОСЫ ПРОКРУТКИ
+
         self.scroll_view.effect_cls = ScrollEffect
         if self.scroll_view.effect_cls:
-            self.scroll_view.effect_cls.bounces = False  # Отключает резиновое натягивание списка
-        self.scroll_view.bar_width = 0                   # Полностью убирает боковую полосу прокрутки
-        
-        # Перевод размеров в int для Kivy
+            self.scroll_view.effect_cls.bounces = False
+        self.scroll_view.bar_width = 0
+
         text_width = int(win_w - 40)
         row_text_width = int(win_w - 40 - 54 - 14)
-        
-        # Передаем тексту его честную ширину, чтобы Kivy переносил строки, а не обрубал их
+
         for lbl in self.title_labels:
             lbl.text_size = (text_width, None)
         for lbl in self.text_labels:
