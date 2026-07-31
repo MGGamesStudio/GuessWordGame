@@ -2053,7 +2053,7 @@ class HowToPlayScreen(Screen):
         def add_row(letter, status, description, text_col=None):
             row = BoxLayout(orientation='horizontal', spacing=20, size_hint_y=None, height=dp(32))
 
-            cell = GameCell(size_hint=(None, None), size=(dp(32), dp(32)))
+            cell = GameCell(size=(dp(32), dp(32)))
             cell.text = letter
             cell.change_type(status)
             cell.text_size = cell.size
@@ -2146,7 +2146,7 @@ class HowToPlayScreen(Screen):
         self.scroll_view.bar_width = 0
 
         text_width = int(win_w - 40)
-        row_text_width = int(win_w - 40 - 54 - 14)
+        row_text_width = int(win_w - 40 - 54 - 20)
 
         for lbl in self.title_labels:
             lbl.text_size = (text_width, None)
