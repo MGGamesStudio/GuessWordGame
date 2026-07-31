@@ -3,6 +3,24 @@ import sys
 import json
 import random
 from platformdirs import user_data_dir
+from kivy.app import App
+from kivy.core.window import Window
+from kivy.metrics import dp
+from kivy.clock import Clock
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.button import Button
+from kivy.uix.label import Label
+from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
+from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.modalview import ModalView
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.behaviors import ButtonBehavior
+from kivy.effects.scroll import ScrollEffect
+from kivy.graphics import Ellipse
+from kivy.graphics import Line
+from kivy.animation import Animation
+from kivy.properties import NumericProperty
 
 # ----- ДОСТИЖЕНИЯ -----
 achivements = {
@@ -77,7 +95,8 @@ def get_default_stats():
         "active_quests": {},
         "unlocked_themes": {"classic": True},
         "active_theme_name": "classic",
-        "unlocked_achivements": {}
+        "unlocked_achivements": {},
+        "settings": {}
     }
 
 def load_game_progress():
@@ -105,29 +124,6 @@ def save_game_progress(stats):
     except Exception as e:
         print(f"[MGGamesStudio] Ошибка сохранения данных: {e}")
 
-# ============================================================
-# ==============  guess_word_mobile_v110.py  ================
-# ============================================================
-
-import os
-import sys
-import random
-
-from kivy.app import App
-from kivy.core.window import Window
-from kivy.metrics import dp
-from kivy.clock import Clock
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.button import Button
-from kivy.uix.label import Label
-from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
-from kivy.uix.floatlayout import FloatLayout
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.modalview import ModalView
-from kivy.uix.scrollview import ScrollView
-
-# Защитные отступы сверху/снизу, чтобы кнопки и текст никогда не попадали
-# под системные шторки Android (статус-бар сверху, жесты/навигация снизу)
 TOP_SAFE_MARGIN = dp(32)
 BOTTOM_SAFE_MARGIN = dp(28)
 
@@ -167,32 +163,18 @@ color_in_word = color_themes["classic"]["color_in_word"]
 color_not_in_word = color_themes["classic"]["color_not_in_word"]
 color_key = color_themes["classic"]["color_key"]
 
-# Универсальная функция подгонки шрифта для ЛЮБОГО Label в игре
 def fit_font_size(label, max_allowed_w, start_font_px):
-    """
-    Жестко подгоняет размер шрифта под максимальную ширину в пикселях.
-    Убирает text_size, чтобы исключить паразитные переносы строк Kivy.
-    """
     label.text_size = (None, None)
     current_font = int(start_font_px)
     label.font_size = f"{current_font}px"
     label.texture_update()
-    
-    # Сжимаем шрифт по пикселю, пока строка не уложится в рамки
+
     while label.texture_size[0] > max_allowed_w and current_font > 8:
         current_font -= 1
         label.font_size = f"{current_font}px"
         label.texture_update()
 
-# То же самое, но для БЛОКА текста в несколько строк (описания карточек и т.п.)
 def fit_font_size_wrapped(label, max_allowed_w, max_allowed_h, start_font_px):
-    """
-    Ширина текста фиксируется (max_allowed_w), поэтому Kivy сам переносит
-    строки, а шрифт уменьшается, пока весь перенесённый блок текста не
-    впишется по высоте в max_allowed_h. Нужен там, где текст может занимать
-    несколько строк (например, описание режима игры), в отличие от
-    fit_font_size, который меряет только одну строку.
-    """
     label.text_size = (max_allowed_w, None)
     current_font = int(start_font_px)
     label.font_size = f"{current_font}px"
@@ -203,12 +185,7 @@ def fit_font_size_wrapped(label, max_allowed_w, max_allowed_h, start_font_px):
         label.font_size = f"{current_font}px"
         label.texture_update()
 
-# Универсальный хелпер для подготовки BoxLayout к ручной динамической верстке
 def prepare_layout_for_dynamic_sizes(container, child_widgets):
-    """
-    Отключает size_hint_y у дочерних элементов, чтобы BoxLayout
-    не растягивал их автоматически и слушался заданных в пикселях параметров.
-    """
     container.size_hint_y = None
     for widget in child_widgets:
         widget.size_hint_y = None
@@ -216,28 +193,18 @@ def prepare_layout_for_dynamic_sizes(container, child_widgets):
             container.add_widget(widget)
 
 def position_header(title_label, back_btn, win_w, win_h):
-    """
-    Стандартная шапка экрана: заголовок слева, кнопка "Назад" справа сверху.
-    Учитывает верхний защитный отступ (TOP_SAFE_MARGIN), чтобы не попадать
-    под статус-бар Android. Возвращает Y-координату, ниже которой уже
-    безопасно располагать остальной контент экрана.
-    """
     back_w, back_h = dp(92), dp(48)
+    back_btn_y = win_h - TOP_SAFE_MARGIN - back_h
     back_btn.size = (back_w, back_h)
-    back_btn.pos = (win_w - back_w - dp(14), win_h - TOP_SAFE_MARGIN - back_h)
+    back_btn.pos = (win_w - back_w - dp(14), back_btn_y)
     fit_font_size(back_btn, back_w - dp(18), back_h * 0.42)
-
-    # Ширина заголовка считается от РЕАЛЬНО доступного места (окно минус кнопка
-    # и отступы), а не от фиксированных 55% - иначе на узких экранах заголовок
-    # налезал на кнопку "Назад"
     title_box_w = max(win_w - back_w - dp(14) - dp(15) - dp(10), dp(60))
     title_h = min(win_h * 0.05, dp(32))
-    title_label.pos = (dp(15), win_h - TOP_SAFE_MARGIN - title_h)
+    title_label.pos = (dp(15), back_btn_y + (back_h - title_h) / 2.0 + dp(4))
     fit_font_size(title_label, title_box_w, title_h * 0.85)
     title_label.size = (title_box_w, title_h)
     title_label.text_size = (title_box_w, title_h)
-
-    return win_h - TOP_SAFE_MARGIN - title_h - dp(12)
+    return back_btn_y - dp(12)
 
 def choose_theme(theme):
     global color_name, color_bg, color_text, color_blank, color_correct, color_in_word, color_not_in_word, color_key
@@ -294,6 +261,7 @@ def redraw_all_screens():
     sm.add_widget(MenuScreen(name='menu'))
     sm.add_widget(PlayScreen(name='play'))
     sm.add_widget(OptionsScreen(name='options'))
+    sm.add_widget(AboutScreen(name='about'))
     sm.add_widget(HowToPlayScreen(name='how_to_play'))
     sm.add_widget(AchievementsScreen(name='achievements'))
     sm.add_widget(CustomizationScreen(name='customization'))
@@ -517,12 +485,6 @@ class KeyButton(Button):
             
             RoundedRectangle(pos=self.pos, size=self.size, radius=[6])
 
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.behaviors import ButtonBehavior
-from kivy.graphics import Ellipse
-from kivy.graphics import Line
-from kivy.effects.scroll import ScrollEffect
-
 class ThemeCard(ButtonBehavior, FloatLayout):
     def __init__(self, theme_id="classic", theme_name="Классика", theme_data=None, on_click_callback=None, **kwargs):
         self.is_active = False 
@@ -545,23 +507,19 @@ class ThemeCard(ButtonBehavior, FloatLayout):
             self.c_not_in_word, self.c_blank = color_not_in_word, color_blank
             self.c_key = color_key
 
-        # Списки цветов теперь создаются тоже ДО super(), чтобы они всегда были доступны
         self.block_colors = [self.c_blank, self.c_correct, self.c_in_word, self.c_not_in_word, self.c_blank]
         self.text_colors  = [self.c_text, (1, 1, 1, 1), (0, 0, 0, 1), (1, 1, 1, 1), self.c_text]
 
-        # 2. И ТОЛЬКО ПОСЛЕ ЭТОГО ИНИЦИАЛИЗИРУЕМ ВИДЖЕТ
         super().__init__(**kwargs)
         self.size_hint = (None, None)
 
-        # Отрисовка фона конкретной темы и кружка строго друг за другом
         with self.canvas.before:
-            Color(*self.c_bg) # ЗАМЕНИЛИ color_bg НА self.c_bg, ЧТОБЫ ЦВЕТА ВЕРНУЛИСЬ
+            Color(*self.c_bg)
             self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[12])
             
             self.active_circle_color = Color(*self.c_correct)
             self.active_circle = Ellipse(pos=(0, 0), size=(0, 0))
-            
-        # Название темы снизу (цветом текста конкретной темы!)
+
         self.lbl_name = Label(
             text=theme_name,
             font_name=resource_path("ClearSans-Bold.ttf"),
@@ -578,8 +536,7 @@ class ThemeCard(ButtonBehavior, FloatLayout):
         self.tiles = []
         self.tile_rects = []
         self.tile_colors = []
-        
-        # Создаем 5 плиток "А"
+
         for i in range(5):
             lbl_a = Label(
                 text="A",
@@ -600,7 +557,6 @@ class ThemeCard(ButtonBehavior, FloatLayout):
             self.tiles.append(lbl_a)
             self.add_widget(lbl_a)
 
-        # Отрисовка мини-клавиатуры цветом клавиш текущей темы (c_key)
         self.kb_rects = []
         self.kb_colors = []
         with self.canvas:
@@ -611,13 +567,10 @@ class ThemeCard(ButtonBehavior, FloatLayout):
                 self.kb_rects.append(rect)
             
         self.bind(pos=self.update_graphics, size=self.update_graphics)
-
-        # Флаг: выбрана ли эта карточка игроком прямо сейчас
         self.is_selected = False
-        
-        # Инструкция для жёлтой рамки выбора (рисуем в after, чтобы она была поверх всего)
+
         with self.canvas.after:
-            self.select_line_color = Color(*color_in_word) # Твой жёлтый цвет
+            self.select_line_color = Color(*color_in_word)
             self.select_line = Line(width=2)
 
     def update_graphics(self, instance, value):
@@ -631,9 +584,7 @@ class ThemeCard(ButtonBehavior, FloatLayout):
         self.lbl_name.size = self.lbl_name.texture_size
         self.lbl_name.center_x = self.x + self.width / 2
         self.lbl_name.y = self.y + 5
-        
-        # Расчет сетки 1х5 - берём МЕНЬШУЮ из двух оценок (по высоте и по ширине),
-        # чтобы плитки реально сжимались на узких экранах, а не оставались фиксированными
+
         spacing = dp(8)
         tile_size_by_h = self.height * 0.33
         tile_size_by_w = (self.width - dp(20) - spacing * 4) / 5
@@ -654,7 +605,6 @@ class ThemeCard(ButtonBehavior, FloatLayout):
             self.tile_rects[i].pos = (current_x, tile_y)
             self.tile_rects[i].size = (tile_size, tile_size)
 
-        # Расчет мини-клавиатуры - тоже завязан на уже адаптивный tile_size
         kb_size = tile_size * 0.38  
         kb_spacing_x = dp(4)
         kb_spacing_y = dp(4)
@@ -672,36 +622,27 @@ class ThemeCard(ButtonBehavior, FloatLayout):
             self.kb_rects[index].pos = (kx, ky)
             self.kb_rects[index].size = (kb_size, kb_size)
 
-        # --- ИСПРАВЛЕННЫЙ РАСЧЕТ ИНДИКАТОРА АКТИВНОЙ ТЕМЫ ---
         if self.is_active:
             circle_size = 16
             cx = self.x + self.width - circle_size - 15
             cy = self.y + self.height - circle_size - 15
-            
-            # Принудительно обновляем цвет и координаты видимого шарика
+
             self.active_circle_color.rgba = self.c_correct
             self.active_circle.pos = (cx, cy)
             self.active_circle.size = (circle_size, circle_size)
         else:
-            # ВАЖНО: Полностью сбрасываем размеры и делаем его невидимым налету!
             self.active_circle.size = (0, 0)
             self.active_circle_color.rgba = (0, 0, 0, 0)
 
-        # --- РАСЧЕТ РАМКИ ВЫБОРА ТЕМЫ ---
         if self.is_selected:
-            # Если тема выбрана, рисуем рамку строго по контуру карточки со скруглением 12px
             self.select_line_color.rgba = color_in_word
             self.select_line.rounded_rectangle = (self.x, self.y, self.width, self.height, 12, 12, 12, 12)
         else:
-            # Если тема не выбрана, убираем рамку (задаем нулевые координаты)
             self.select_line.rounded_rectangle = (0, 0, 0, 0, 0)
 
     def on_touch_down(self, touch):
-        # Если клик произошел внутри границ этой карточки темы
         if self.collide_point(*touch.pos):
-            # Проверяем, что это не скролл мышкой или перетаскивание
             if not touch.is_mouse_scrolling:
-                # Если функция привязана — вызываем её строго один раз!
                 if self.on_click_callback:
                     self.on_click_callback(self.theme_id)
                 return True
@@ -712,8 +653,6 @@ class MainScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
-        
-        # Главный заголовок
         self.title_label = Label(
             text="Угадай слово", 
             font_name=resource_path("ClearSans-Bold.ttf"),
@@ -723,14 +662,12 @@ class MainScreen(Screen):
             halign='center', 
             valign='middle'
         )
-        
-        # Контейнер для кнопок (отключаем size_hint по вертикали, чтобы BoxLayout слушался ручной высоты)
+
         self.buttons_container = BoxLayout(
             orientation='vertical', 
             size_hint=(None, None)
         )
-        
-        # Три кнопки верхнего уровня: Играть / Меню / Настройки
+
         self.buttons = [
             MenuButton(text="Играть"),
             MenuButton(text="Меню"),
@@ -739,22 +676,17 @@ class MainScreen(Screen):
         for btn in self.buttons:
             btn.font_name = resource_path("ClearSans-Bold.ttf")
 
-        # "Играть" выделяем акцентным зелёным цветом темы (color_correct), остальные - обычные
         self.buttons[0].base_color = color_correct
         self.buttons[0].color = (1.0, 1.0, 1.0, 1.0)
 
         self.buttons[0].bind(on_release=lambda x: setattr(self.manager, 'current', 'play'))
         self.buttons[1].bind(on_release=lambda x: setattr(self.manager, 'current', 'menu'))
         self.buttons[2].bind(on_release=lambda x: setattr(self.manager, 'current', 'options'))
-        
-        # Принудительно ставим size_hint=(1, None): по умолчанию у MenuButton
-        # size_hint_x=0.93, из-за чего кнопка прижималась к левому краю контейнера
-        # вместо того, чтобы быть по-настоящему по центру экрана
+
         for btn in self.buttons:
             btn.size_hint = (1, None)
             self.buttons_container.add_widget(btn)
-            
-        # Нижний копирайт
+
         self.copy_label = Label(
             text="Угадай слово by MGGamesStudio. v.1.1.0", 
             font_name=resource_path("ClearSans-Bold.ttf"),
@@ -775,22 +707,14 @@ class MainScreen(Screen):
 
     def reposition_menu_elements(self, *args):
         win_w, win_h = self.width, self.height
-
         top_limit = win_h - TOP_SAFE_MARGIN
         bottom_limit = BOTTOM_SAFE_MARGIN
-
-        # 1. Копирайт внизу - сначала подгоняем шрифт и реальный размер, ПОТОМ центрируем
-        # (раньше center_x ставился ДО size=texture_size, из-за чего на первом кадре
-        # виджет смещался - это и была настоящая причина "не по центру при старте")
         copy_h = dp(16)
         self.copy_label.text_size = (None, None)
         fit_font_size(self.copy_label, win_w * 0.92, copy_h)
         self.copy_label.size = self.copy_label.texture_size
         self.copy_label.center_x = win_w / 2
         self.copy_label.y = bottom_limit
-
-        # 2. Блок кнопок: высота каждой кнопки разумно ограничена сверху (max_btn_h),
-        # чтобы на очень высоких экранах кнопки не раздувались до нелепых размеров
         available_h = top_limit - bottom_limit - self.copy_label.height - dp(12)
         container_w = win_w * 0.9
         total_elements = 3
@@ -804,17 +728,12 @@ class MainScreen(Screen):
         self.buttons_container.size = (container_w, container_h)
         self.buttons_container.spacing = spacing_h
         self.buttons_container.center_x = win_w / 2
-        # Центр контейнера = центр экрана. При 3 одинаковых кнопках с одинаковыми
-        # промежутками центр контейнера математически совпадает с центром средней
-        # кнопки ("Меню") - то, что и было нужно.
         self.buttons_container.center_y = win_h / 2
 
         for btn in self.buttons:
             btn.height = btn_h
-            # Ширина текста реально проверяется и шрифт уменьшается, если не влезает
             fit_font_size(btn, container_w - dp(36), btn_h * 0.42)
 
-        # 3. Главный заголовок - в оставшемся месте сверху
         distance_to_top = top_limit - self.buttons_container.top
         title_h = min(distance_to_top * 0.6, dp(60))
         self.title_label.size = (win_w * 0.9, title_h)
@@ -895,7 +814,175 @@ class MenuScreen(Screen):
             btn.height = btn_h
             fit_font_size(btn, container_w - dp(36), btn_h * 0.4)
 
+class ToggleSwitch(ButtonBehavior, FloatLayout):
+    """Капсула с бегунком (кругом). Трек всегда цвета color_not_in_word,
+    а сам круг плавно анимируется между color_key (выкл) и color_bg (вкл)."""
+
+    progress = NumericProperty(0.0)
+
+    def __init__(self, active=False, on_toggle=None, **kwargs):
+        kwargs.setdefault('size_hint', (None, None))
+        kwargs.setdefault('size', (dp(56), dp(31)))
+        super().__init__(**kwargs)
+
+        self.on_toggle_callback = on_toggle
+        self.active = active
+        self.progress = 1.0 if active else 0.0
+
+        with self.canvas.before:
+            self.track_color_instr = Color(*color_not_in_word)
+            self.track_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[self.height / 2])
+
+        with self.canvas:
+            self.knob_color_instr = Color(*self._knob_color(self.progress))
+            self.knob_ellipse = Ellipse(pos=(0, 0), size=(0, 0))
+
+        self.bind(pos=self._update_graphics, size=self._update_graphics, progress=self._update_graphics)
+        self._update_graphics()
+
+    @staticmethod
+    def _knob_color(progress):
+        c1, c2 = color_key, color_bg
+        return [c1[i] + (c2[i] - c1[i]) * progress for i in range(4)]
+
+    def _update_graphics(self, *args):
+        radius = self.height / 2
+        self.track_rect.pos = self.pos
+        self.track_rect.size = self.size
+        self.track_rect.radius = [radius]
+        self.track_color_instr.rgba = color_not_in_word
+
+        margin = dp(3)
+        knob_d = max(self.height - margin * 2, 1)
+        travel = max(self.width - knob_d - margin * 2, 0)
+        knob_x = self.x + margin + travel * self.progress
+        knob_y = self.y + margin
+        self.knob_ellipse.pos = (knob_x, knob_y)
+        self.knob_ellipse.size = (knob_d, knob_d)
+        self.knob_color_instr.rgba = self._knob_color(self.progress)
+
+    def on_release(self):
+        self.set_active(not self.active)
+
+    def set_active(self, active, animate=True, fire_callback=True):
+        self.active = active
+        target = 1.0 if active else 0.0
+        Animation.cancel_all(self, 'progress')
+        if animate:
+            Animation(progress=target, duration=0.18, t='out_quad').start(self)
+        else:
+            self.progress = target
+        if fire_callback and self.on_toggle_callback:
+            self.on_toggle_callback(active)
+
+class SettingToggleRow(FloatLayout):
+    """Строка списка настроек: текст слева + переключатель справа."""
+
+    def __init__(self, text, active=False, on_toggle=None, **kwargs):
+        kwargs.setdefault('size_hint', (1, None))
+        super().__init__(**kwargs)
+
+        self.v_pad = dp(14)
+        self.h_gap = dp(14)
+        self.base_font_px = dp(26)
+
+        self.switch = ToggleSwitch(active=active, on_toggle=on_toggle)
+        self.add_widget(self.switch)
+
+        self.label = Label(
+            text=text,
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            color=color_text,
+            halign='left',
+            valign='top',
+            size_hint=(None, None)
+        )
+        self.add_widget(self.label)
+
+        self.height = dp(60)
+        self.bind(pos=self._relayout, size=self._relayout)
+        Clock.schedule_once(lambda dt: self._relayout(), 0)
+
+    def _relayout(self, *args):
+        if self.width <= 0:
+            return
+
+        label_w = max(self.width - self.switch.width - self.h_gap, dp(10))
+        fit_font_size_wrapped(self.label, label_w, dp(300), self.base_font_px)
+        # Важно: text_size и size у Label должны совпадать (как у заголовка
+        # экрана), иначе текстура рисуется с нецелым субпиксельным смещением
+        # и буквы выглядят размытыми.
+        real_h = self.label.texture_size[1]
+        self.label.text_size = (label_w, real_h)
+        self.label.size = (label_w, real_h)
+
+        content_h = max(self.label.height, self.switch.height)
+        new_height = content_h + self.v_pad * 2
+        if abs(new_height - self.height) > 0.5:
+            self.height = new_height
+            return
+
+        self.label.pos = (round(self.x), round(self.y + self.height - self.v_pad - self.label.height))
+        self.switch.pos = (round(self.x + self.width - self.switch.width), round(self.y + (self.height - self.switch.height) / 2))
+
+class SettingLinkRow(ButtonBehavior, FloatLayout):
+    """Строка списка настроек: зелёный кликабельный текст-ссылка на другой экран."""
+
+    def __init__(self, text, on_press_callback=None, **kwargs):
+        kwargs.setdefault('size_hint', (1, None))
+        super().__init__(**kwargs)
+
+        self.v_pad = dp(10)
+        self.base_font_px = dp(26)
+        self.on_press_callback = on_press_callback
+
+        self.label = Label(
+            text=text,
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            color=color_correct,
+            halign='left',
+            valign='top',
+            size_hint=(None, None)
+        )
+        self.add_widget(self.label)
+
+        self.height = dp(40)
+        self.bind(pos=self._relayout, size=self._relayout)
+        Clock.schedule_once(lambda dt: self._relayout(), 0)
+
+    def _relayout(self, *args):
+        if self.width <= 0:
+            return
+
+        fit_font_size(self.label, self.width, self.base_font_px)
+        # Важно: text_size и size у Label должны совпадать (как у заголовка
+        # экрана), иначе текстура рисуется с нецелым субпиксельным смещением
+        # и буквы выглядят размытыми.
+        real_w, real_h = self.label.texture_size
+        self.label.text_size = (real_w, real_h)
+        self.label.size = (real_w, real_h)
+
+        new_height = self.label.height + self.v_pad * 2
+        if abs(new_height - self.height) > 0.5:
+            self.height = new_height
+            return
+
+        self.label.pos = (round(self.x), round(self.y + self.height - self.v_pad - self.label.height))
+
+    def on_release(self):
+        if self.on_press_callback:
+            self.on_press_callback()
+
 class OptionsScreen(Screen):
+    # Список настроек. Чтобы добавить новую настройку, достаточно добавить
+    # сюда ещё один словарь — экран сам построит для него строку списка.
+    # type "toggle" -> переключатель, читает/пишет MOBILE_PLAYER_STATS["settings"][key]
+    # type "link"   -> зелёный кликабельный текст, переход на экран target
+    settings_definitions = [
+        {"type": "toggle", "key": "confirm_exit", "text": "Спрашивать повторно при выходе из игры", "default": False},
+        {"type": "link", "text": "О программе", "target": "about"},
+    ]
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -917,8 +1004,94 @@ class OptionsScreen(Screen):
         )
         self.layout.add_widget(self.title_label)
 
+        self.settings_scroll = ScrollView(size_hint=(None, None), do_scroll_x=False, do_scroll_y=True, bar_width=0)
+        self.settings_scroll.effect_cls = ScrollEffect
+
+        self.settings_list_layout = GridLayout(cols=1, spacing=dp(4), size_hint=(1, None), padding=[0, 0, 0, dp(20)])
+        self.settings_list_layout.bind(minimum_height=self.settings_list_layout.setter('height'))
+
+        self.settings_scroll.add_widget(self.settings_list_layout)
+        self.layout.add_widget(self.settings_scroll)
+
+        self.add_widget(self.layout)
+        self.build_settings_list()
+
+        self.bind(size=self.reposition_elements)
+        self.reposition_elements()
+        Clock.schedule_once(lambda dt: self.reposition_elements(), 0)
+
+    def build_settings_list(self):
+        self.settings_list_layout.clear_widgets()
+
+        stats = MOBILE_PLAYER_STATS if ('MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS) else {}
+        saved_settings = stats.get("settings", {})
+
+        for item in self.settings_definitions:
+            if item["type"] == "toggle":
+                current_value = saved_settings.get(item["key"], item.get("default", False))
+                row = SettingToggleRow(
+                    text=item["text"],
+                    active=current_value,
+                    on_toggle=self._make_toggle_handler(item["key"])
+                )
+                self.settings_list_layout.add_widget(row)
+            elif item["type"] == "link":
+                row = SettingLinkRow(
+                    text=item["text"],
+                    on_press_callback=self._make_link_handler(item["target"])
+                )
+                self.settings_list_layout.add_widget(row)
+
+    def _make_toggle_handler(self, key):
+        def _handler(value):
+            if 'MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS is not None:
+                MOBILE_PLAYER_STATS.setdefault("settings", {})[key] = value
+                if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
+                    MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
+        return _handler
+
+    def _make_link_handler(self, target_screen):
+        def _handler():
+            setattr(self.manager, 'current', target_screen)
+        return _handler
+
+    def reposition_elements(self, *args):
+        win_w, win_h = self.width, self.height
+        if win_w <= 0 or win_h <= 0:
+            return
+
+        content_top = position_header(self.title_label, self.btn_back, win_w, win_h)
+        bottom_limit = BOTTOM_SAFE_MARGIN
+        side_margin = dp(15)
+
+        self.settings_scroll.pos = (side_margin, bottom_limit)
+        self.settings_scroll.size = (win_w - side_margin * 2, max(content_top - bottom_limit, dp(10)))
+        self.settings_list_layout.width = self.settings_scroll.width
+
+class AboutScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = FloatLayout()
+
+        self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
+        self.btn_back.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_back.font_size = '20sp'
+        self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'options'))
+        self.layout.add_widget(self.btn_back)
+
+        self.title_label = Label(
+            text="О программе",
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            bold=True,
+            color=color_text,
+            size_hint=(None, None),
+            halign='left',
+            valign='middle'
+        )
+        self.layout.add_widget(self.title_label)
+
         self.placeholder_label = Label(
-            text="Здесь пока что нечего настраивать.",
+            text="Здесь пока что ничего нет.",
             font_name=resource_path("ClearSans-Bold.ttf"),
             color=color_not_in_word,
             size_hint=(None, None),
@@ -967,10 +1140,6 @@ class PlayScreen(Screen):
         )
         self.layout.add_widget(self.title_label)
 
-        # Подзаголовок текущей категории режимов. Сейчас категория одна -
-        # "Оффлайн", но подпись сделана отдельным крупным заголовком, а не
-        # частью self.title_label: когда появится "Онлайн", она встанет по
-        # тому же принципу без переделки этого экрана.
         self.category_label = Label(
             text="Оффлайн",
             font_name=resource_path("ClearSans-Bold.ttf"),
@@ -987,9 +1156,6 @@ class PlayScreen(Screen):
             size_hint=(None, None)
         )
 
-        # Режимы описаны данными, а не отдельным виджетом на каждый режим -
-        # чтобы добавить ещё один режим, достаточно дописать словарь сюда,
-        # без правки верстки: reposition_elements сам считает нужное число карточек.
         self.offline_modes = [
             {
                 "title": "Одиночная игра",
@@ -1017,9 +1183,6 @@ class PlayScreen(Screen):
             self.mode_container.add_widget(card)
 
         self.layout.add_widget(self.mode_container)
-
-        # Сноска под карточками - как на макете, оставляет видимое место под
-        # будущие категории режимов (например "Онлайн"), не требуя правок сейчас
         self.footer_label = Label(
             text="Больше режимов нет.",
             font_name=resource_path("ClearSans-Bold.ttf"),
@@ -1037,9 +1200,6 @@ class PlayScreen(Screen):
         Clock.schedule_once(lambda dt: self.reposition_elements(), 0)
 
     def _make_mode_opener(self, target_screen):
-        # Отдельная фабрика замыкания - иначе все кнопки в цикле "for" запомнили
-        # бы одно и то же (последнее) значение target_screen из-за позднего
-        # связывания переменных в лямбдах Python.
         def _open(*args):
             setattr(self.manager, 'current', target_screen)
         return _open
@@ -1052,13 +1212,6 @@ class PlayScreen(Screen):
         self.btn_back.pos = (win_w - back_w - dp(14), win_h - TOP_SAFE_MARGIN - back_h)
         fit_font_size(self.btn_back, back_w - dp(18), back_h * 0.42)
 
-        # Заголовок опущен ниже линии кнопки "Назад" - поэтому он больше не
-        # конфликтует с ней по горизонтали и может быть по-настоящему
-        # отцентрирован на весь экран, а не только в пространстве левее кнопки.
-        # "ВЫБЕРИТЕ РЕЖИМ ИГРЫ" и "Оффлайн" - одного размера. Множитель для
-        # стартового шрифта (0.72, а не 0.85-0.9) намеренно даёт запас по
-        # высоте: раньше блок отрисовки был впритык к размеру шрифта, из-за
-        # чего верх букв обрезало.
         header_line_h = min(win_h * 0.035, dp(26))
         title_gap_below_button = dp(32)
 
@@ -1066,9 +1219,6 @@ class PlayScreen(Screen):
         self.title_label.center_x = win_w / 2
         self.title_label.y = win_h - TOP_SAFE_MARGIN - back_h - title_gap_below_button - header_line_h
         fit_font_size(self.title_label, win_w * 0.9, header_line_h * 0.72)
-        # Важно: fit_font_size сбрасывает text_size в (None, None), поэтому его
-        # нужно выставить обратно - иначе halign/valign не работают, а сам
-        # виджет рискует обрезать текст по границе своего блока
         self.title_label.text_size = (win_w * 0.9, header_line_h)
 
         category_gap = dp(10)
@@ -1189,7 +1339,6 @@ class OnePlayerGameScreen(Screen):
         self.reposition_elements(None, None)
         Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
 
-        # ----- ИГРА ----
         self.current_word = ""
         self.current_attempt = 0
         self.secret_word = ""
@@ -1275,7 +1424,6 @@ class OnePlayerGameScreen(Screen):
                 key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
                 key.update_canvas()
 
-        # Нижний ряд - теперь только 2 клавиши (Стереть/Ввод), они заняли место освободившееся после Выхода
         SYS_SPACING = 6
         avail_sys_w = win_w - 16 - SYS_SPACING
         SYS_WIDTH = avail_sys_w / 2
@@ -1329,7 +1477,7 @@ class OnePlayerGameScreen(Screen):
                 if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
                     MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
 
-                self.show_game_popup("Такого слова нет в словаре", "или введенное слово состоит не из 5 букв.", color_text, is_end_game=False)
+                self.show_game_popup("Такого слова нет в словаре", "Введите другое слово.", color_text, is_end_game=False)
         else:
             self.show_game_popup("Слово не из 5 букв", "Заполните все 5 ячеек перед вводом.", color_text, is_end_game=False)
 
@@ -1421,7 +1569,6 @@ class OnePlayerGameScreen(Screen):
         stats["unlocked_achivements"] = {k: {"got": v["got"], "date": v["date"]} for k, v in ach_base.items()}
 
     def check_and_advance_mobile_quest(self, quest_id, amount=1):
-        """Продвижение прогресса ежедневного квеста и начисление награды"""
         global MOBILE_PLAYER_STATS, MOBILE_QUESTS
         
         if quest_id in MOBILE_QUESTS:
@@ -1646,7 +1793,6 @@ class TwoPlayerGameScreen(Screen):
         self.layout.add_widget(self.btn_erase)
         self.layout.add_widget(self.btn_enter)
 
-        # Кнопка "Выход" переехала в стандартный верхний правый угол (как везде в игре)
         self.btn_exit_top = MenuButton(text="Назад", size_hint=(None, None), size=(dp(92), dp(48)))
         self.btn_exit_top.bind(on_release=self.press_exit_key)
         self.layout.add_widget(self.btn_exit_top)
@@ -1669,7 +1815,6 @@ class TwoPlayerGameScreen(Screen):
         self.add_widget(self.layout)
         self.bind(size=self.reposition_elements)
 
-        # ----- ИГРА ----
         self.current_word = ""
         self.current_attempt = 0
         self.secret_word = ""
@@ -1740,8 +1885,6 @@ class TwoPlayerGameScreen(Screen):
             space_above_cells = top_boundary - (start_blank_y + CELL_HEIGHT)
             center_above_y = (start_blank_y + CELL_HEIGHT) + (space_above_cells // 2)
 
-            # Заголовок и подзаголовок - реальный стек по фактической высоте текста,
-            # без переноса, чтобы они никогда не налезали друг на друга
             fit_font_size(self.lbl_title, win_w * 0.9, dp(24))
             self.lbl_title.text_size = (None, None)
             self.lbl_title.size = self.lbl_title.texture_size
@@ -1753,8 +1896,6 @@ class TwoPlayerGameScreen(Screen):
             block_gap = dp(4)
             block_h = self.lbl_title.height + block_gap + self.lbl_subtitle.height
 
-            # Центрируем блок, но не даём ему вылезти ни на кнопку "Назад" сверху,
-            # ни на клетки/клавиатуру снизу
             block_center = min(center_above_y, top_boundary - block_h / 2 - dp(6))
             block_center = max(block_center, kbd_top_y + block_h / 2 + dp(6))
 
@@ -2006,14 +2147,10 @@ class HowToPlayScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
-        
-        # Кнопка НАЗАД в верхнем правом руку
         self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
         self.btn_back.font_size = '20sp'
         self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'menu'))
         self.layout.add_widget(self.btn_back)
-        
-        # Твой идеальный заголовок экрана
         self.title_label = Label(
             text="Как играть",
             font_name=resource_path("ClearSans-Bold.ttf"),
@@ -2023,22 +2160,17 @@ class HowToPlayScreen(Screen):
             size_hint=(None, None)
         )
         self.layout.add_widget(self.title_label)
-        
-        # Скролл-контейнер для мобильных устройств
         self.scroll_view = ScrollView(size_hint=(None, None), do_scroll_x=False, do_scroll_y=True)
         self.content_box = BoxLayout(orientation='vertical', spacing=20, size_hint_y=None, padding=[20, 10, 20, 20])
         self.content_box.bind(minimum_height=self.content_box.setter('height'))
-        
-        # Списки для динамического перерасчета ширины текста в reposition_elements
+
         self.title_labels = []
         self.text_labels = []
         self.row_labels = []
 
-        # --- Вспомогательные мини-функции для верстки контента ---
         def add_title(text):
             lbl = Label(text=text, font_name=resource_path("ClearSans-Bold.ttf"), font_size='18sp', 
                         bold=True, color=color_in_word, size_hint_y=None, halign='left', valign='middle')
-            # Исправлено: берем высоту через val[1]
             lbl.bind(texture_size=lambda inst, val: setattr(inst, 'height', val[1]))
             self.title_labels.append(lbl)
             self.content_box.add_widget(lbl)
@@ -2135,7 +2267,7 @@ class HowToPlayScreen(Screen):
         self.title_label.text_size = (None, None)
         self.title_label.size = self.title_label.texture_size
         self.title_label.x = dp(15)
-        self.title_label.y = win_h - TOP_SAFE_MARGIN - title_h + (title_h - self.title_label.height) / 2
+        self.title_label.y = btn_y + (back_h - self.title_label.height) / 2 + dp(4)
 
         self.scroll_view.size = (win_w, btn_y - BOTTOM_SAFE_MARGIN)
         self.scroll_view.pos = (0, BOTTOM_SAFE_MARGIN)
@@ -2252,15 +2384,14 @@ class AchievementsScreen(Screen):
         self.lbl_main_title.text_size = (None, None)
         fit_font_size(self.lbl_main_title, win_w - back_w - dp(45), title_h * 0.85)
         self.lbl_main_title.text_size = self.lbl_main_title.size
-        self.lbl_main_title.y = win_h - TOP_SAFE_MARGIN - title_h
+        self.lbl_main_title.y = win_h - TOP_SAFE_MARGIN - back_h / 2 - title_h / 2 + dp(4)
         self.lbl_main_title.x = dp(15)
 
         stats_h = dp(70) * 2 + dp(8)
         self.stats_scroll.height = stats_h
         self.stats_scroll.size_hint_x = 1
         self.stats_scroll.do_scroll_x = False
-        # Отталкиваемся от РЕАЛЬНОГО низа кнопки "Назад", а не от title_h -
-        # раньше при определённых пропорциях экрана карточка чуть-чуть налезала на кнопку
+
         header_bottom = (back_btn.y if back_btn is not None else win_h - TOP_SAFE_MARGIN - back_h) - dp(10)
         self.stats_scroll.pos = (0, header_bottom - stats_h)
         self.stats_container.size = (win_w, stats_h)
@@ -2286,15 +2417,12 @@ class AchievementsScreen(Screen):
         self.ach_list_layout.width = win_w
 
     def create_card(self, label_text, val_text, val_color):
-        """Создаёт адаптивную карточку статистики - тянется по размеру родителя, шрифт всегда влезает"""
         card = FloatLayout(size_hint=(1, 1))
-        
-        # Подложка плашки (светло-серая со скруглением 12)
+
         with card.canvas.before:
             Color(*color_blank)
             r_rect = RoundedRectangle(pos=card.pos, size=card.size, radius=[12])
-        card.bind(pos=lambda inst, v: setattr(r_rect, 'pos', inst.pos), 
-                  size=lambda inst, v: setattr(r_rect, 'size', inst.size))
+        card.bind(pos=lambda inst, v: setattr(r_rect, 'pos', inst.pos), size=lambda inst, v: setattr(r_rect, 'size', inst.size))
         
         lbl_lbl = Label(
             text=label_text, 
@@ -2324,10 +2452,8 @@ class AchievementsScreen(Screen):
         return card
     
     def create_achievement_row(self, name, description, ach_data, got, date_str):
-        """Часть 1: Попиксельное смешивание цветов и точное чтение ключа 'type' из словаря лаунчера"""
         row = FloatLayout(size_hint_y=None, height=110)
-        
-        # ЖЕСТКОЕ ИСПРАВЛЕНИЕ: Честный попиксельный расчет каналов (R, G, B) для Kivy-кортежей
+
         def lerp_color(c1, c2, factor):
             return (
                 c1[0] + (c2[0] - c1[0]) * factor,
@@ -2336,12 +2462,10 @@ class AchievementsScreen(Screen):
                 1.0
             )
 
-        # ТОЧНОЕ СЧИТЫВАНИЕ: Берем ключ 'type' прямо из твоего словаря achivements!
         r_type = "common"
         if isinstance(ach_data, dict):
             r_type = ach_data.get("type", "common").lower().strip()
 
-        # Выставляем правильный текст и базовый цвет редкости
         if r_type == "rare":
             rare_color = lerp_color(color_text, color_in_word, 0.5)
             type_text = "Редкое"
@@ -2352,7 +2476,6 @@ class AchievementsScreen(Screen):
             rare_color = lerp_color(color_text, color_bg, 0.3)
             type_text = "Обычное"
 
-        # Настраиваем фон карточки в зависимости от того, разблокирована ачивка или нет
         if got:
             bg_color = color_blank
             text_color = color_text
@@ -2363,13 +2486,11 @@ class AchievementsScreen(Screen):
             rare_color = lerp_color(rare_color, color_bg, 0.3)
             status_color = color_not_in_word
 
-        # Рисуем подложку
         with row.canvas.before:
             Color(*bg_color)
             bg_rect = RoundedRectangle(pos=row.pos, size=row.size, radius=[12])
             
             Color(*rare_color)
-            # Внутренние правые углы полоски — абсолютно острые (0), скруглены только левые внешние!
             ribbon_rect = RoundedRectangle(pos=row.pos, size=(10, 110), radius=[(12, 12), (0, 0), (0, 0), (12, 12)])
             
         def sync_graphics(instance, value):
@@ -2382,39 +2503,25 @@ class AchievementsScreen(Screen):
         return self.fill_achievement_widgets(row, name, description, got, date_str, type_text, rare_color, text_color, status_color, bg_rect, ribbon_rect)
 
     def fill_achievement_widgets(self, row, name, description, got, date_str, type_text, rarity_color, text_color, status_color, bg_rect, ribbon_rect):
-        """Часть 2: Полностью динамическая высота плашки достижения на основе texture_size"""
-        
-        # Сбалансированная ширина для текста (6% отступы слева и справа)
         text_w = self.width - 45
         font_path = resource_path("ClearSans-Bold.ttf")
-
-        # 1. НАЗВАНИЕ ДОСТИЖЕНИЯ (Высота управляется текстом, разрешен перенос на любое число строк!)
         name_lbl = Label(
             text=name.upper(), font_name=font_path,
             font_size='18sp', color=text_color, bold=True,
             size_hint=(None, None), width=text_w, text_size=(text_w, None),
             halign='left', valign='top'
         )
-        # Привязываем автоматический расчет высоты заголовка по тексту
         name_lbl.bind(texture_size=lambda inst, sz: setattr(inst, 'height', sz[1]))
-
-        # 2. ОПИСАНИЕ ДОСТИЖЕНИЯ (Высота управляется текстом, растет строго вниз)
         desc_lbl = Label(
             text=description, font_name=font_path,
             font_size='13sp', color=text_color,
             size_hint=(None, None), width=text_w, text_size=(text_w, None),
             halign='left', valign='top'
         )
-        # Привязываем автоматический расчет высоты описания по тексту
         desc_lbl.bind(texture_size=lambda inst, sz: setattr(inst, 'height', sz[1]))
-
-        # 3. НИЖНЯЯ ИНФО-СТРОКА: три РАВНЫХ сегмента (rarity/дата/статус), каждый со своей
-        # реальной подгонкой шрифта под ширину - раньше фиксированные 120/240/200px
-        # налезали друг на друга на узких экранах
         info_h = dp(30)
         info_line = FloatLayout(size_hint=(1, None), height=info_h)
         seg_w = max((self.width - dp(24)) / 3, dp(60))
-
         lbl_rare = Label(
             text=type_text, font_name=font_path, color=rarity_color, bold=True,
             size_hint=(None, None), size=(seg_w, info_h),
@@ -2422,7 +2529,6 @@ class AchievementsScreen(Screen):
         )
         fit_font_size(lbl_rare, seg_w - dp(8), dp(13))
         lbl_rare.text_size = (seg_w, info_h)
-
         lbl_date = Label(
             text=f"Дата: {date_str}" if (got and date_str) else "",
             font_name=font_path, color=color_not_in_word, bold=True,
@@ -2431,7 +2537,6 @@ class AchievementsScreen(Screen):
         )
         fit_font_size(lbl_date, seg_w - dp(8), dp(12))
         lbl_date.text_size = (seg_w, info_h)
-
         lbl_stat = Label(
             text="ПОЛУЧЕНО" if got else "НЕ ПОЛУЧЕНО", font_name=font_path, color=status_color, bold=True,
             size_hint=(None, None), size=(seg_w, info_h),
@@ -2444,33 +2549,23 @@ class AchievementsScreen(Screen):
         info_line.add_widget(lbl_date)
         info_line.add_widget(lbl_stat)
 
-        # Локальный FloatLayout для изоляции внутренних координат плашки
         text_group = FloatLayout(size_hint=(1, 1), pos_hint={'x': 0, 'y': 0})
         text_group.add_widget(name_lbl)
         text_group.add_widget(desc_lbl)
         text_group.add_widget(info_line)
 
-        # ФУНКЦИЯ ДИНАМИЧЕСКОГО СБОРЩИКА ВЫСОТЫ ПЛАШКИ
         def sync_row_height(*args):
-            # Жестко обновляем высоты из Kivy-текстур (sz[1] — чистая высота в пикселях)
             name_lbl.height = name_lbl.texture_size[1]
             desc_lbl.height = desc_lbl.texture_size[1]
-            
-            # Твоя идеальная плотная математика из квестов: 4px верх + Текст + 2px зазор + Текст + 8px зазор + Инфо + 4px низ
             total_h = 4 + name_lbl.height + 2 + desc_lbl.height + 8 + info_line.height + 4
-            
-            # Минимальный порог высоты 75px, чтобы пустые или короткие плашки оставались красивыми
+
             row.height = max(75, total_h)
             ribbon_rect.size = (10, row.height)
-            
-            # Выстраиваем элементы сверху вниз относительно динамического потолка row.height
+
             name_lbl.pos_hint = {'x': 0.06, 'top': 1.0 - (4 / row.height)}
             desc_lbl.pos_hint = {'x': 0.06, 'top': name_lbl.pos_hint['top'] - (name_lbl.height / row.height) - (2 / row.height)}
-            
-            # Инфо-строка лежит идеально зеркально на расстоянии 4 пикселя от пола карточки
             info_line.pos_hint = {'x': 0, 'y': 4 / row.height}
 
-        # Привязываем триггеры пересчета к тексту
         desc_lbl.bind(texture_size=sync_row_height)
         name_lbl.bind(texture_size=sync_row_height)
         row.bind(size=sync_row_height)
@@ -2479,13 +2574,11 @@ class AchievementsScreen(Screen):
         return row
     
     def build_achievements_list(self, launcher_achievements):
-        """Полный вывод достижений с автоматической сортировкой выполненных наверх"""
         self.ach_list_layout.clear_widgets()
         
         if not launcher_achievements:
             return
 
-        # ВОССТАНОВЛЕНО: Полученные (got=True) всегда уходят на самый верх списка!
         all_keys = list(launcher_achievements.keys())
         sorted_keys = sorted(all_keys, key=lambda k: launcher_achievements[k].get("got", False), reverse=True)
         
@@ -2501,7 +2594,6 @@ class AchievementsScreen(Screen):
             self.ach_list_layout.add_widget(row_widget)
 
     def refresh_stats_and_achievements(self):
-        """Загружает данные лаунчера и строит карточки статистики строго в 2 ряда."""
         stats = MOBILE_PLAYER_STATS if ('MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS) else {}
         launcher_ach = MOBILE_ACHIVEMENTS if ('MOBILE_ACHIVEMENTS' in globals() and MOBILE_ACHIVEMENTS) else {}
         
@@ -2535,7 +2627,6 @@ class AchievementsScreen(Screen):
         for item in row2_data:
             self.stats_row2.add_widget(self.create_card(*item))
 
-        # Пересчитываем реальные размеры сразу после создания карточек
         self.reposition_elements(None, None)
 
         self.build_achievements_list(launcher_ach)
@@ -2546,16 +2637,13 @@ class CustomizationScreen(Screen):
         self.layout = FloatLayout()
 
         with self.canvas.before:
-            # Основной фон всего экрана кастомизации
             Color(*color_bg)
             self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
-            
-            # ВАЖНО: Возвращаем большие фоновые плашки без скруглений для слияния
+
             Color(*color_bg)
             self.top_pad_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[0])
             self.bottom_pad_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[0])
-            
-            # Переменные цвета и прямоугольники для 3 внутренних блоков (сверху)
+
             self.top_coins_color = Color(*color_key)
             self.block_coins_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[12])
             
@@ -2580,28 +2668,16 @@ class CustomizationScreen(Screen):
             valign='middle'
         )
 
-        # Тексты внутри блоков
         self.lbl_coins_title = Label(text="Монеты:", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
         self.lbl_theme_title = Label(text="Тема:", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
         self.lbl_status_title = Label(text="Статус:", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
-
-        # Метка монет теперь горит цветом color_in_word
-        self.lbl_coins_val = Label(
-            text="0",  # Начальное значение (обновится в reposition_elements или при входе)
-            font_name=resource_path("ClearSans-Bold.ttf"), 
-            font_size='16sp', 
-            color=color_in_word,  # Поменяли на твой цвет
-            size_hint=(None, None), 
-            halign='center', 
-            valign='middle'
-        )
+        self.lbl_coins_val = Label(text="0",font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_in_word,size_hint=(None, None), halign='center', valign='middle')
         self.lbl_theme_val = Label(text="Классика", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
         self.lbl_status_val = Label(text="Применено", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
 
         for lbl in [self.lbl_coins_title, self.lbl_theme_title, self.lbl_status_title, self.lbl_coins_val, self.lbl_theme_val, self.lbl_status_val]:
             lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
 
-        # Сначала создаем сам виджет левой кнопки
         self.btn_action = MenuButton(text="КУПИТЬ", size_hint=(None, None))
         self.btn_action.background_normal = 'atlas://data/images/defaulttheme/button_pressed'
         self.btn_action.background_color = (0, 0, 0, 0)
@@ -2609,12 +2685,10 @@ class CustomizationScreen(Screen):
         self.btn_action.font_size = '18sp'
         self.btn_action.disabled_color = color_text 
 
-        # Для нижних кнопок:
         with self.btn_action.canvas.before:
-            self.btn_action_color = Color(*color_key) # Сохраняем ссылку
+            self.btn_action_color = Color(*color_key)
             self.rect_action = RoundedRectangle(pos=self.btn_action.pos, size=self.btn_action.size, radius=[12])
 
-        # Аналогично для правой кнопки продажи
         self.btn_sell = MenuButton(text="ПРОДАТЬ ЗА 900", size_hint=(None, None))
         self.btn_sell.background_normal = 'atlas://data/images/defaulttheme/button_pressed'
         self.btn_sell.background_color = (0, 0, 0, 0)
@@ -2623,7 +2697,7 @@ class CustomizationScreen(Screen):
         self.btn_sell.disabled_color = color_not_in_word
 
         with self.btn_sell.canvas.before:
-            self.btn_sell_color = Color(*color_key) # Сохраняем ссылку
+            self.btn_sell_color = Color(*color_key)
             self.rect_sell = RoundedRectangle(pos=self.btn_sell.pos, size=self.btn_sell.size, radius=[12])
 
         self.layout.add_widget(self.btn_action)
@@ -2645,16 +2719,14 @@ class CustomizationScreen(Screen):
         self.add_widget(self.layout)
         self.bind(size=self.reposition_elements)
 
-        # Создаем окно прокрутки с жесткой остановкой без пружины
         self.scroll_view = ScrollView(
             size_hint=(None, None), 
             do_scroll_x=False, 
             do_scroll_y=True, 
             bar_width=0,
-            effect_cls=ScrollEffect  # Переключаем на строгий эффект без баунса
+            effect_cls=ScrollEffect
         )
-        
-        # Контейнер для списка тем (одна под другой)
+
         self.scroll_content = BoxLayout(orientation='vertical', size_hint_y=None, spacing=15, padding=(15, 10))
         self.scroll_content.bind(minimum_height=self.scroll_content.setter('height'))
         
@@ -2669,8 +2741,7 @@ class CustomizationScreen(Screen):
         
         for t_id, t_data in color_themes.items():
             t_title = t_data.get("color_name", t_id.capitalize())
-            
-            # Передаем метод select_theme напрямую в карточку (card.bind больше НЕ используем!)
+
             card = ThemeCard(
                 theme_id=t_id, 
                 theme_name=t_title, 
@@ -2684,21 +2755,16 @@ class CustomizationScreen(Screen):
                 
             self.theme_cards[t_id] = card
             self.scroll_content.add_widget(card)
-            
-        # Активируем рамку выбора один раз при заходе
+
         self.select_theme(self.selected_theme_id)
         self.reposition_elements(None, None)
         Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
 
     def reposition_elements(self, instance, size):
-        # Объявляем чтение глобальной переменной со статистикой от лаунчера
         global MOBILE_PLAYER_STATS
-        # Проверяем, существует ли переменная и есть ли в ней ключ player_coins
         if 'MOBILE_PLAYER_STATS' in globals() and isinstance(MOBILE_PLAYER_STATS, dict) and 'player_coins' in MOBILE_PLAYER_STATS:
-            # Выводим НАСТОЯЩИЕ живые монеты из сохранения игры!
             self.lbl_coins_val.text = str(MOBILE_PLAYER_STATS['player_coins'])
         else:
-            # Если по какой-то причине переменная недоступна, пишем 0
             self.lbl_coins_val.text = "0"
         win_w = self.width
         win_h = self.height
@@ -2714,7 +2780,7 @@ class CustomizationScreen(Screen):
         fit_font_size(self.lbl_title, win_w - back_w - dp(45), title_h * 0.85)
         self.lbl_title.size = (win_w - back_w - dp(45), title_h)
         self.lbl_title.text_size = self.lbl_title.size
-        self.lbl_title.pos = (dp(15), win_h - TOP_SAFE_MARGIN - title_h)
+        self.lbl_title.pos = (dp(15), win_h - TOP_SAFE_MARGIN - back_h / 2 - title_h / 2 + dp(4))
         
         top_pad_h = win_h * 0.12
         header_bottom = self.btn_back.y - dp(10)
@@ -2780,58 +2846,44 @@ class CustomizationScreen(Screen):
         self.rect_sell.pos = self.btn_sell.pos
         self.rect_sell.size = self.btn_sell.size
 
-        # Вычисляем верхнюю границу (где заканчивается верхняя плашка статусов)
         scroll_top = top_pad_y - 15
-        
-        # Вычисляем нижнюю границу (где начинается нижняя плашка кнопок)
         scroll_bottom = bottom_pad_h + BOTTOM_SAFE_MARGIN + dp(15)
-        
-        # Высота прокручиваемой области — это всё пространство между ними
         scroll_h = scroll_top - scroll_bottom
-        
-        # Настраиваем ScrollView строго под размеры экрана телефона
         self.scroll_view.size = (win_w, scroll_h)
         self.scroll_view.pos = (0, scroll_bottom)
-        
-        # Динамически задаем ширину и фиксированную высоту для КАЖДОЙ карточки внутри списка
+
         for card in self.scroll_content.children:
             card.size = (win_w - 30, min(win_w * 0.42, dp(150)))
 
     def select_theme(self, theme_id):
         global MOBILE_PLAYER_STATS
         self.selected_theme_id = theme_id
-        
-        # Переключаем рамки выбора карточек
+
         for t_id, card in self.theme_cards.items():
             card.is_selected = (t_id == theme_id)
             card.update_graphics(card, card.size)
             
         theme_data = color_themes[theme_id]
         self.lbl_theme_val.text = theme_data.get("color_name", theme_id.capitalize())
-        
-        # Получаем статус разблокировки из сохранений лаунчера
+
         unlocked_themes = MOBILE_PLAYER_STATS.get("unlocked_themes", {"classic": True})
         is_unlocked = unlocked_themes.get(theme_id, False)
-        
-        # Если это стартовые бесплатные темы игры — они ВСЕГДА разблокированы
+
         if theme_id in ['classic', 'night'] or theme_data.get("price", 0) == 0:
             is_unlocked = True
-        
-        # --- ОБНОВЛЕНИЕ СТАТУСА НА ВЕРХНЕЙ ПЛАШКЕ (С ЦВЕТАМИ) ---
+
         if is_unlocked:
-            # Проверяем, горит ли зеленый кружок активности на этой карточке
             if self.theme_cards[theme_id].is_active:
                 self.lbl_status_val.text = "Применено"
-                self.lbl_status_val.color = color_correct  # Зеленый цвет
+                self.lbl_status_val.color = color_correct
             else:
                 self.lbl_status_val.text = "Куплено"
-                self.lbl_status_val.color = color_text     # Жестко твой color_text (НЕ белый!)
+                self.lbl_status_val.color = color_text
         else:
             price = theme_data.get('price', 1000)
             self.lbl_status_val.text = f"{price} мон."
-            self.lbl_status_val.color = color_in_word   # Желтый цвет
+            self.lbl_status_val.color = color_in_word
 
-        # --- ОБНОВЛЕНИЕ ЛЕВОЙ КНОПКИ ---
         if is_unlocked:
             if self.theme_cards[theme_id].is_active:
                 self.btn_action.text = "ПРИМЕНЕНО"
@@ -2843,7 +2895,6 @@ class CustomizationScreen(Screen):
             self.btn_action.text = "КУПИТЬ"
             self.btn_action.disabled = False
 
-        # --- ОБНОВЛЕНИЕ ПРАВОЙ КНОПКИ ---
         if theme_id in ['classic', 'night']:
             self.btn_sell.disabled = True
         else:
@@ -2851,7 +2902,6 @@ class CustomizationScreen(Screen):
 
     def process_theme_action(self, instance):
         global MOBILE_PLAYER_STATS, MOBILE_SAVE_FUNC
-        # Импортируем глобальные цвета скрипта игры, чтобы перезаписать их налету
         global color_bg, color_text, color_correct, color_in_word, color_not_in_word, color_blank, color_key
         
         theme_id = self.selected_theme_id
@@ -2864,23 +2914,17 @@ class CustomizationScreen(Screen):
             is_unlocked = True
             
         if is_unlocked:
-            # --- ПРИМЕНЕНИЕ ТЕМЫ ---
             if self.theme_cards[theme_id].is_active:
                 return  
-                
-            # Гарантированно тушим ВСЕ зеленые шарики у ВСЕХ тем
+
             for t_id, card in self.theme_cards.items():
                 card.is_active = False
                 card.update_graphics(card, card.size)
-                
-            # Зажигаем шарик строго у выбранной темы
             self.theme_cards[theme_id].is_active = True
             self.theme_cards[theme_id].update_graphics(self.theme_cards[theme_id], self.theme_cards[theme_id].size)
-            
-            # 1. Вызываем твою системную смену темы
+
             choose_theme(theme_id)
-            
-            # 2. МГНОВЕННОЕ ОБНОВЛЕНИЕ ГЛОБАЛЬНЫХ ЦВЕТОВ ИГРЫ НАЛЕТУ
+
             color_bg = theme_data.get("color_bg", color_bg)
             color_text = theme_data.get("color_text", color_text)
             color_correct = theme_data.get("color_correct", color_correct)
@@ -2888,8 +2932,7 @@ class CustomizationScreen(Screen):
             color_not_in_word = theme_data.get("color_not_in_word", color_not_in_word)
             color_blank = theme_data.get("color_blank", color_blank)
             color_key = theme_data.get("color_key", color_key)
-            
-            # 3. Заставляем холст экрана кастомизации немедленно перекраситься в новые цвета
+
             self.reposition_elements(self, self.size)
             self.scroll_content.do_layout()
             
@@ -2898,9 +2941,7 @@ class CustomizationScreen(Screen):
             
             self.select_theme(theme_id)
             print(f"[MGGamesStudio] Тема {theme_id} успешно применена!")
-            
         else:
-            # --- ПОКУПКА ТЕМЫ ---
             price = theme_data.get('price', 1000)
             current_coins = MOBILE_PLAYER_STATS.get('player_coins', 0)
             
@@ -2915,11 +2956,9 @@ class CustomizationScreen(Screen):
                     
                 self.theme_cards[theme_id].is_active = True
                 self.theme_cards[theme_id].update_graphics(self.theme_cards[theme_id], self.theme_cards[theme_id].size)
-                
-                # 1. Вызываем твою системную смену темы
+
                 choose_theme(theme_id)
-                
-                # 2. МГНОВЕННОЕ ОБНОВЛЕНИЕ ГЛОБАЛЬНЫХ ЦВЕТОВ ИГРЫ НАЛЕТУ ПРИ ПОКУПКЕ
+
                 color_bg = theme_data.get("color_bg", color_bg)
                 color_text = theme_data.get("color_text", color_text)
                 color_correct = theme_data.get("color_correct", color_correct)
@@ -2927,12 +2966,10 @@ class CustomizationScreen(Screen):
                 color_not_in_word = theme_data.get("color_not_in_word", color_not_in_word)
                 color_blank = theme_data.get("color_blank", color_blank)
                 color_key = theme_data.get("color_key", color_key)
-                
-                # Защита текста кнопок от сброса в белый цвет
+
                 self.btn_action.color = color_text
                 self.btn_sell.color = color_text
-                
-                # 3. Перерисовываем экран под новые цвета
+
                 self.reposition_elements(self, self.size)
                 self.scroll_content.do_layout()
                 
@@ -2944,12 +2981,10 @@ class CustomizationScreen(Screen):
 
     def process_theme_sell(self, instance):
         global MOBILE_PLAYER_STATS, MOBILE_SAVE_FUNC
-        # Импортируем глобальные цвета скрипта игры для их сброса к классике налету
         global color_bg, color_text, color_correct, color_in_word, color_not_in_word, color_blank, color_key
         
         theme_id = self.selected_theme_id
-        
-        # Защита от продажи стартовых бесплатных тем
+
         if theme_id in ['classic', 'night']:
             return
             
@@ -2957,22 +2992,15 @@ class CustomizationScreen(Screen):
         MOBILE_PLAYER_STATS['player_coins'] = current_coins + 900
         MOBILE_PLAYER_STATS['unlocked_themes'][theme_id] = False
         self.lbl_coins_val.text = str(MOBILE_PLAYER_STATS['player_coins'])
-        
-        # Если продаваемая тема была активной прямо сейчас — сбрасываем на Классику
+
         if self.theme_cards[theme_id].is_active:
-            # Тушим шарик у проданной темы
             self.theme_cards[theme_id].is_active = False
             self.theme_cards[theme_id].update_graphics(self.theme_cards[theme_id], self.theme_cards[theme_id].size)
-            
-            # Включаем шарик у Классики
             self.theme_cards['classic'].is_active = True
             self.theme_cards['classic'].update_graphics(self.theme_cards['classic'], self.theme_cards['classic'].size)
-            
-            # 1. Вызываем системную смену темы лаунчера на классическую
+
             choose_theme('classic')
-            
-            # 2. МГНОВЕННЫЙ СБРОС ГЛОБАЛЬНЫХ ЦВЕТОВ ИГРЫ К КЛАССИКЕ
-            # Получаем чистые классические цвета напрямую из словаря настроек
+
             classic_data = color_themes['classic']
             color_bg = classic_data.get("color_bg")
             color_text = classic_data.get("color_text")
@@ -2981,8 +3009,7 @@ class CustomizationScreen(Screen):
             color_not_in_word = classic_data.get("color_not_in_word")
             color_blank = classic_data.get("color_blank")
             color_key = classic_data.get("color_key")
-            
-            # 3. Принудительно заставляем холст и элементы экрана перекраситься в классику прямо сейчас
+
             self.reposition_elements(self, self.size)
             self.scroll_content.do_layout()
             
@@ -3095,9 +3122,7 @@ class QuestsScreen(Screen):
         for item in row2_data:
             self.stats_row2.add_widget(self.create_card(*item))
 
-        # Пересчитываем реальные размеры сразу после создания карточек
         self.reposition_elements(None, None)
-
         self.build_quests_list(launcher_quests)
 
     def reposition_elements(self, instance, size):
@@ -3122,7 +3147,7 @@ class QuestsScreen(Screen):
         fit_font_size(self.lbl_main_title, win_w - back_w - dp(45), title_h * 0.85)
         self.lbl_main_title.size = (win_w - back_w - dp(45), title_h)
         self.lbl_main_title.text_size = self.lbl_main_title.size
-        self.lbl_main_title.y = win_h - TOP_SAFE_MARGIN - title_h
+        self.lbl_main_title.y = win_h - TOP_SAFE_MARGIN - back_h / 2 - title_h / 2 + dp(4)
         self.lbl_main_title.x = dp(15)
 
         overlay_height = min(win_h * 0.32, dp(230))
@@ -3166,7 +3191,6 @@ class QuestsScreen(Screen):
             self.layout.add_widget(self.lbl_main_title, index=0)
 
     def create_card(self, label_text, val_text, val_color):
-        """Создаёт адаптивную карточку статистики - тянется по размеру родителя, шрифт всегда влезает"""
         card = FloatLayout(size_hint=(1, 1))
         
         with card.canvas.before:
@@ -3260,20 +3284,15 @@ class QuestsScreen(Screen):
             size_hint=(None, None), width=text_w, text_size=(text_w, None),
             halign='left', valign='top'
         )
-
         desc_lbl = Label(
             text=description, font_name=resource_path("ClearSans-Bold.ttf"),
             font_size='13sp', color=text_color,
             size_hint=(None, None), width=text_w, text_size=(text_w, None),
             halign='left', valign='top'
         )
-
-        # Три РАВНЫХ сегмента (rarity/награда/статус), каждый со своей подгонкой шрифта -
-        # раньше фиксированные 120/150/200px налезали друг на друга на узких экранах
         info_h = dp(30)
         info_line = FloatLayout(size_hint=(1, None), height=info_h)
         seg_w = max((self.width - dp(24)) / 3, dp(60))
-
         lbl_rare = Label(
             text=type_text, font_name=resource_path("ClearSans-Bold.ttf"),
             color=rarity_color, bold=True, size_hint=(None, None),
@@ -3282,7 +3301,6 @@ class QuestsScreen(Screen):
         )
         fit_font_size(lbl_rare, seg_w - dp(8), dp(13))
         lbl_rare.text_size = (seg_w, info_h)
-
         lbl_rew = Label(
             text=f"Награда: {reward}", font_name=resource_path("ClearSans-Bold.ttf"),
             color=color_in_word, bold=True, size_hint=(None, None),
@@ -3291,7 +3309,6 @@ class QuestsScreen(Screen):
         )
         fit_font_size(lbl_rew, seg_w - dp(8), dp(13))
         lbl_rew.text_size = (seg_w, info_h)
-        
         status_txt = "ВЫПОЛНЕНО" if is_done else f"{progress}/{goal}"
         lbl_stat = Label(
             text=status_txt, font_name=resource_path("ClearSans-Bold.ttf"),
@@ -3301,7 +3318,7 @@ class QuestsScreen(Screen):
         )
         fit_font_size(lbl_stat, seg_w - dp(8), dp(14))
         lbl_stat.text_size = (seg_w, info_h)
-        
+
         info_line.add_widget(lbl_rare)
         info_line.add_widget(lbl_rew)
         info_line.add_widget(lbl_stat)
@@ -3332,13 +3349,11 @@ class QuestsScreen(Screen):
         return row
 
     def build_quests_list(self, launcher_quests):
-        """Полный вывод квестов с правильной сортировкой: выполненные уходят ВНИЗ списка"""
         self.quests_list_layout.clear_widgets()
         
         if not launcher_quests:
             return
 
-        # ИСПРАВЛЕНО: Сортируем так, чтобы выполненные (done=True) уходили в самый низ, как на ПК!
         all_keys = list(launcher_quests.keys())
         sorted_keys = sorted(all_keys, key=lambda k: launcher_quests[k].get("done", False), reverse=False)
         
@@ -3356,26 +3371,21 @@ class QuestsScreen(Screen):
             self.quests_list_layout.add_widget(quest_row_widget)
 
     def update_daily_quests_mobile(self):
-        """Полный перенос функции update_daily_quests из guess_word_pc_v110.py"""
         global MOBILE_PLAYER_STATS, MOBILE_QUESTS
         import time
         import copy
 
         current_time_struct = time.localtime()
         current_day = current_time_struct.tm_mday
-        
-        # Читаем день последнего сброса из файла сохранения
+
         last_update_day = MOBILE_PLAYER_STATS.get("last_update_day", -1)
 
-        # Если день совпадает и в памяти уже крутится выбранная пятерка — ничего не сбрасываем
         if current_day == last_update_day and MOBILE_PLAYER_STATS.get("active_quests"):
             MOBILE_QUESTS = MOBILE_PLAYER_STATS["active_quests"]
             return
 
-        # Наступил новый день! Выбираем 5 случайных квестов из полной базы данных (из 12 штук)
         print("[MGGamesStudio] Новый день по местному времени! Выбираем 5 случайных квестов...")
-        
-        # Нам нужен доступ к полной статичной базе из 12 квестов, которую передал лаунчер
+
         full_base_quests = MOBILE_PLAYER_STATS.get("quests_dict", {})
         if not full_base_quests:
             return
@@ -3384,7 +3394,6 @@ class QuestsScreen(Screen):
         rares = [k for k, v in full_base_quests.items() if v.get("type", "common") == "rare"]
         epics = [k for k, v in full_base_quests.items() if v.get("type", "common") == "epic"]
 
-        # Рандомим строго по твоей формуле: 2 обычных, 2 редких, 1 эпический
         chosen_keys = random.sample(commons, 2) + random.sample(rares, 2) + random.sample(epics, 1)
 
         new_active_quests = {}
@@ -3393,12 +3402,10 @@ class QuestsScreen(Screen):
             new_active_quests[key]["progress"] = 0
             new_active_quests[key]["done"] = False
 
-        # Фиксируем выбранную пятерку и сегодняшний день в сохранении лаунчера
         MOBILE_PLAYER_STATS["active_quests"] = new_active_quests
         MOBILE_PLAYER_STATS["last_update_day"] = current_day
         MOBILE_QUESTS = new_active_quests
 
-        # Моментально записываем изменения в скрытый файл json
         if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
             MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
 
@@ -3440,6 +3447,7 @@ class MobileApp(App):
         sm.add_widget(MenuScreen(name='menu'))
         sm.add_widget(PlayScreen(name='play'))
         sm.add_widget(OptionsScreen(name='options'))
+        sm.add_widget(AboutScreen(name='about'))
         sm.add_widget(HowToPlayScreen(name='how_to_play'))
         sm.add_widget(AchievementsScreen(name='achievements'))
         sm.add_widget(CustomizationScreen(name='customization'))
@@ -3466,10 +3474,6 @@ def start_mobile_game(words_list, player_stats, save_function):
         
     print(f"[MGGamesStudio ТЕЛ] Достижений {len(MOBILE_ACHIVEMENTS)}, квестов {len(MOBILE_QUESTS)}.")
     MobileApp().run()
-
-# ============================================================
-# ============  ЗАПУСК (из guess_word_total_v110.py)  ========
-# ============================================================
 
 ALL_WORDS = load_words_list()
 PLAYER_STATS = load_game_progress()
@@ -3539,9 +3543,4 @@ if START_MOBILE:
     except Exception as e:
         print(f"[MGGamesStudio] Ошибка при запуске мобильной версии игры: {e}")
 else:
-    print("[MGGamesStudio] ЗАПУСК ПК ВЕРСИИ ИГРЫ")
-    try:
-        import guess_word_pc_v110
-        guess_word_pc_v110.start_pc_game(ALL_WORDS, PLAYER_STATS, save_game_progress, achivements, all_quests)
-    except ModuleNotFoundError:
-        print("[MGGamesStudio] Ошибка: Файл guess_word_pc_v110.py не найден!")
+    pass
