@@ -2146,7 +2146,7 @@ class HowToPlayScreen(Screen):
         self.scroll_view.bar_width = 0
 
         text_width = int(win_w - 40)
-        row_text_width = int(win_w - 40 - 54 - 20)
+        row_text_width = int(win_w - 40 - 54 - 30)
 
         for lbl in self.title_labels:
             lbl.text_size = (text_width, None)
