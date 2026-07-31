@@ -2051,23 +2051,23 @@ class HowToPlayScreen(Screen):
             self.content_box.add_widget(lbl)
             
         def add_row(letter, status, description, text_col=None):
-            row = BoxLayout(orientation='horizontal', spacing=14, size_hint_y=None, height=dp(28))
+            row = BoxLayout(orientation='horizontal', spacing=20, size_hint_y=None, height=dp(32))
 
-            cell = GameCell(size=(dp(28), dp(28)))
+            cell = GameCell(size_hint=(None, None), size=(dp(32), dp(32)))
             cell.text = letter
             cell.change_type(status)
             cell.text_size = cell.size
-            cell.font_size = '20sp'
+            cell.font_size = '22sp'
             cell.halign = 'center'
             cell.valign = 'middle'
-            cell.padding = [0, 0, 0, 5]
+            cell.padding = [0, 0, 0, 4]
             
             desc = Label(text=description, font_name=resource_path("ClearSans-Bold.ttf"), font_size='14sp', 
                         color=text_col if text_col else color_text, size_hint_y=None, halign='left', valign='top')
 
             desc.bind(texture_size=lambda inst, val: [
                 setattr(inst, 'height', val[1]), 
-                setattr(row, 'height', max(dp(28), val[1]))
+                setattr(row, 'height', max(dp(32), val[1]))
             ])
             
             row.add_widget(cell)
