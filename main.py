@@ -262,6 +262,9 @@ def redraw_all_screens():
     sm.add_widget(PlayScreen(name='play'))
     sm.add_widget(OptionsScreen(name='options'))
     sm.add_widget(AboutScreen(name='about'))
+    sm.add_widget(TextDocumentScreen(name='license', title_text="Лицензия", back_target='about', source_file="LICENSE.txt"))
+    sm.add_widget(TextDocumentScreen(name='third_party', title_text="Сторонние компоненты", back_target='about', source_file="THIRD-PARTY NOTICES.txt"))
+    sm.add_widget(TextDocumentScreen(name='about_game', title_text="Об игре", back_target='about', source_file="README.txt"))
     sm.add_widget(HowToPlayScreen(name='how_to_play'))
     sm.add_widget(AchievementsScreen(name='achievements'))
     sm.add_widget(CustomizationScreen(name='customization'))
@@ -973,6 +976,70 @@ class SettingLinkRow(ButtonBehavior, FloatLayout):
         if self.on_press_callback:
             self.on_press_callback()
 
+class SettingInfoRow(FloatLayout):
+    """Строка списка настроек: текст слева + информационное значение справа
+    (не кликабельно, вместо капсулы-переключателя)."""
+
+    def __init__(self, text, value="", **kwargs):
+        kwargs.setdefault('size_hint', (1, None))
+        super().__init__(**kwargs)
+
+        self.v_pad = dp(14)
+        self.h_gap = dp(14)
+        self.base_font_px = dp(26)
+
+        self.value_label = Label(
+            text=value,
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            color=color_not_in_word,
+            halign='right',
+            valign='top',
+            size_hint=(None, None)
+        )
+        self.add_widget(self.value_label)
+
+        self.label = Label(
+            text=text,
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            color=color_text,
+            halign='left',
+            valign='top',
+            size_hint=(None, None)
+        )
+        self.add_widget(self.label)
+
+        self.height = dp(60)
+        self.bind(pos=self._relayout, size=self._relayout)
+        Clock.schedule_once(lambda dt: self._relayout(), 0)
+
+    def _relayout(self, *args):
+        if self.width <= 0:
+            return
+
+        max_value_w = max(self.width * 0.5, dp(10))
+        fit_font_size(self.value_label, max_value_w, self.base_font_px)
+        real_vw, real_vh = self.value_label.texture_size
+        self.value_label.text_size = (real_vw, real_vh)
+        self.value_label.size = (real_vw, real_vh)
+
+        label_w = max(self.width - self.value_label.width - self.h_gap, dp(10))
+        fit_font_size_wrapped(self.label, label_w, dp(300), self.base_font_px)
+        # Важно: text_size и size у Label должны совпадать (как у заголовка
+        # экрана), иначе текстура рисуется с нецелым субпиксельным смещением
+        # и буквы выглядят размытыми.
+        real_h = self.label.texture_size[1]
+        self.label.text_size = (label_w, real_h)
+        self.label.size = (label_w, real_h)
+
+        content_h = max(self.label.height, self.value_label.height)
+        new_height = content_h + self.v_pad * 2
+        if abs(new_height - self.height) > 0.5:
+            self.height = new_height
+            return
+
+        self.label.pos = (round(self.x), round(self.y + self.height - self.v_pad - self.label.height))
+        self.value_label.pos = (round(self.x + self.width - self.value_label.width), round(self.y + self.height - self.v_pad - self.value_label.height))
+
 class OptionsScreen(Screen):
     # Список настроек. Чтобы добавить новую настройку, достаточно добавить
     # сюда ещё один словарь — экран сам построит для него строку списка.
@@ -1072,6 +1139,19 @@ class OptionsScreen(Screen):
         self.settings_list_layout.width = scroll_w
 
 class AboutScreen(Screen):
+    # Список пунктов экрана "О программе". Чтобы добавить новый пункт,
+    # достаточно добавить сюда ещё один словарь — экран сам построит для
+    # него строку списка.
+    # type "info" -> статичная строка текст+значение (вместо капсулы-переключателя)
+    # type "link" -> зелёный кликабельный текст, переход на экран target
+    about_definitions = [
+        {"type": "info", "text": "Версия игры", "value": "v.1.1.0"},
+        {"type": "info", "text": "Автор", "value": "MGGamesStudio"},
+        {"type": "link", "text": "Лицензия", "target": "license"},
+        {"type": "link", "text": "Сторонние компоненты", "target": "third_party"},
+        {"type": "link", "text": "Об игре", "target": "about_game"},
+    ]
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -1093,33 +1173,142 @@ class AboutScreen(Screen):
         )
         self.layout.add_widget(self.title_label)
 
-        self.placeholder_label = Label(
-            text="Здесь пока что ничего нет.",
+        self.about_scroll = ScrollView(size_hint=(None, None), do_scroll_x=False, do_scroll_y=True, bar_width=0)
+        self.about_scroll.effect_cls = ScrollEffect
+
+        self.about_list_layout = GridLayout(cols=1, spacing=dp(4), size_hint=(1, None), padding=[0, 0, 0, dp(20)])
+        self.about_list_layout.bind(minimum_height=self.about_list_layout.setter('height'))
+
+        self.about_scroll.add_widget(self.about_list_layout)
+        self.layout.add_widget(self.about_scroll)
+
+        self.add_widget(self.layout)
+        self.build_about_list()
+
+        self.bind(size=self.reposition_elements)
+        self.reposition_elements()
+        Clock.schedule_once(lambda dt: self.reposition_elements(), 0)
+
+    def build_about_list(self):
+        self.about_list_layout.clear_widgets()
+
+        for item in self.about_definitions:
+            if item["type"] == "info":
+                row = SettingInfoRow(text=item["text"], value=item.get("value", ""))
+                self.about_list_layout.add_widget(row)
+            elif item["type"] == "link":
+                row = SettingLinkRow(
+                    text=item["text"],
+                    on_press_callback=self._make_link_handler(item["target"])
+                )
+                self.about_list_layout.add_widget(row)
+
+    def _make_link_handler(self, target_screen):
+        def _handler():
+            setattr(self.manager, 'current', target_screen)
+        return _handler
+
+    def reposition_elements(self, *args):
+        win_w, win_h = self.width, self.height
+        if win_w <= 0 or win_h <= 0:
+            return
+
+        content_top = position_header(self.title_label, self.btn_back, win_w, win_h)
+        bottom_limit = int(round(BOTTOM_SAFE_MARGIN))
+        side_margin = int(round(dp(15)))
+
+        scroll_w = int(round(win_w - side_margin * 2))
+        scroll_h = int(round(max(content_top - bottom_limit, dp(10))))
+
+        self.about_scroll.pos = (side_margin, bottom_limit)
+        self.about_scroll.size = (scroll_w, scroll_h)
+        self.about_list_layout.width = scroll_w
+
+class TextDocumentScreen(Screen):
+    """Экран для показа большого текстового документа, загружаемого из
+    файла рядом с игрой (лицензия, сторонние компоненты, README и т.п.).
+    Текст листается свайпом, но без полосы прокрутки сбоку и без
+    пружинящего оттягивания за края — при достижении конца текста скролл
+    просто останавливается."""
+
+    def __init__(self, title_text="", back_target="about", source_file=None, **kwargs):
+        super().__init__(**kwargs)
+        self.back_target = back_target
+        self.layout = FloatLayout()
+
+        self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
+        self.btn_back.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_back.font_size = '20sp'
+        self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', self.back_target))
+        self.layout.add_widget(self.btn_back)
+
+        self.title_label = Label(
+            text=title_text,
             font_name=resource_path("ClearSans-Bold.ttf"),
-            color=color_not_in_word,
+            bold=True,
+            color=color_text,
             size_hint=(None, None),
-            halign='center',
+            halign='left',
             valign='middle'
         )
-        self.layout.add_widget(self.placeholder_label)
+        self.layout.add_widget(self.title_label)
+
+        self.doc_scroll = ScrollView(size_hint=(None, None), do_scroll_x=False, do_scroll_y=True, bar_width=0)
+        self.doc_scroll.effect_cls = ScrollEffect
+        if self.doc_scroll.effect_cls:
+            self.doc_scroll.effect_cls.bounces = False
+
+        self.content_box = BoxLayout(orientation='vertical', size_hint_y=None, padding=[0, 0, 0, dp(20)])
+        self.content_box.bind(minimum_height=self.content_box.setter('height'))
+
+        self.text_label = Label(
+            text=self._load_document_text(source_file),
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_size='14sp',
+            color=color_text,
+            size_hint_y=None,
+            halign='left',
+            valign='top'
+        )
+        self.text_label.bind(texture_size=lambda inst, val: setattr(inst, 'height', val[1]))
+        self.content_box.add_widget(self.text_label)
+
+        self.doc_scroll.add_widget(self.content_box)
+        self.layout.add_widget(self.doc_scroll)
 
         self.add_widget(self.layout)
         self.bind(size=self.reposition_elements)
         self.reposition_elements()
         Clock.schedule_once(lambda dt: self.reposition_elements(), 0)
 
+    def _load_document_text(self, source_file):
+        if not source_file:
+            return "Здесь пока что ничего нет."
+        try:
+            file_path = resource_path(source_file)
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+            return content if content else "Здесь пока что ничего нет."
+        except Exception as e:
+            print(f"[MGGamesStudio] Ошибка чтения документа {source_file}: {e}")
+            return "Не удалось загрузить файл."
+
     def reposition_elements(self, *args):
         win_w, win_h = self.width, self.height
+        if win_w <= 0 or win_h <= 0:
+            return
 
         content_top = position_header(self.title_label, self.btn_back, win_w, win_h)
-        bottom_limit = BOTTOM_SAFE_MARGIN
+        bottom_limit = int(round(BOTTOM_SAFE_MARGIN))
+        side_margin = int(round(dp(15)))
 
-        placeholder_h = dp(24)
-        self.placeholder_label.text_size = (None, None)
-        fit_font_size(self.placeholder_label, win_w * 0.85, placeholder_h)
-        self.placeholder_label.size = self.placeholder_label.texture_size
-        self.placeholder_label.center_x = win_w / 2
-        self.placeholder_label.center_y = bottom_limit + (content_top - bottom_limit) * 0.5
+        scroll_w = int(round(win_w - side_margin * 2))
+        scroll_h = int(round(max(content_top - bottom_limit, dp(10))))
+
+        self.doc_scroll.pos = (side_margin, bottom_limit)
+        self.doc_scroll.size = (scroll_w, scroll_h)
+        self.content_box.width = scroll_w
+        self.text_label.text_size = (scroll_w, None)
 
 class PlayScreen(Screen):
     def __init__(self, **kwargs):
@@ -2763,12 +2952,18 @@ class CustomizationScreen(Screen):
         self.reposition_elements(None, None)
         Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
 
-    def reposition_elements(self, instance, size):
+    def on_enter(self):
+        self.refresh_coins_display()
+
+    def refresh_coins_display(self):
         global MOBILE_PLAYER_STATS
         if 'MOBILE_PLAYER_STATS' in globals() and isinstance(MOBILE_PLAYER_STATS, dict) and 'player_coins' in MOBILE_PLAYER_STATS:
             self.lbl_coins_val.text = str(MOBILE_PLAYER_STATS['player_coins'])
         else:
             self.lbl_coins_val.text = "0"
+
+    def reposition_elements(self, instance, size):
+        self.refresh_coins_display()
         win_w = self.width
         win_h = self.height
         
@@ -3451,6 +3646,9 @@ class MobileApp(App):
         sm.add_widget(PlayScreen(name='play'))
         sm.add_widget(OptionsScreen(name='options'))
         sm.add_widget(AboutScreen(name='about'))
+        sm.add_widget(TextDocumentScreen(name='license', title_text="Лицензия", back_target='about', source_file="LICENSE.txt"))
+        sm.add_widget(TextDocumentScreen(name='third_party', title_text="Сторонние компоненты", back_target='about', source_file="THIRD-PARTY NOTICES.txt"))
+        sm.add_widget(TextDocumentScreen(name='about_game', title_text="Об игре", back_target='about', source_file="README.txt"))
         sm.add_widget(HowToPlayScreen(name='how_to_play'))
         sm.add_widget(AchievementsScreen(name='achievements'))
         sm.add_widget(CustomizationScreen(name='customization'))
