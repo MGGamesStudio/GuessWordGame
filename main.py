@@ -185,42 +185,6 @@ def fit_font_size_wrapped(label, max_allowed_w, max_allowed_h, start_font_px):
         label.font_size = f"{current_font}px"
         label.texture_update()
 
-def snap_label_crisp(label):
-    """Убирает размытие текста Label.
-
-    Kivy рисует текст как текстуру и центрует её по center_x/center_y
-    виджета: pos_текстуры = center - texture_size/2. texture_size у Kivy
-    ВСЕГДА целое число пикселей (это растровое изображение с чётким
-    размером), а вот .size/.text_size лейбла в этом проекте часто
-    считаются через dp() и вычитание/деление размеров окна — и почти
-    никогда не оказываются целыми. Если .size не равен texture_size
-    тютелька в тютельку, центр получается с дробной частью пикселя,
-    и итоговая позиция текстуры на экране — тоже дробная. GPU рисует
-    такую текстуру с билинейной интерполяцией между соседними пикселями,
-    из-за чего буквы выглядят размытыми, хотя рядом другой текст (у
-    которого .size случайно точно совпал с texture_size) остаётся чётким.
-
-    Лечится только одним способом: ПОСЛЕ фитинга шрифта принудительно
-    выставлять и .size, и .text_size РОВНО в texture_size (а не в
-    ширину/высоту, в которые текст только вписывали). Тогда
-    size - texture_size == 0 всегда, и дробная часть в формуле центра
-    гарантированно сокращается, независимо от того, насколько "кривыми"
-    были исходные числа.
-
-    ВАЖНО: применять только к "чистым" текстовым Label, у которых .size
-    ни на что, кроме размера текстуры, не влияет. Для Button и любых
-    других виджетов, где .size ещё и определяет фон/область нажатия
-    (как back_btn, клавиши клавиатуры и т.п.), эта функция не подходит —
-    она их визуально сожмёт по размеру текста. Поэтому она НЕ встроена
-    в fit_font_size/fit_font_size_wrapped (они используются в том числе
-    для кнопок), а вызывается отдельно там, где это безопасно —
-    в SettingToggleRow и SettingLinkRow.
-    """
-    label.texture_update()
-    real_w, real_h = label.texture_size
-    label.text_size = (real_w, real_h)
-    label.size = (real_w, real_h)
-
 def prepare_layout_for_dynamic_sizes(container, child_widgets):
     container.size_hint_y = None
     for widget in child_widgets:
@@ -945,15 +909,15 @@ class SettingToggleRow(FloatLayout):
 
         label_w = max(self.width - self.switch.width - self.h_gap, dp(10))
         fit_font_size_wrapped(self.label, label_w, dp(300), self.base_font_px)
-        # Раньше здесь .size/.text_size выставлялись в label_w (ширину,
-        # в которую текст только вписывали при переносе строк) — это и
-        # было причиной размытия. label_w почти никогда не целое число
-        # пикселей, а сам текст обычно чуть уже её. snap_label_crisp
-        # ставит .size/.text_size РОВНО в texture_size (см. её описание).
-        snap_label_crisp(self.label)
+        # Важно: text_size и size у Label должны совпадать (как у заголовка
+        # экрана), иначе текстура рисуется с нецелым субпиксельным смещением
+        # и буквы выглядят размытыми.
+        real_h = self.label.texture_size[1]
+        self.label.text_size = (label_w, real_h)
+        self.label.size = (label_w, real_h)
 
         content_h = max(self.label.height, self.switch.height)
-        new_height = round(content_h + self.v_pad * 2)
+        new_height = content_h + self.v_pad * 2
         if abs(new_height - self.height) > 0.5:
             self.height = new_height
             return
@@ -991,9 +955,14 @@ class SettingLinkRow(ButtonBehavior, FloatLayout):
             return
 
         fit_font_size(self.label, self.width, self.base_font_px)
-        snap_label_crisp(self.label)
+        # Важно: text_size и size у Label должны совпадать (как у заголовка
+        # экрана), иначе текстура рисуется с нецелым субпиксельным смещением
+        # и буквы выглядят размытыми.
+        real_w, real_h = self.label.texture_size
+        self.label.text_size = (real_w, real_h)
+        self.label.size = (real_w, real_h)
 
-        new_height = round(self.label.height + self.v_pad * 2)
+        new_height = self.label.height + self.v_pad * 2
         if abs(new_height - self.height) > 0.5:
             self.height = new_height
             return
@@ -1011,7 +980,7 @@ class OptionsScreen(Screen):
     # type "link"   -> зелёный кликабельный текст, переход на экран target
     settings_definitions = [
         {"type": "toggle", "key": "confirm_exit", "text": "Спрашивать повторно при выходе из игры", "default": False},
-        {"type": "link", "text": "О программе", "target": "about"},
+        {"type": "link", "text": "О программе", "target": "about"}
     ]
 
     def __init__(self, **kwargs):
@@ -1092,12 +1061,15 @@ class OptionsScreen(Screen):
             return
 
         content_top = position_header(self.title_label, self.btn_back, win_w, win_h)
-        bottom_limit = BOTTOM_SAFE_MARGIN
-        side_margin = dp(15)
+        bottom_limit = int(round(BOTTOM_SAFE_MARGIN))
+        side_margin = int(round(dp(15)))
+
+        scroll_w = int(round(win_w - side_margin * 2))
+        scroll_h = int(round(max(content_top - bottom_limit, dp(10))))
 
         self.settings_scroll.pos = (side_margin, bottom_limit)
-        self.settings_scroll.size = (win_w - side_margin * 2, max(content_top - bottom_limit, dp(10)))
-        self.settings_list_layout.width = self.settings_scroll.width
+        self.settings_scroll.size = (scroll_w, scroll_h)
+        self.settings_list_layout.width = scroll_w
 
 class AboutScreen(Screen):
     def __init__(self, **kwargs):
