@@ -20,5 +20,4 @@ LICENSE.txt
 THIRD-PARTY-NOTICES.txt
     Сведения о сторонних компонентах и их лицензиях.
 
-Copyright © 2026 MGGamesStudio.
-Все права защищены.
+© 2026 MGGamesStudio. Все права защищены.
