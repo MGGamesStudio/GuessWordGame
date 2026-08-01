@@ -5,6 +5,7 @@ import random
 from platformdirs import user_data_dir
 from kivy.app import App
 from kivy.core.window import Window
+from kivy.core.clipboard import Clipboard
 from kivy.metrics import dp
 from kivy.clock import Clock
 from kivy.uix.boxlayout import BoxLayout
@@ -82,6 +83,75 @@ def load_words_list():
     except Exception as e:
         print(f"[MGGamesStudio] Ошибка чтения словаря: {e}")
         return ["СЛОВО"]
+
+# ----- СИСТЕМА ГЕНЕРАЦИИ СИДА -----
+# Каждому 5-буквенному слову из словаря ставится в соответствие его порядковый
+# номер (индекс) в отсортированном списке уникальных слов. Этот индекс
+# прогоняется через аффинное преобразование по модулю 33^6 (33 буквы алфавита
+# в 6-й степени), после чего результат переводится в 6-значное число в
+# 33-ричной системе счисления и каждая "цифра" заменяется буквой по таблице
+# подстановки SEED_ALPHABET. Так как множитель SEED_MULTIPLIER взаимно прост
+# с модулем и сопоставим с ним по величине, уже соседние индексы дают сиды,
+# совершенно непохожие друг на друга, а порядок букв подстановки не совпадает
+# с порядком букв в алфавите. Преобразование строго обратимо (используется
+# модульная обратная величина), поэтому одинаковых сидов для разных слов
+# быть не может, а по любому набору из 6 букв всегда можно однозначно
+# определить, существует такое слово или нет.
+SEED_BASE = 33
+SEED_LENGTH = 6
+SEED_MODULUS = SEED_BASE ** SEED_LENGTH
+SEED_ALPHABET = "ЙЧДЕЯФЩЪСЛЮРЖВАМПУХКЬЦГЫЗОТШИЭЁБН"
+SEED_MULTIPLIER = 856495781
+SEED_OFFSET = 419883757
+SEED_MULTIPLIER_INV = pow(SEED_MULTIPLIER, -1, SEED_MODULUS)
+SEED_CHAR_TO_DIGIT = {ch: i for i, ch in enumerate(SEED_ALPHABET)}
+
+_SEED_WORD_LIST = None
+_SEED_WORD_INDEX = None
+_SEED_WORD_SOURCE_ID = None
+
+def _get_seed_word_list():
+    global _SEED_WORD_LIST, _SEED_WORD_INDEX, _SEED_WORD_SOURCE_ID
+    words_source = globals().get("MOBILE_ALL_WORDS") or globals().get("ALL_WORDS") or []
+    source_id = id(words_source)
+    if _SEED_WORD_LIST is None or _SEED_WORD_SOURCE_ID != source_id:
+        unique_words = {w.strip().upper() for w in words_source if len(w.strip()) == 5}
+        _SEED_WORD_LIST = sorted(unique_words)
+        _SEED_WORD_INDEX = {w: i for i, w in enumerate(_SEED_WORD_LIST)}
+        _SEED_WORD_SOURCE_ID = source_id
+    return _SEED_WORD_LIST, _SEED_WORD_INDEX
+
+def encode_word_to_seed(word):
+    word = (word or "").strip().upper()
+    if len(word) != 5:
+        return None
+    _, word_index = _get_seed_word_list()
+    idx = word_index.get(word)
+    if idx is None:
+        return None
+    code = (idx * SEED_MULTIPLIER + SEED_OFFSET) % SEED_MODULUS
+    digits = []
+    for _ in range(SEED_LENGTH):
+        digits.append(code % SEED_BASE)
+        code //= SEED_BASE
+    digits.reverse()
+    return "".join(SEED_ALPHABET[d] for d in digits)
+
+def decode_seed_to_word(seed):
+    seed = (seed or "").strip().upper()
+    if len(seed) != SEED_LENGTH:
+        return None
+    code = 0
+    for ch in seed:
+        digit = SEED_CHAR_TO_DIGIT.get(ch)
+        if digit is None:
+            return None
+        code = code * SEED_BASE + digit
+    idx = ((code - SEED_OFFSET) * SEED_MULTIPLIER_INV) % SEED_MODULUS
+    word_list, _ = _get_seed_word_list()
+    if 0 <= idx < len(word_list):
+        return word_list[idx]
+    return None
 
 def get_default_stats():
     return {
@@ -243,6 +313,8 @@ _SCREEN_FACTORIES = {
     'one_player_game': lambda: OnePlayerGameScreen(name='one_player_game'),
     'two_player_game': lambda: TwoPlayerGameScreen(name='two_player_game'),
     'seed_generation': lambda: SeedGenerationScreen(name='seed_generation'),
+    'seed_create': lambda: SeedCreateScreen(name='seed_create'),
+    'seed_enter': lambda: SeedEnterScreen(name='seed_enter'),
 }
 
 _pending_screen_rebuild_event = None
@@ -2423,7 +2495,7 @@ class SeedGenerationScreen(Screen):
         self.layout.add_widget(self.title_label)
 
         self.lbl_stub = Label(
-            text="Этот режим пока в разработке.\nСовсем скоро здесь можно будет ввести\nили сгенерировать сид, чтобы играть\nс другом на разных устройствах.",
+            text="Создайте сид из своего слова и отправьте его другу,\nили введите сид, который вам прислали, чтобы отгадать слово.",
             font_name=resource_path("ClearSans-Bold.ttf"),
             bold=True,
             color=color_not_in_word,
@@ -2432,6 +2504,28 @@ class SeedGenerationScreen(Screen):
             valign='middle'
         )
         self.layout.add_widget(self.lbl_stub)
+
+        self.buttons_container = BoxLayout(
+            orientation='vertical',
+            size_hint=(None, None)
+        )
+
+        self.btn_create_seed = MenuButton(text="Создать сид")
+        self.btn_create_seed.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_create_seed.base_color = color_correct
+        self.btn_create_seed.color = (1.0, 1.0, 1.0, 1.0)
+        self.btn_create_seed.bind(on_release=lambda x: setattr(self.manager, 'current', 'seed_create'))
+
+        self.btn_enter_seed = MenuButton(text="Ввести сид")
+        self.btn_enter_seed.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_enter_seed.bind(on_release=lambda x: setattr(self.manager, 'current', 'seed_enter'))
+
+        self.mode_buttons = [self.btn_create_seed, self.btn_enter_seed]
+        for btn in self.mode_buttons:
+            btn.size_hint = (1, None)
+            self.buttons_container.add_widget(btn)
+
+        self.layout.add_widget(self.buttons_container)
 
         self.add_widget(self.layout)
 
@@ -2455,11 +2549,607 @@ class SeedGenerationScreen(Screen):
         self.title_label.center_x = win_w / 2
         self.title_label.top = win_h - TOP_SAFE_MARGIN - back_h - dp(24)
 
-        fit_font_size_wrapped(self.lbl_stub, win_w * 0.8, win_h * 0.4, dp(17))
+        container_w = win_w * 0.86
+        total_buttons = len(self.mode_buttons)
+        spacing_h = dp(16)
+        max_btn_h = dp(84)
+
+        available_h = win_h * 0.5
+        btn_h = (available_h * 0.5 - spacing_h * (total_buttons - 1)) / total_buttons
+        btn_h = max(min(btn_h, max_btn_h), dp(52))
+        container_h = btn_h * total_buttons + spacing_h * (total_buttons - 1)
+
+        self.buttons_container.size = (container_w, container_h)
+        self.buttons_container.spacing = spacing_h
+        self.buttons_container.center_x = win_w / 2
+        self.buttons_container.center_y = win_h / 2
+
+        for btn in self.mode_buttons:
+            btn.height = btn_h
+            fit_font_size(btn, container_w - dp(36), btn_h * 0.4)
+
+        stub_gap = self.title_label.y - self.buttons_container.top
+        max_stub_h = max(min(stub_gap - dp(16), win_h * 0.22), dp(30))
+        fit_font_size_wrapped(self.lbl_stub, win_w * 0.8, max_stub_h, dp(15))
         self.lbl_stub.text_size = (win_w * 0.8, None)
         self.lbl_stub.size = self.lbl_stub.texture_size
         self.lbl_stub.center_x = win_w / 2
-        self.lbl_stub.center_y = win_h / 2
+        self.lbl_stub.center_y = (self.title_label.y + self.buttons_container.top) / 2
+
+class SeedCreateScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = FloatLayout()
+
+        with self.canvas.before:
+            Color(*color_bg)
+            self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
+
+        self.lbl_title = Label(text="СОЗДАЙТЕ СИД", font_name=resource_path("ClearSans-Bold.ttf"),
+                               font_size='32sp', color=color_text, bold=True, size_hint=(None, None))
+        self.lbl_subtitle = Label(text="Введите загаданное слово, чтобы получить его сид", font_name=resource_path("ClearSans-Bold.ttf"),
+                                  font_size='14sp', color=color_not_in_word, bold=True, size_hint=(None, None))
+        self.lbl_error = Label(text="", font_name=resource_path("ClearSans-Bold.ttf"),
+                               font_size='15sp', color=color_in_word, bold=True, size_hint=(None, None))
+        self.lbl_seed = Label(text="", font_name=resource_path("ClearSans-Bold.ttf"),
+                              font_size='20sp', color=color_correct, bold=True, size_hint=(None, None))
+        self.layout.add_widget(self.lbl_error)
+        self.layout.add_widget(self.lbl_seed)
+        self.layout.add_widget(self.lbl_title)
+        self.layout.add_widget(self.lbl_subtitle)
+
+        self.cells = []
+        for _ in range(5):
+            cell = GameCell(size=(74, 92))
+            cell.base_color = color_blank
+            self.cells.append(cell)
+            self.layout.add_widget(cell)
+
+        self.keyboard_keys = []
+
+        self.btn_erase = KeyButton(text="СТЕРЕТЬ", size=(100, 50))
+        self.btn_erase.font_size = '22sp'
+        self.btn_erase.bind(on_release=self.press_erase_key)
+
+        self.btn_enter = KeyButton(text="ВВОД", size=(100, 50))
+        self.btn_enter.font_size = '22sp'
+        self.btn_enter.bind(on_release=self.press_enter_key)
+
+        self.system_buttons = [self.btn_erase, self.btn_enter]
+
+        self.layout.add_widget(self.btn_erase)
+        self.layout.add_widget(self.btn_enter)
+
+        self.btn_exit_top = MenuButton(text="Назад", size_hint=(None, None), size=(dp(92), dp(48)))
+        self.btn_exit_top.bind(on_release=self.press_exit_key)
+        self.layout.add_widget(self.btn_exit_top)
+
+        self.lines = ["ЙЦУКЕНГШЩЗХЪ", "ФЫВАПРОЛДЖЭ", "ЯЧСМИТЬБЮЁ"]
+        self.letter_buttons = []
+        for line in self.lines:
+            row_buttons = []
+            for char in line:
+                key = KeyButton(text=char, size=(40, 85))
+                key.font_size = '22sp'
+
+                key.bind(on_release=self.press_letter_key)
+
+                self.keyboard_keys.append(key)
+                self.layout.add_widget(key)
+                row_buttons.append(key)
+            self.letter_buttons.append(row_buttons)
+
+        self.add_widget(self.layout)
+        self.bind(size=self.reposition_elements)
+
+        self.current_word = ""
+
+        self.reset_game()
+        self.reposition_elements(None, None)
+        Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
+
+    def reposition_elements(self, instance, size):
+        win_w = self.width
+        win_h = self.height
+        self.bg_rect.size = (win_w, win_h)
+        self.bg_rect.pos = (0, 0)
+
+        GRID_GAP = dp(6)
+        top_reserved = TOP_SAFE_MARGIN + dp(48) + GRID_GAP
+        bottom_reserved = BOTTOM_SAFE_MARGIN
+
+        self.btn_exit_top.size = (dp(92), dp(48))
+        self.btn_exit_top.pos = (win_w - dp(92) - dp(14), win_h - TOP_SAFE_MARGIN - dp(48))
+        fit_font_size(self.btn_exit_top, self.btn_exit_top.width - dp(18), self.btn_exit_top.height * 0.42)
+
+        CELL_SPACING_X = 5
+        CELL_SPACING_Y = 5
+        side_margin = win_w * 0.11
+        avail_cell_w = win_w - (2 * side_margin) - 20
+        CELL_WIDTH = avail_cell_w / 5
+        CELL_HEIGHT = CELL_WIDTH * 1.243
+
+        total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
+        max_allowed_height = (win_h - top_reserved - bottom_reserved) * 0.68
+        if total_blanks_height > max_allowed_height:
+            total_blanks_height = max_allowed_height
+            CELL_HEIGHT = (total_blanks_height - (5 * CELL_SPACING_Y)) / 6
+            CELL_WIDTH = CELL_HEIGHT / 1.243
+            side_margin = (win_w - (5 * CELL_WIDTH) - 20) / 2
+
+        for cell in self.cells:
+            cell.size = (CELL_WIDTH, CELL_HEIGHT)
+
+        kbd_top_y = self._layout_keyboard(win_w, win_h, bottom_reserved, top_reserved, CELL_HEIGHT)
+        top_boundary = win_h - top_reserved
+
+        start_blank_x = side_margin
+        total_free_space_y = top_boundary - kbd_top_y
+        start_blank_y = kbd_top_y + (total_free_space_y - CELL_HEIGHT) // 2
+
+        for idx, cell in enumerate(self.cells):
+            cell.pos = (start_blank_x + idx * (CELL_WIDTH + CELL_SPACING_X), start_blank_y)
+            cell.update_canvas()
+
+        fit_font_size(self.lbl_title, win_w * 0.9, dp(24))
+        self.lbl_title.text_size = (None, None)
+        self.lbl_title.size = self.lbl_title.texture_size
+
+        fit_font_size(self.lbl_subtitle, win_w * 0.85, dp(14))
+        self.lbl_subtitle.text_size = (None, None)
+        self.lbl_subtitle.size = self.lbl_subtitle.texture_size
+
+        space_above_cells = top_boundary - (start_blank_y + CELL_HEIGHT)
+        center_above_y = (start_blank_y + CELL_HEIGHT) + (space_above_cells // 2)
+
+        block_gap = dp(4)
+        block_h = self.lbl_title.height + block_gap + self.lbl_subtitle.height
+        block_center = min(center_above_y, top_boundary - block_h / 2 - dp(6))
+        block_center = max(block_center, kbd_top_y + block_h / 2 + dp(6))
+
+        block_top_y = block_center + block_h / 2
+        self.lbl_title.pos = (win_w / 2 - self.lbl_title.width / 2, block_top_y - self.lbl_title.height)
+        self.lbl_subtitle.pos = (win_w / 2 - self.lbl_subtitle.width / 2, block_top_y - self.lbl_title.height - block_gap - self.lbl_subtitle.height)
+
+        space_below_cells = start_blank_y - kbd_top_y
+        center_below_y = kbd_top_y + (space_below_cells // 2)
+
+        fit_font_size_wrapped(self.lbl_seed, win_w * 0.85, space_below_cells * 0.6, dp(20))
+        self.lbl_seed.text_size = (None, None)
+        self.lbl_seed.size = self.lbl_seed.texture_size
+
+        fit_font_size(self.lbl_error, win_w * 0.85, dp(16))
+        self.lbl_error.text_size = (None, None)
+        self.lbl_error.size = self.lbl_error.texture_size
+
+        if self.lbl_seed.text:
+            self.lbl_seed.pos = (win_w // 2 - self.lbl_seed.width // 2, center_below_y - self.lbl_seed.height // 2)
+            self.lbl_error.pos = (win_w // 2 - self.lbl_error.width // 2, -1000)
+        else:
+            self.lbl_error.pos = (win_w // 2 - self.lbl_error.width // 2, center_below_y - self.lbl_error.height // 2)
+            self.lbl_seed.pos = (win_w // 2 - self.lbl_seed.width // 2, -1000)
+
+        apply_adaptive_fonts(self, CELL_HEIGHT, self.keyboard_keys[0].height if self.keyboard_keys else dp(50))
+
+    def _layout_keyboard(self, win_w, win_h, bottom_reserved, top_reserved, cell_height):
+        GRID_GAP = dp(6)
+        CELL_SPACING_Y = 5
+        total_blanks_height_kb = (6 * cell_height) + (5 * CELL_SPACING_Y)
+        virtual_bottom_line = (win_h - top_reserved) - total_blanks_height_kb
+        keyboard_top_y = virtual_bottom_line - GRID_GAP
+        KEY_SPACING_X = 4
+
+        avail_w = win_w - 16 - 44
+        KEY_WIDTH = avail_w / 12
+        KEY_SPACING_Y = 4
+        avail_h = keyboard_top_y - bottom_reserved - (3 * KEY_SPACING_Y)
+        KEY_HEIGHT = avail_h / 4
+
+        row_heights = [
+            bottom_reserved,
+            bottom_reserved + (KEY_HEIGHT + KEY_SPACING_Y),
+            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
+            bottom_reserved + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
+        ]
+
+        for key in self.keyboard_keys:
+            key.size = (KEY_WIDTH, KEY_HEIGHT)
+
+        line_to_height_idx = {0: 2, 1: 1, 2: 0}
+        for i, line_keys in enumerate(self.letter_buttons):
+            h_idx = line_to_height_idx[i]
+            total_w = len(line_keys) * KEY_WIDTH + (len(line_keys) - 1) * KEY_SPACING_X
+            start_l_x = (win_w - total_w) / 2
+            for idx, key in enumerate(line_keys):
+                key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
+                key.update_canvas()
+
+        SYS_SPACING = 6
+        avail_sys_w = win_w - 16 - SYS_SPACING
+        SYS_WIDTH = avail_sys_w / 2
+        start_sys_x = 8
+
+        for btn in self.system_buttons:
+            btn.size = (SYS_WIDTH, KEY_HEIGHT)
+
+        self.btn_erase.pos = (start_sys_x, row_heights[3])
+        self.btn_erase.update_canvas()
+
+        self.btn_enter.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights[3])
+        self.btn_enter.update_canvas()
+
+        return row_heights[3] + KEY_HEIGHT
+
+    def press_letter_key(self, instance):
+        self.lbl_error.text = ""
+        letter = instance.text
+
+        if len(self.current_word) < 5:
+            cell_idx = len(self.current_word)
+            if cell_idx < len(self.cells):
+                self.cells[cell_idx].text = letter
+                self.current_word += letter
+
+    def press_erase_key(self, instance):
+        self.lbl_error.text = ""
+        if len(self.current_word) > 0:
+            cell_idx = len(self.current_word) - 1
+            if cell_idx < len(self.cells):
+                self.cells[cell_idx].text = ""
+                self.current_word = self.current_word[:-1]
+
+    def press_enter_key(self, instance):
+        if len(self.current_word) != 5:
+            self.lbl_seed.text = ""
+            self.lbl_error.color = color_in_word
+            self.lbl_error.text = "Слово не из 5 букв!"
+            self.reposition_elements(None, None)
+            return
+
+        check_word = self.current_word.upper()
+        seed = encode_word_to_seed(check_word)
+
+        if seed is None:
+            self.lbl_seed.text = ""
+            self.lbl_error.color = color_in_word
+            self.lbl_error.text = "Такого слова нет в словаре!"
+            self.reposition_elements(None, None)
+            return
+
+        self.lbl_error.text = ""
+        self.lbl_seed.text = f"Сид: {seed}"
+        self.lbl_subtitle.text = "Нажмите на сид, чтобы скопировать его"
+        self.current_word = ""
+        for cell in self.cells:
+            cell.text = ""
+        self.reposition_elements(None, None)
+
+    def on_touch_down(self, touch):
+        if self.lbl_seed.text and self.lbl_seed.collide_point(*touch.pos):
+            seed_part = self.lbl_seed.text.split(": ", 1)[-1].strip()
+            try:
+                Clipboard.copy(seed_part)
+            except Exception:
+                pass
+            self.lbl_error.color = color_correct
+            self.lbl_error.text = "Сид скопирован в буфер обмена!"
+            self.reposition_elements(None, None)
+            Clock.schedule_once(self._clear_copy_notice, 1.4)
+            return True
+        return super().on_touch_down(touch)
+
+    def _clear_copy_notice(self, dt):
+        self.lbl_error.text = ""
+        self.lbl_error.color = color_in_word
+        self.reposition_elements(None, None)
+
+    def press_exit_key(self, instance):
+        self.reset_game()
+        self.manager.current = 'seed_generation'
+
+    def reset_game(self):
+        self.current_word = ""
+        self.lbl_error.text = ""
+        self.lbl_error.color = color_in_word
+        self.lbl_seed.text = ""
+        self.lbl_subtitle.text = "Введите загаданное слово, чтобы получить его сид"
+
+        for cell in self.cells:
+            cell.text = ""
+            cell.base_color = color_blank
+            cell.color = color_text
+            cell.update_canvas()
+
+        for key_btn in self.keyboard_keys:
+            key_btn.base_color = color_key
+            key_btn.color = color_text
+            key_btn.cell_status = "blank"
+            key_btn.update_canvas()
+
+        for btn in self.system_buttons:
+            btn.base_color = color_key
+            btn.color = color_text
+            btn.update_canvas()
+
+        self.reposition_elements(None, None)
+
+class SeedEnterScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = FloatLayout()
+
+        with self.canvas.before:
+            Color(*color_bg)
+            self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
+
+        self.lbl_title = Label(text="ВВЕДИТЕ СИД", font_name=resource_path("ClearSans-Bold.ttf"),
+                               font_size='32sp', color=color_text, bold=True, size_hint=(None, None))
+        self.lbl_subtitle = Label(text="Введите сид, который вам прислал друг", font_name=resource_path("ClearSans-Bold.ttf"),
+                                  font_size='14sp', color=color_not_in_word, bold=True, size_hint=(None, None))
+        self.lbl_error = Label(text="", font_name=resource_path("ClearSans-Bold.ttf"),
+                               font_size='15sp', color=color_in_word, bold=True, size_hint=(None, None))
+        self.layout.add_widget(self.lbl_error)
+        self.layout.add_widget(self.lbl_title)
+        self.layout.add_widget(self.lbl_subtitle)
+
+        self.cells = []
+        for _ in range(SEED_LENGTH):
+            cell = GameCell(size=(60, 74))
+            cell.base_color = color_blank
+            self.cells.append(cell)
+            self.layout.add_widget(cell)
+
+        self.keyboard_keys = []
+
+        self.btn_erase = KeyButton(text="СТЕРЕТЬ", size=(100, 50))
+        self.btn_erase.font_size = '22sp'
+        self.btn_erase.bind(on_release=self.press_erase_key)
+
+        self.btn_enter = KeyButton(text="ВВОД", size=(100, 50))
+        self.btn_enter.font_size = '22sp'
+        self.btn_enter.bind(on_release=self.press_enter_key)
+
+        self.system_buttons = [self.btn_erase, self.btn_enter]
+
+        self.layout.add_widget(self.btn_erase)
+        self.layout.add_widget(self.btn_enter)
+
+        self.btn_exit_top = MenuButton(text="Назад", size_hint=(None, None), size=(dp(92), dp(48)))
+        self.btn_exit_top.bind(on_release=self.press_exit_key)
+        self.layout.add_widget(self.btn_exit_top)
+
+        self.lines = ["ЙЦУКЕНГШЩЗХЪ", "ФЫВАПРОЛДЖЭ", "ЯЧСМИТЬБЮЁ"]
+        self.letter_buttons = []
+        for line in self.lines:
+            row_buttons = []
+            for char in line:
+                key = KeyButton(text=char, size=(40, 85))
+                key.font_size = '22sp'
+
+                key.bind(on_release=self.press_letter_key)
+
+                self.keyboard_keys.append(key)
+                self.layout.add_widget(key)
+                row_buttons.append(key)
+            self.letter_buttons.append(row_buttons)
+
+        self.add_widget(self.layout)
+        self.bind(size=self.reposition_elements)
+
+        self.current_word = ""
+
+        self.reset_game()
+        self.reposition_elements(None, None)
+        Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
+
+    def reposition_elements(self, instance, size):
+        win_w = self.width
+        win_h = self.height
+        self.bg_rect.size = (win_w, win_h)
+        self.bg_rect.pos = (0, 0)
+
+        GRID_GAP = dp(6)
+        top_reserved = TOP_SAFE_MARGIN + dp(48) + GRID_GAP
+        bottom_reserved = BOTTOM_SAFE_MARGIN
+
+        self.btn_exit_top.size = (dp(92), dp(48))
+        self.btn_exit_top.pos = (win_w - dp(92) - dp(14), win_h - TOP_SAFE_MARGIN - dp(48))
+        fit_font_size(self.btn_exit_top, self.btn_exit_top.width - dp(18), self.btn_exit_top.height * 0.42)
+
+        CELL_SPACING_X = 5
+        CELL_SPACING_Y = 5
+
+        # Reference cell height matches the 5-column word grid used elsewhere
+        # (e.g. the two-player screen), so the keyboard ends up the same size.
+        ref_side_margin = win_w * 0.11
+        ref_avail_cell_w = win_w - (2 * ref_side_margin) - 20
+        REF_CELL_WIDTH = ref_avail_cell_w / 5
+        REF_CELL_HEIGHT = REF_CELL_WIDTH * 1.243
+
+        total_blanks_height = (6 * REF_CELL_HEIGHT) + (5 * CELL_SPACING_Y)
+        max_allowed_height = (win_h - top_reserved - bottom_reserved) * 0.68
+        if total_blanks_height > max_allowed_height:
+            total_blanks_height = max_allowed_height
+            REF_CELL_HEIGHT = (total_blanks_height - (5 * CELL_SPACING_Y)) / 6
+
+        CELL_HEIGHT = REF_CELL_HEIGHT
+        CELL_WIDTH = CELL_HEIGHT / 1.243
+        side_margin = (win_w - (SEED_LENGTH * CELL_WIDTH) - (5 * CELL_SPACING_X)) / 2
+
+        for cell in self.cells:
+            cell.size = (CELL_WIDTH, CELL_HEIGHT)
+
+        kbd_top_y = self._layout_keyboard(win_w, win_h, bottom_reserved, top_reserved, CELL_HEIGHT)
+
+        top_boundary = win_h - top_reserved
+
+        start_blank_x = side_margin
+        total_free_space_y = top_boundary - kbd_top_y
+        start_blank_y = kbd_top_y + (total_free_space_y - CELL_HEIGHT) // 2
+
+        for idx, cell in enumerate(self.cells):
+            cell.pos = (start_blank_x + idx * (CELL_WIDTH + CELL_SPACING_X), start_blank_y)
+            cell.update_canvas()
+
+        fit_font_size(self.lbl_title, win_w * 0.9, dp(24))
+        self.lbl_title.text_size = (None, None)
+        self.lbl_title.size = self.lbl_title.texture_size
+
+        fit_font_size(self.lbl_subtitle, win_w * 0.85, dp(14))
+        self.lbl_subtitle.text_size = (None, None)
+        self.lbl_subtitle.size = self.lbl_subtitle.texture_size
+
+        space_above_cells = top_boundary - (start_blank_y + CELL_HEIGHT)
+        center_above_y = (start_blank_y + CELL_HEIGHT) + (space_above_cells // 2)
+
+        block_gap = dp(4)
+        block_h = self.lbl_title.height + block_gap + self.lbl_subtitle.height
+        block_center = min(center_above_y, top_boundary - block_h / 2 - dp(6))
+        block_center = max(block_center, kbd_top_y + block_h / 2 + dp(6))
+
+        block_top_y = block_center + block_h / 2
+        self.lbl_title.pos = (win_w / 2 - self.lbl_title.width / 2, block_top_y - self.lbl_title.height)
+        self.lbl_subtitle.pos = (win_w / 2 - self.lbl_subtitle.width / 2, block_top_y - self.lbl_title.height - block_gap - self.lbl_subtitle.height)
+
+        space_below_cells = start_blank_y - kbd_top_y
+        center_below_y = kbd_top_y + (space_below_cells // 2)
+
+        fit_font_size(self.lbl_error, win_w * 0.85, dp(16))
+        self.lbl_error.text_size = (None, None)
+        self.lbl_error.size = self.lbl_error.texture_size
+        self.lbl_error.pos = (win_w // 2 - self.lbl_error.width // 2, center_below_y - self.lbl_error.height // 2)
+
+        apply_adaptive_fonts(self, CELL_HEIGHT, self.keyboard_keys[0].height if self.keyboard_keys else dp(50))
+
+    def _layout_keyboard(self, win_w, win_h, bottom_reserved, top_reserved, cell_height):
+        GRID_GAP = dp(6)
+        CELL_SPACING_Y = 5
+        total_blanks_height_kb = (6 * cell_height) + (5 * CELL_SPACING_Y)
+        virtual_bottom_line = (win_h - top_reserved) - total_blanks_height_kb
+        keyboard_top_y = virtual_bottom_line - GRID_GAP
+        KEY_SPACING_X = 4
+
+        avail_w = win_w - 16 - 44
+        KEY_WIDTH = avail_w / 12
+        KEY_SPACING_Y = 4
+        avail_h = keyboard_top_y - bottom_reserved - (3 * KEY_SPACING_Y)
+        KEY_HEIGHT = avail_h / 4
+
+        row_heights = [
+            bottom_reserved,
+            bottom_reserved + (KEY_HEIGHT + KEY_SPACING_Y),
+            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
+            bottom_reserved + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
+        ]
+
+        for key in self.keyboard_keys:
+            key.size = (KEY_WIDTH, KEY_HEIGHT)
+
+        line_to_height_idx = {0: 2, 1: 1, 2: 0}
+        for i, line_keys in enumerate(self.letter_buttons):
+            h_idx = line_to_height_idx[i]
+            total_w = len(line_keys) * KEY_WIDTH + (len(line_keys) - 1) * KEY_SPACING_X
+            start_l_x = (win_w - total_w) / 2
+            for idx, key in enumerate(line_keys):
+                key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
+                key.update_canvas()
+
+        SYS_SPACING = 6
+        avail_sys_w = win_w - 16 - SYS_SPACING
+        SYS_WIDTH = avail_sys_w / 2
+        start_sys_x = 8
+
+        for btn in self.system_buttons:
+            btn.size = (SYS_WIDTH, KEY_HEIGHT)
+
+        self.btn_erase.pos = (start_sys_x, row_heights[3])
+        self.btn_erase.update_canvas()
+
+        self.btn_enter.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights[3])
+        self.btn_enter.update_canvas()
+
+        return row_heights[3] + KEY_HEIGHT
+
+    def press_letter_key(self, instance):
+        self.lbl_error.text = ""
+        letter = instance.text
+
+        if len(self.current_word) < SEED_LENGTH:
+            cell_idx = len(self.current_word)
+            if cell_idx < len(self.cells):
+                self.cells[cell_idx].text = letter
+                self.current_word += letter
+
+    def press_erase_key(self, instance):
+        self.lbl_error.text = ""
+        if len(self.current_word) > 0:
+            cell_idx = len(self.current_word) - 1
+            if cell_idx < len(self.cells):
+                self.cells[cell_idx].text = ""
+                self.current_word = self.current_word[:-1]
+
+    def press_enter_key(self, instance):
+        if len(self.current_word) != SEED_LENGTH:
+            self.lbl_error.text = "Введите 6 букв!"
+            self.reposition_elements(None, None)
+            return
+
+        entered_seed = self.current_word.upper()
+        found_word = decode_seed_to_word(entered_seed)
+
+        if found_word is None:
+            self.lbl_error.text = "Неверно введёный сид."
+            self.reposition_elements(None, None)
+            return
+
+        self.lbl_error.text = ""
+        self._send_to_two_player_screen(found_word)
+
+    def _send_to_two_player_screen(self, secret_word):
+        tp_screen = self.manager.get_screen('two_player_game')
+        tp_screen.reset_game()
+        tp_screen.secret_word = secret_word
+        tp_screen.stage = "playing"
+        tp_screen.current_word = ""
+        tp_screen.current_attempt = 0
+        tp_screen.lbl_title.text = ""
+        tp_screen.lbl_subtitle.text = ""
+        tp_screen.lbl_error.text = ""
+
+        for cell in tp_screen.cells:
+            cell.text = ""
+
+        tp_screen.reposition_elements(None, None)
+
+        self.reset_game()
+        self.manager.current = 'two_player_game'
+
+    def press_exit_key(self, instance):
+        self.reset_game()
+        self.manager.current = 'seed_generation'
+
+    def reset_game(self):
+        self.current_word = ""
+        self.lbl_error.text = ""
+
+        for cell in self.cells:
+            cell.text = ""
+            cell.base_color = color_blank
+            cell.color = color_text
+            cell.update_canvas()
+
+        for key_btn in self.keyboard_keys:
+            key_btn.base_color = color_key
+            key_btn.color = color_text
+            key_btn.cell_status = "blank"
+            key_btn.update_canvas()
+
+        for btn in self.system_buttons:
+            btn.base_color = color_key
+            btn.color = color_text
+            btn.update_canvas()
+
+        self.reposition_elements(None, None)
 
 class HowToPlayScreen(Screen):
     def __init__(self, **kwargs):
@@ -3879,6 +4569,8 @@ class MobileApp(App):
         sm.add_widget(OnePlayerGameScreen(name='one_player_game'))
         sm.add_widget(TwoPlayerGameScreen(name='two_player_game'))
         sm.add_widget(SeedGenerationScreen(name='seed_generation'))
+        sm.add_widget(SeedCreateScreen(name='seed_create'))
+        sm.add_widget(SeedEnterScreen(name='seed_enter'))
         return sm
 
 def start_mobile_game(words_list, player_stats, save_function):
