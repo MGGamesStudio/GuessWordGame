@@ -226,15 +226,35 @@ def choose_theme(theme):
 
     redraw_all_screens()
 
+_SCREEN_FACTORIES = {
+    'main': lambda: MainScreen(name='main'),
+    'menu': lambda: MenuScreen(name='menu'),
+    'play': lambda: PlayScreen(name='play'),
+    'options': lambda: OptionsScreen(name='options'),
+    'about': lambda: AboutScreen(name='about'),
+    'license': lambda: TextDocumentScreen(name='license', title_text="Лицензия", back_target='about', source_file="LICENSE.txt"),
+    'third_party': lambda: TextDocumentScreen(name='third_party', title_text="Сторонние компоненты", back_target='about', source_file="THIRD-PARTY NOTICES.txt"),
+    'about_game': lambda: TextDocumentScreen(name='about_game', title_text="О игре", back_target='about', source_file="README.txt"),
+    'special_thanks': lambda: TextDocumentScreen(name='special_thanks', title_text="Особая благодарность", back_target='about', source_file="SPECIAL-THANKS.txt"),
+    'how_to_play': lambda: HowToPlayScreen(name='how_to_play'),
+    'achievements': lambda: AchievementsScreen(name='achievements'),
+    'customization': lambda: CustomizationScreen(name='customization'),
+    'quests': lambda: QuestsScreen(name='quests'),
+    'one_player_game': lambda: OnePlayerGameScreen(name='one_player_game'),
+    'two_player_game': lambda: TwoPlayerGameScreen(name='two_player_game'),
+    'seed_generation': lambda: SeedGenerationScreen(name='seed_generation'),
+}
+
+_pending_screen_rebuild_event = None
+
 def redraw_all_screens():
-    from kivy.uix.screenmanager import NoTransition
-    from kivy.graphics import Color
+    global _pending_screen_rebuild_event
     from kivy.core.window import Window
-    
+
     app = App.get_running_app()
-    if not app or not app.root: 
+    if not app or not app.root:
         return
-        
+
     sm = app.root
 
     Window.clearcolor = color_bg
@@ -248,6 +268,43 @@ def redraw_all_screens():
             for instr in sm.canvas.children:
                 if instr.__class__.__name__ == 'Color':
                     instr.rgba = color_bg
+
+    if _pending_screen_rebuild_event is not None:
+        _pending_screen_rebuild_event.cancel()
+        _pending_screen_rebuild_event = None
+
+    current_name = sm.current
+    current_screen = sm.get_screen(current_name) if current_name else None
+
+    if current_screen is None or not hasattr(current_screen, 'apply_theme_instant'):
+        _redraw_all_screens_full_rebuild(sm)
+        return
+
+    current_screen.apply_theme_instant()
+    pending_names = [name for name in _SCREEN_FACTORIES if name != current_name and sm.has_screen(name)]
+
+    def rebuild_chunk(dt):
+        global _pending_screen_rebuild_event
+        BATCH_SIZE = 2
+        for _ in range(BATCH_SIZE):
+            if not pending_names:
+                _pending_screen_rebuild_event = None
+                return False
+            name = pending_names.pop(0)
+            factory = _SCREEN_FACTORIES.get(name)
+            if factory is None or not sm.has_screen(name) or name == sm.current:
+                continue
+            old_scr = sm.get_screen(name)
+            new_scr = factory()
+            sm.remove_widget(old_scr)
+            sm.add_widget(new_scr)
+        return True
+
+    _pending_screen_rebuild_event = Clock.schedule_interval(rebuild_chunk, 0)
+
+def _redraw_all_screens_full_rebuild(sm):
+    from kivy.uix.screenmanager import NoTransition
+
     old_transition = sm.transition
     sm.transition = NoTransition()
     sm.current = 'main'
@@ -257,21 +314,8 @@ def redraw_all_screens():
         old_scr = sm.get_screen(screen_name)
         sm.remove_widget(old_scr)
 
-    sm.add_widget(MainScreen(name='main'))
-    sm.add_widget(MenuScreen(name='menu'))
-    sm.add_widget(PlayScreen(name='play'))
-    sm.add_widget(OptionsScreen(name='options'))
-    sm.add_widget(AboutScreen(name='about'))
-    sm.add_widget(TextDocumentScreen(name='license', title_text="Лицензия", back_target='about', source_file="LICENSE.txt"))
-    sm.add_widget(TextDocumentScreen(name='third_party', title_text="Сторонние компоненты", back_target='about', source_file="THIRD-PARTY NOTICES.txt"))
-    sm.add_widget(TextDocumentScreen(name='about_game', title_text="Об игре", back_target='about', source_file="README.txt"))
-    sm.add_widget(TextDocumentScreen(name='special_thanks', title_text="Особая благодарность", back_target='about', source_file="SPECIAL-THANKS.txt"))
-    sm.add_widget(HowToPlayScreen(name='how_to_play'))
-    sm.add_widget(AchievementsScreen(name='achievements'))
-    sm.add_widget(CustomizationScreen(name='customization'))
-    sm.add_widget(QuestsScreen(name='quests'))
-    sm.add_widget(OnePlayerGameScreen(name='one_player_game'))
-    sm.add_widget(TwoPlayerGameScreen(name='two_player_game'))
+    for name, factory in _SCREEN_FACTORIES.items():
+        sm.add_widget(factory())
 
     sm.current = 'customization'
     sm.transition = old_transition
@@ -626,6 +670,9 @@ class ThemeCard(ButtonBehavior, FloatLayout):
             self.kb_rects[index].pos = (kx, ky)
             self.kb_rects[index].size = (kb_size, kb_size)
 
+        self.update_indicators()
+
+    def update_indicators(self, *args):
         if self.is_active:
             circle_size = 16
             cx = self.x + self.width - circle_size - 15
@@ -792,6 +839,12 @@ class MenuScreen(Screen):
         self.reposition_elements()
         Clock.schedule_once(lambda dt: self.reposition_elements(), 0)
 
+    def on_pre_leave(self):
+        self.opacity = 0
+
+    def on_pre_enter(self):
+        self.opacity = 1
+
     def reposition_elements(self, *args):
         win_w, win_h = self.width, self.height
 
@@ -819,9 +872,6 @@ class MenuScreen(Screen):
             fit_font_size(btn, container_w - dp(36), btn_h * 0.4)
 
 class ToggleSwitch(ButtonBehavior, FloatLayout):
-    """Капсула с бегунком (кругом). Трек всегда цвета color_not_in_word,
-    а сам круг плавно анимируется между color_key (выкл) и color_bg (вкл)."""
-
     progress = NumericProperty(0.0)
 
     def __init__(self, active=False, on_toggle=None, **kwargs):
@@ -880,8 +930,6 @@ class ToggleSwitch(ButtonBehavior, FloatLayout):
             self.on_toggle_callback(active)
 
 class SettingToggleRow(FloatLayout):
-    """Строка списка настроек: текст слева + переключатель справа."""
-
     def __init__(self, text, active=False, on_toggle=None, **kwargs):
         kwargs.setdefault('size_hint', (1, None))
         super().__init__(**kwargs)
@@ -930,8 +978,6 @@ class SettingToggleRow(FloatLayout):
         self.switch.pos = (round(self.x + self.width - self.switch.width), round(self.y + (self.height - self.switch.height) / 2))
 
 class SettingLinkRow(ButtonBehavior, FloatLayout):
-    """Строка списка настроек: зелёный кликабельный текст-ссылка на другой экран."""
-
     def __init__(self, text, on_press_callback=None, **kwargs):
         kwargs.setdefault('size_hint', (1, None))
         super().__init__(**kwargs)
@@ -978,9 +1024,6 @@ class SettingLinkRow(ButtonBehavior, FloatLayout):
             self.on_press_callback()
 
 class SettingInfoRow(FloatLayout):
-    """Строка списка настроек: текст слева + информационное значение справа
-    (не кликабельно, вместо капсулы-переключателя)."""
-
     def __init__(self, text, value="", **kwargs):
         kwargs.setdefault('size_hint', (1, None))
         super().__init__(**kwargs)
@@ -1042,10 +1085,6 @@ class SettingInfoRow(FloatLayout):
         self.value_label.pos = (round(self.x + self.width - self.value_label.width), round(self.y + self.height - self.v_pad - self.value_label.height))
 
 class OptionsScreen(Screen):
-    # Список настроек. Чтобы добавить новую настройку, достаточно добавить
-    # сюда ещё один словарь — экран сам построит для него строку списка.
-    # type "toggle" -> переключатель, читает/пишет MOBILE_PLAYER_STATS["settings"][key]
-    # type "link"   -> зелёный кликабельный текст, переход на экран target
     settings_definitions = [
         {"type": "toggle", "key": "confirm_exit", "text": "Спрашивать повторно при выходе из игры", "default": False},
         {"type": "link", "text": "О программе", "target": "about"}
@@ -1146,7 +1185,7 @@ class AboutScreen(Screen):
         {"type": "link", "text": "Особая благодарность", "target": "special_thanks"},
         {"type": "link", "text": "Лицензия", "target": "license"},
         {"type": "link", "text": "Сторонние компоненты", "target": "third_party"},
-        {"type": "link", "text": "Об игре", "target": "about_game"}
+        {"type": "link", "text": "О игре", "target": "about_game"}
     ]
 
     def __init__(self, **kwargs):
@@ -1351,6 +1390,12 @@ class PlayScreen(Screen):
                 "description": "Игра вдвоём за одним устройством без монет, квестов и достижений.",
                 "description_color": color_correct,
                 "target_screen": "two_player_game",
+            },
+            {
+                "title": "Генерация сида",
+                "description": "Введите сид или создайте сид, чтобы друг смог поиграть на другом устройстве.",
+                "description_color": color_correct,
+                "target_screen": "seed_generation",
             },
         ]
 
@@ -1701,9 +1746,15 @@ class OnePlayerGameScreen(Screen):
                     if btn.cell_status == "correct": continue
                     if btn.cell_status == "in_word" and status != "correct": continue
                     
-                    if status == "correct": btn.base_color = color_correct
-                    elif status == "in_word": btn.base_color = color_in_word
-                    elif status == "not_in_word": btn.base_color = color_not_in_word
+                    if status == "correct":
+                        btn.base_color = color_correct
+                        btn.color = (1.0, 1.0, 1.0, 1.0)
+                    elif status == "in_word":
+                        btn.base_color = color_in_word
+                        btn.color = (0.0, 0.0, 0.0, 1.0)
+                    elif status == "not_in_word":
+                        btn.base_color = color_not_in_word
+                        btn.color = (1.0, 1.0, 1.0, 1.0)
                     btn.cell_status = status
                     btn.update_canvas()
 
@@ -2157,85 +2208,101 @@ class TwoPlayerGameScreen(Screen):
                 self.current_word = self.current_word[:-1]
 
     def press_enter_key(self, instance):
-        if len(self.current_word) == 5:
-            check_word = self.current_word.upper()
-
-            if 'MOBILE_ALL_WORDS' in globals() and MOBILE_ALL_WORDS and check_word in MOBILE_ALL_WORDS:
-
-                if self.stage == "setup":
-                    self.secret_word = check_word
-                    self.stage = "playing"
-                    self.current_word = ""
-
-                    self.lbl_title.text = ""
-                    self.lbl_subtitle.text = ""
-                    
-                    for cell in self.cells:
-                        cell.text = ""
-
-                    self.reposition_elements(None, None)
-                    return
-
-                row_statuses = ["not_in_word"] * 5
-                secret_chars = list(self.secret_word)
-                guess_chars = list(check_word)
-                
-                for i in range(5):
-                    if guess_chars[i] == secret_chars[i]:
-                        row_statuses[i] = "correct"
-                        secret_chars[i] = None
-                        guess_chars[i] = b" "
-                        
-                for i in range(5):
-                    if guess_chars[i] != b" " and guess_chars[i] in secret_chars:
-                        row_statuses[i] = "in_word"
-                        idx = secret_chars.index(guess_chars[i])
-                        secret_chars[idx] = None
-                
-                start_idx = self.current_attempt * 5
-                for i in range(5):
-                    cell_idx = start_idx + i
-                    if cell_idx < len(self.cells):
-                        self.cells[cell_idx].change_type(row_statuses[i])
-
-                for i in range(5):
-                    char_in_guess = self.current_word[i].upper()
-                    status_for_char = row_statuses[i]
-                    for key_btn in self.keyboard_keys:
-                        if key_btn.text == char_in_guess:
-                            if key_btn.cell_status == "correct": continue
-                            elif key_btn.cell_status == "in_word" and status_for_char != "correct": continue
-                            if status_for_char == "correct": key_btn.base_color = color_correct
-                            elif status_for_char == "in_word": key_btn.base_color = color_in_word
-                            elif status_for_char == "not_in_word": key_btn.base_color = color_not_in_word
-                            key_btn.cell_status = status_for_char
-                            key_btn.update_canvas()
-
-                if check_word == self.secret_word:
-                    self.show_game_popup(
-                        "ПОБЕДА!", 
-                        f"Второй игрок угадал слово: {self.secret_word}",
-                        color_correct,
-                        is_end_game=True
-                    )
-                    return
-
-                self.current_attempt += 1
-                self.current_word = ""
-                
-                if self.current_attempt >= 6:
-                    self.show_game_popup(
-                        "ИГРА ОКОНЧЕНА", 
-                        f"Загаданное слово было: {self.secret_word}",
-                        color_not_in_word,
-                        is_end_game=True
-                    )
+        if len(self.current_word) != 5:
+            if self.stage == "setup":
+                self.lbl_error.color = color_in_word
+                self.lbl_error.text = "Слово не из 5 букв!"
+                self.reposition_elements(None, None)
             else:
-                if self.stage == "setup":
-                    self.lbl_error.text = "Такого слова нет в словаре!"
-                    self.reposition_elements(None, None)
-                else:
-                    self.show_game_popup("Такого слова нет в словаре", "или введенное слово состоит не из 5 букв.", color_text, is_end_game=False)
+                self.show_game_popup("Слово не из 5 букв", "Заполните все 5 ячеек перед вводом.", color_text, is_end_game=False)
+            return
+
+        check_word = self.current_word.upper()
+
+        if 'MOBILE_ALL_WORDS' in globals() and MOBILE_ALL_WORDS and check_word in MOBILE_ALL_WORDS:
+
+            if self.stage == "setup":
+                self.secret_word = check_word
+                self.stage = "playing"
+                self.current_word = ""
+
+                self.lbl_title.text = ""
+                self.lbl_subtitle.text = ""
+                self.lbl_error.text = ""
+
+                for cell in self.cells:
+                    cell.text = ""
+
+                self.reposition_elements(None, None)
+                return
+
+            row_statuses = ["not_in_word"] * 5
+            secret_chars = list(self.secret_word)
+            guess_chars = list(check_word)
+
+            for i in range(5):
+                if guess_chars[i] == secret_chars[i]:
+                    row_statuses[i] = "correct"
+                    secret_chars[i] = None
+                    guess_chars[i] = b" "
+
+            for i in range(5):
+                if guess_chars[i] != b" " and guess_chars[i] in secret_chars:
+                    row_statuses[i] = "in_word"
+                    idx = secret_chars.index(guess_chars[i])
+                    secret_chars[idx] = None
+
+            start_idx = self.current_attempt * 5
+            for i in range(5):
+                cell_idx = start_idx + i
+                if cell_idx < len(self.cells):
+                    self.cells[cell_idx].change_type(row_statuses[i])
+
+            for i in range(5):
+                char_in_guess = self.current_word[i].upper()
+                status_for_char = row_statuses[i]
+                for key_btn in self.keyboard_keys:
+                    if key_btn.text == char_in_guess:
+                        if key_btn.cell_status == "correct": continue
+                        elif key_btn.cell_status == "in_word" and status_for_char != "correct": continue
+                        if status_for_char == "correct":
+                            key_btn.base_color = color_correct
+                            key_btn.color = (1.0, 1.0, 1.0, 1.0)
+                        elif status_for_char == "in_word":
+                            key_btn.base_color = color_in_word
+                            key_btn.color = (0.0, 0.0, 0.0, 1.0)
+                        elif status_for_char == "not_in_word":
+                            key_btn.base_color = color_not_in_word
+                            key_btn.color = (1.0, 1.0, 1.0, 1.0)
+                        key_btn.cell_status = status_for_char
+                        key_btn.update_canvas()
+
+            if check_word == self.secret_word:
+                self.show_game_popup(
+                    "ПОБЕДА!", 
+                    f"Второй игрок угадал слово: {self.secret_word}",
+                    color_correct,
+                    is_end_game=True
+                )
+                return
+
+            self.current_attempt += 1
+            self.current_word = ""
+
+            if self.current_attempt >= 6:
+                self.show_game_popup(
+                    "ИГРА ОКОНЧЕНА", 
+                    f"Загаданное слово было: {self.secret_word}",
+                    color_not_in_word,
+                    is_end_game=True
+                )
+        else:
+            if self.stage == "setup":
+                self.lbl_error.color = color_in_word
+                self.lbl_error.text = "Такого слова нет в словаре!"
+                self.reposition_elements(None, None)
+            else:
+                self.show_game_popup("Такого слова нет в словаре", "Введите другое слово.", color_text, is_end_game=False)
 
     def press_exit_key(self, instance):
         self.reset_game()
@@ -2276,19 +2343,24 @@ class TwoPlayerGameScreen(Screen):
         safe_screen_side = min(win_w, win_h)
 
         popup_height = win_h * 0.30
-        
-        view = ModalView(size_hint=(0.8, None), height=popup_height, auto_dismiss=True, background='')
-        
-        with view.canvas.before:
-            Color(*color_bg)
-            self.popup_rect = RoundedRectangle(pos=view.pos, size=view.size, radius=[(0, 0), (0, 0), (0, 0), (0, 0)])
-            
-        def update_popup_bg(inst, value):
-            self.popup_rect.pos = inst.pos
-            self.popup_rect.size = inst.size
-        view.bind(pos=update_popup_bg, size=update_popup_bg)
+
+        from kivy.graphics.texture import Texture
+        transparent_texture = Texture.create(size=(1, 1), colorfmt='rgba')
+        transparent_texture.blit_buffer(b'\x00\x00\x00\x00', colorfmt='rgba', bufferfmt='ubyte')
+
+        view = ModalView(size_hint=(0.8, None), height=popup_height, auto_dismiss=True)
+        view.background_image = transparent_texture
+        view.overlay_color = (0, 0, 0, 0.5)
 
         box = FloatLayout()
+        with box.canvas.before:
+            Color(*color_bg)
+            self.popup_rect = RoundedRectangle(pos=view.pos, size=view.size, radius=[12])
+
+        def update_popup_bg(inst, value):
+            self.popup_rect.pos = view.pos
+            self.popup_rect.size = view.size
+        view.bind(pos=update_popup_bg, size=update_popup_bg)
 
         title_font_size = safe_screen_side * 0.06
         msg_font_size = safe_screen_side * 0.04
@@ -2325,6 +2397,69 @@ class TwoPlayerGameScreen(Screen):
             view.bind(on_dismiss=lambda x: self.press_exit_key(None))
             
         view.open()
+
+class SeedGenerationScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = FloatLayout()
+
+        with self.canvas.before:
+            Color(*color_bg)
+            self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
+
+        self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(dp(92), dp(48)))
+        self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'play'))
+        self.layout.add_widget(self.btn_back)
+
+        self.title_label = Label(
+            text="ГЕНЕРАЦИЯ СИДА",
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            bold=True,
+            color=color_text,
+            size_hint=(None, None),
+            halign='center',
+            valign='middle'
+        )
+        self.layout.add_widget(self.title_label)
+
+        self.lbl_stub = Label(
+            text="Этот режим пока в разработке.\nСовсем скоро здесь можно будет ввести\nили сгенерировать сид, чтобы играть\nс другом на разных устройствах.",
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            bold=True,
+            color=color_not_in_word,
+            size_hint=(None, None),
+            halign='center',
+            valign='middle'
+        )
+        self.layout.add_widget(self.lbl_stub)
+
+        self.add_widget(self.layout)
+
+        self.bind(size=self.reposition_elements)
+        self.reposition_elements(None, None)
+        Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
+
+    def reposition_elements(self, instance, size):
+        win_w, win_h = self.width, self.height
+        self.bg_rect.size = (win_w, win_h)
+        self.bg_rect.pos = (0, 0)
+
+        back_w, back_h = dp(92), dp(48)
+        self.btn_back.size = (back_w, back_h)
+        self.btn_back.pos = (win_w - back_w - dp(14), win_h - TOP_SAFE_MARGIN - back_h)
+        fit_font_size(self.btn_back, back_w - dp(18), back_h * 0.42)
+
+        fit_font_size(self.title_label, win_w * 0.85, dp(26))
+        self.title_label.text_size = (None, None)
+        self.title_label.size = self.title_label.texture_size
+        self.title_label.center_x = win_w / 2
+        self.title_label.top = win_h - TOP_SAFE_MARGIN - back_h - dp(24)
+
+        fit_font_size_wrapped(self.lbl_stub, win_w * 0.8, win_h * 0.4, dp(17))
+        self.lbl_stub.text_size = (win_w * 0.8, None)
+        self.lbl_stub.size = self.lbl_stub.texture_size
+        self.lbl_stub.center_x = win_w / 2
+        self.lbl_stub.center_y = win_h / 2
 
 class HowToPlayScreen(Screen):
     def __init__(self, **kwargs):
@@ -2533,6 +2668,8 @@ class AchievementsScreen(Screen):
         if hasattr(self, 'top_overlay'):
             self.layout.remove_widget(self.scroll_view)
             self.layout.add_widget(self.scroll_view, index=len(self.layout.children))
+        self._ach_last_signature = None
+        self._ach_build_event = None
 
         self.reposition_elements(None, None)
         Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
@@ -2694,6 +2831,8 @@ class AchievementsScreen(Screen):
             size_hint=(None, None), width=text_w, text_size=(text_w, None),
             halign='left', valign='top'
         )
+        name_lbl.texture_update()
+        name_lbl.height = name_lbl.texture_size[1]
         name_lbl.bind(texture_size=lambda inst, sz: setattr(inst, 'height', sz[1]))
         desc_lbl = Label(
             text=description, font_name=font_path,
@@ -2701,6 +2840,8 @@ class AchievementsScreen(Screen):
             size_hint=(None, None), width=text_w, text_size=(text_w, None),
             halign='left', valign='top'
         )
+        desc_lbl.texture_update()
+        desc_lbl.height = desc_lbl.texture_size[1]
         desc_lbl.bind(texture_size=lambda inst, sz: setattr(inst, 'height', sz[1]))
         info_h = dp(30)
         info_line = FloatLayout(size_hint=(1, None), height=info_h)
@@ -2752,29 +2893,45 @@ class AchievementsScreen(Screen):
         desc_lbl.bind(texture_size=sync_row_height)
         name_lbl.bind(texture_size=sync_row_height)
         row.bind(size=sync_row_height)
+        sync_row_height()
 
         row.add_widget(text_group)
         return row
     
     def build_achievements_list(self, launcher_achievements):
+        if self._ach_build_event is not None:
+            self._ach_build_event.cancel()
+            self._ach_build_event = None
+
         self.ach_list_layout.clear_widgets()
-        
+
         if not launcher_achievements:
             return
 
         all_keys = list(launcher_achievements.keys())
         sorted_keys = sorted(all_keys, key=lambda k: launcher_achievements[k].get("got", False), reverse=True)
-        
-        for ach_key in sorted_keys:
-            ach_data = launcher_achievements[ach_key]
-            
-            name = ach_data.get("name", "Секретное достижение")
-            description = ach_data.get("description", "")
-            got = ach_data.get("got", False)
-            date_str = ach_data.get("date", "")
+        remaining = list(sorted_keys)
 
-            row_widget = self.create_achievement_row(name, description, ach_data, got, date_str)
-            self.ach_list_layout.add_widget(row_widget)
+        def build_chunk(dt):
+            ROWS_PER_FRAME = 4
+            for _ in range(ROWS_PER_FRAME):
+                if not remaining:
+                    self._ach_build_event = None
+                    return False
+                ach_key = remaining.pop(0)
+                ach_data = launcher_achievements[ach_key]
+
+                name = ach_data.get("name", "Секретное достижение")
+                description = ach_data.get("description", "")
+                got = ach_data.get("got", False)
+                date_str = ach_data.get("date", "")
+
+                row_widget = self.create_achievement_row(name, description, ach_data, got, date_str)
+                self.ach_list_layout.add_widget(row_widget)
+            return True
+
+        if build_chunk(0):
+            self._ach_build_event = Clock.schedule_interval(build_chunk, 0)
 
     def refresh_stats_and_achievements(self):
         stats = MOBILE_PLAYER_STATS if ('MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS) else {}
@@ -2788,6 +2945,15 @@ class AchievementsScreen(Screen):
         
         got_count = sum(1 for ach in launcher_ach.values() if ach.get("got", False))
         ach_ratio = f"{got_count}/{len(launcher_ach)}" if launcher_ach else "0/16"
+        signature = (
+            coins, wins, losses, streak, quests, ach_ratio,
+            tuple(sorted((k, v.get("got", False), v.get("date", "")) for k, v in launcher_ach.items()))
+        )
+        if (signature == self._ach_last_signature
+                and self.ach_list_layout.children
+                and self._ach_build_event is None):
+            return
+        self._ach_last_signature = signature
 
         self.stats_row1.clear_widgets()
         self.stats_row2.clear_widgets()
@@ -2820,10 +2986,10 @@ class CustomizationScreen(Screen):
         self.layout = FloatLayout()
 
         with self.canvas.before:
-            Color(*color_bg)
+            self.bg_color_instr = Color(*color_bg)
             self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
 
-            Color(*color_bg)
+            self.pad_color_instr = Color(*color_bg)
             self.top_pad_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[0])
             self.bottom_pad_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[0])
 
@@ -2946,6 +3112,38 @@ class CustomizationScreen(Screen):
     def on_enter(self):
         self.refresh_coins_display()
 
+    def apply_theme_instant(self):
+        self.bg_color_instr.rgba = color_bg
+        self.pad_color_instr.rgba = color_bg
+        self.top_coins_color.rgba = color_key
+        self.top_theme_color.rgba = color_key
+        self.top_status_color.rgba = color_key
+
+        self.lbl_title.color = color_text
+        self.lbl_coins_title.color = color_text
+        self.lbl_theme_title.color = color_text
+        self.lbl_status_title.color = color_text
+        self.lbl_coins_val.color = color_in_word
+        self.lbl_theme_val.color = color_text
+
+        self.btn_back.base_color = color_key
+        self.btn_back.color = color_text
+        self.btn_back.update_canvas()
+
+        self.btn_action.base_color = color_key
+        self.btn_action.color = color_text
+        self.btn_action.disabled_color = color_text
+        self.btn_action.update_canvas()
+
+        self.btn_sell.base_color = color_key
+        self.btn_sell.color = color_text
+        self.btn_sell.disabled_color = color_not_in_word
+        self.btn_sell.update_canvas()
+
+        for card in self.theme_cards.values():
+            card.update_indicators()
+        self.select_theme(self.selected_theme_id)
+
     def refresh_coins_display(self):
         global MOBILE_PLAYER_STATS
         if 'MOBILE_PLAYER_STATS' in globals() and isinstance(MOBILE_PLAYER_STATS, dict) and 'player_coins' in MOBILE_PLAYER_STATS:
@@ -3049,9 +3247,11 @@ class CustomizationScreen(Screen):
         self.selected_theme_id = theme_id
 
         for t_id, card in self.theme_cards.items():
-            card.is_selected = (t_id == theme_id)
-            card.update_graphics(card, card.size)
-            
+            new_selected = (t_id == theme_id)
+            if card.is_selected != new_selected:
+                card.is_selected = new_selected
+                card.update_indicators()
+
         theme_data = color_themes[theme_id]
         self.lbl_theme_val.text = theme_data.get("color_name", theme_id.capitalize())
 
@@ -3107,10 +3307,11 @@ class CustomizationScreen(Screen):
                 return  
 
             for t_id, card in self.theme_cards.items():
-                card.is_active = False
-                card.update_graphics(card, card.size)
+                if card.is_active:
+                    card.is_active = False
+                    card.update_indicators()
             self.theme_cards[theme_id].is_active = True
-            self.theme_cards[theme_id].update_graphics(self.theme_cards[theme_id], self.theme_cards[theme_id].size)
+            self.theme_cards[theme_id].update_indicators()
 
             choose_theme(theme_id)
 
@@ -3140,11 +3341,12 @@ class CustomizationScreen(Screen):
                 self.lbl_coins_val.text = str(MOBILE_PLAYER_STATS['player_coins'])
                 
                 for t_id, card in self.theme_cards.items():
-                    card.is_active = False
-                    card.update_graphics(card, card.size)
-                    
+                    if card.is_active:
+                        card.is_active = False
+                        card.update_indicators()
+
                 self.theme_cards[theme_id].is_active = True
-                self.theme_cards[theme_id].update_graphics(self.theme_cards[theme_id], self.theme_cards[theme_id].size)
+                self.theme_cards[theme_id].update_indicators()
 
                 choose_theme(theme_id)
 
@@ -3184,9 +3386,9 @@ class CustomizationScreen(Screen):
 
         if self.theme_cards[theme_id].is_active:
             self.theme_cards[theme_id].is_active = False
-            self.theme_cards[theme_id].update_graphics(self.theme_cards[theme_id], self.theme_cards[theme_id].size)
+            self.theme_cards[theme_id].update_indicators()
             self.theme_cards['classic'].is_active = True
-            self.theme_cards['classic'].update_graphics(self.theme_cards['classic'], self.theme_cards['classic'].size)
+            self.theme_cards['classic'].update_indicators()
 
             choose_theme('classic')
 
@@ -3273,6 +3475,9 @@ class QuestsScreen(Screen):
             self.layout.remove_widget(self.scroll_view)
             self.layout.add_widget(self.scroll_view, index=len(self.layout.children))
 
+        self._quests_last_signature = None
+        self._quests_build_event = None
+
         self.reposition_elements(None, None)
         Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
 
@@ -3290,6 +3495,15 @@ class QuestsScreen(Screen):
         
         done_count = sum(1 for q in launcher_quests.values() if q.get("done", False))
         quests_ratio = f"{done_count}/{len(launcher_quests)}" if launcher_quests else "0/5"
+        signature = (
+            coins, wins, losses, streak, quests_ratio,
+            tuple(sorted((k, v.get("done", False), v.get("progress", 0)) for k, v in launcher_quests.items()))
+        )
+        if (signature == self._quests_last_signature
+                and self.quests_list_layout.children
+                and self._quests_build_event is None):
+            return
+        self._quests_last_signature = signature
 
         self.stats_row1.clear_widgets()
         self.stats_row2.clear_widgets()
@@ -3479,6 +3693,8 @@ class QuestsScreen(Screen):
             size_hint=(None, None), width=text_w, text_size=(text_w, None),
             halign='left', valign='top'
         )
+        name_lbl.texture_update()
+        desc_lbl.texture_update()
         info_h = dp(30)
         info_line = FloatLayout(size_hint=(1, None), height=info_h)
         seg_w = max((self.width - dp(24)) / 3, dp(60))
@@ -3533,31 +3749,46 @@ class QuestsScreen(Screen):
         name_lbl.bind(texture_size=sync_row_height)
         desc_lbl.bind(texture_size=sync_row_height)
         row.bind(size=sync_row_height)
+        sync_row_height()
 
         row.add_widget(text_group)
         return row
 
     def build_quests_list(self, launcher_quests):
+        if self._quests_build_event is not None:
+            self._quests_build_event.cancel()
+            self._quests_build_event = None
+
         self.quests_list_layout.clear_widgets()
-        
+
         if not launcher_quests:
             return
 
         all_keys = list(launcher_quests.keys())
         sorted_keys = sorted(all_keys, key=lambda k: launcher_quests[k].get("done", False), reverse=False)
-        
-        for q_key in sorted_keys:
-            q_data = launcher_quests[q_key]
-            quest_row_widget = self.create_quest_row(
-                q_data.get("name", "Секретное задание"),
-                q_data.get("description", ""),
-                q_data.get("progress", 0),
-                q_data.get("goal", 1),
-                q_data.get("reward", 50),
-                q_data.get("done", False),
-                q_data.get("type", "common")
-            )
-            self.quests_list_layout.add_widget(quest_row_widget)
+        remaining = list(sorted_keys)
+
+        def build_chunk(dt):
+            ROWS_PER_FRAME = 4
+            for _ in range(ROWS_PER_FRAME):
+                if not remaining:
+                    self._quests_build_event = None
+                    return False
+                q_key = remaining.pop(0)
+                q_data = launcher_quests[q_key]
+                quest_row_widget = self.create_quest_row(
+                    q_data.get("name", "Секретное задание"),
+                    q_data.get("description", ""),
+                    q_data.get("progress", 0),
+                    q_data.get("goal", 1),
+                    q_data.get("reward", 50),
+                    q_data.get("done", False),
+                    q_data.get("type", "common")
+                )
+                self.quests_list_layout.add_widget(quest_row_widget)
+            return True
+        if build_chunk(0):
+            self._quests_build_event = Clock.schedule_interval(build_chunk, 0)
 
     def update_daily_quests_mobile(self):
         global MOBILE_PLAYER_STATS, MOBILE_QUESTS
@@ -3639,7 +3870,7 @@ class MobileApp(App):
         sm.add_widget(AboutScreen(name='about'))
         sm.add_widget(TextDocumentScreen(name='license', title_text="Лицензия", back_target='about', source_file="LICENSE.txt"))
         sm.add_widget(TextDocumentScreen(name='third_party', title_text="Сторонние компоненты", back_target='about', source_file="THIRD-PARTY NOTICES.txt"))
-        sm.add_widget(TextDocumentScreen(name='about_game', title_text="Об игре", back_target='about', source_file="README.txt"))
+        sm.add_widget(TextDocumentScreen(name='about_game', title_text="О игре", back_target='about', source_file="README.txt"))
         sm.add_widget(TextDocumentScreen(name='special_thanks', title_text="Особая благодарность", back_target='about', source_file="SPECIAL-THANKS.txt"))
         sm.add_widget(HowToPlayScreen(name='how_to_play'))
         sm.add_widget(AchievementsScreen(name='achievements'))
@@ -3647,6 +3878,7 @@ class MobileApp(App):
         sm.add_widget(QuestsScreen(name='quests'))
         sm.add_widget(OnePlayerGameScreen(name='one_player_game'))
         sm.add_widget(TwoPlayerGameScreen(name='two_player_game'))
+        sm.add_widget(SeedGenerationScreen(name='seed_generation'))
         return sm
 
 def start_mobile_game(words_list, player_stats, save_function):
