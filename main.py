@@ -265,6 +265,7 @@ def redraw_all_screens():
     sm.add_widget(TextDocumentScreen(name='license', title_text="Лицензия", back_target='about', source_file="LICENSE.txt"))
     sm.add_widget(TextDocumentScreen(name='third_party', title_text="Сторонние компоненты", back_target='about', source_file="THIRD-PARTY NOTICES.txt"))
     sm.add_widget(TextDocumentScreen(name='about_game', title_text="Об игре", back_target='about', source_file="README.txt"))
+    sm.add_widget(TextDocumentScreen(name='special_thanks', title_text="Особая благодарность", back_target='about', source_file="SPECIAL-THANKS.txt"))
     sm.add_widget(HowToPlayScreen(name='how_to_play'))
     sm.add_widget(AchievementsScreen(name='achievements'))
     sm.add_widget(CustomizationScreen(name='customization'))
@@ -1139,17 +1140,13 @@ class OptionsScreen(Screen):
         self.settings_list_layout.width = scroll_w
 
 class AboutScreen(Screen):
-    # Список пунктов экрана "О программе". Чтобы добавить новый пункт,
-    # достаточно добавить сюда ещё один словарь — экран сам построит для
-    # него строку списка.
-    # type "info" -> статичная строка текст+значение (вместо капсулы-переключателя)
-    # type "link" -> зелёный кликабельный текст, переход на экран target
     about_definitions = [
         {"type": "info", "text": "Версия игры", "value": "v.1.1.0"},
         {"type": "info", "text": "Автор", "value": "MGGamesStudio"},
+        {"type": "link", "text": "Особая благодарность", "target": "special_thanks"},
         {"type": "link", "text": "Лицензия", "target": "license"},
         {"type": "link", "text": "Сторонние компоненты", "target": "third_party"},
-        {"type": "link", "text": "Об игре", "target": "about_game"},
+        {"type": "link", "text": "Об игре", "target": "about_game"}
     ]
 
     def __init__(self, **kwargs):
@@ -1225,12 +1222,6 @@ class AboutScreen(Screen):
         self.about_list_layout.width = scroll_w
 
 class TextDocumentScreen(Screen):
-    """Экран для показа большого текстового документа, загружаемого из
-    файла рядом с игрой (лицензия, сторонние компоненты, README и т.п.).
-    Текст листается свайпом, но без полосы прокрутки сбоку и без
-    пружинящего оттягивания за края — при достижении конца текста скролл
-    просто останавливается."""
-
     def __init__(self, title_text="", back_target="about", source_file=None, **kwargs):
         super().__init__(**kwargs)
         self.back_target = back_target
@@ -3649,6 +3640,7 @@ class MobileApp(App):
         sm.add_widget(TextDocumentScreen(name='license', title_text="Лицензия", back_target='about', source_file="LICENSE.txt"))
         sm.add_widget(TextDocumentScreen(name='third_party', title_text="Сторонние компоненты", back_target='about', source_file="THIRD-PARTY NOTICES.txt"))
         sm.add_widget(TextDocumentScreen(name='about_game', title_text="Об игре", back_target='about', source_file="README.txt"))
+        sm.add_widget(TextDocumentScreen(name='special_thanks', title_text="Особая благодарность", back_target='about', source_file="SPECIAL-THANKS.txt"))
         sm.add_widget(HowToPlayScreen(name='how_to_play'))
         sm.add_widget(AchievementsScreen(name='achievements'))
         sm.add_widget(CustomizationScreen(name='customization'))
