@@ -4671,6 +4671,8 @@ class LoadingScreen(Screen):
 
 class MobileApp(App):
     def build(self):
+        self.title = "Угадай Слово"
+        self.icon = "app_icon.png"
         self.words_list = MOBILE_ALL_WORDS
         saved_theme = MOBILE_PLAYER_STATS.get("active_theme_name", "classic")
         theme_translator = {"классика": "classic", "ночь": "night", "океан": "ocean", "закат": "sunset", "сакура": "sakura", "лес": "forest", "король": "royal", "лава": "lava", "изумруд": "emerald", "конфета": "candy", "неон": "neon", "золото": "gold"}
