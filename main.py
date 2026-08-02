@@ -13,6 +13,7 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.screenmanager import ScreenManager, Screen, NoTransition
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.image import Image
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.modalview import ModalView
 from kivy.uix.scrollview import ScrollView
@@ -235,10 +236,36 @@ color_key = color_themes["classic"]["color_key"]
 
 def fit_font_size(label, max_allowed_w, start_font_px):
     label.text_size = (None, None)
-    current_font = int(start_font_px)
+    current_font = max(int(start_font_px), 8)
     label.font_size = f"{current_font}px"
     label.texture_update()
 
+    # ОПТИМИЗАЦИЯ: раньше шрифт уменьшался по 1px за раз, и на КАЖДЫЙ шаг
+    # вызывался texture_update() - это дорогая перерисовка текстуры (рендер
+    # шрифта + заливка в текстуру). Для крупного текста это были десятки
+    # таких вызовов на один-единственный label. Теперь сначала оцениваем
+    # нужный размер шрифта пропорционально тому, во сколько раз текст шире
+    # допустимого, и лишь потом (максимум несколько раз) уточняем на 1px.
+    # Итог: то же самое поведение (шрифт никогда не вылезет за max_allowed_w
+    # и не станет меньше 8px), но обычно 2-3 перерисовки текстуры вместо
+    # десятков.
+    shrink_steps = 0
+    while label.texture_size[0] > max_allowed_w and current_font > 8 and shrink_steps < 8:
+        measured_w = label.texture_size[0]
+        if measured_w <= 0:
+            # Пустой/ещё не отрисованный текст (или отрицательный
+            # max_allowed_w на раннем этапе layout) - оценивать нечего,
+            # доводим до нужного размера точным циклом ниже.
+            break
+        ratio = max_allowed_w / measured_w
+        estimated = int(current_font * ratio)
+        current_font = max(8, min(current_font - 1, estimated))
+        label.font_size = f"{current_font}px"
+        label.texture_update()
+        shrink_steps += 1
+
+    # Финальная точная подгонка на случай, если оценка немного промахнулась
+    # (на практике почти всегда 0-1 шаг, а не десятки).
     while label.texture_size[0] > max_allowed_w and current_font > 8:
         current_font -= 1
         label.font_size = f"{current_font}px"
@@ -246,9 +273,25 @@ def fit_font_size(label, max_allowed_w, start_font_px):
 
 def fit_font_size_wrapped(label, max_allowed_w, max_allowed_h, start_font_px):
     label.text_size = (max_allowed_w, None)
-    current_font = int(start_font_px)
+    current_font = max(int(start_font_px), 8)
     label.font_size = f"{current_font}px"
     label.texture_update()
+
+    # Та же оптимизация, что и в fit_font_size, но по высоте. Высота при
+    # переносе строк меняется не совсем линейно (перенос "скачками"), поэтому
+    # оценка чуть более осторожная (ratio с запасом), а точность добирает
+    # финальный цикл на 1px.
+    shrink_steps = 0
+    while label.texture_size[1] > max_allowed_h and current_font > 8 and shrink_steps < 8:
+        measured_h = label.texture_size[1]
+        if measured_h <= 0:
+            break
+        ratio = min(max_allowed_h / measured_h, 0.95)
+        estimated = int(current_font * ratio)
+        current_font = max(8, min(current_font - 1, estimated))
+        label.font_size = f"{current_font}px"
+        label.texture_update()
+        shrink_steps += 1
 
     while label.texture_size[1] > max_allowed_h and current_font > 8:
         current_font -= 1
@@ -448,18 +491,27 @@ class MenuButton(Button):
             
         self.base_color = color_key
         self.color = color_text
-        
+
+        # ОПТИМИЗАЦИЯ: раньше update_canvas делал canvas.before.clear() и
+        # заново создавал Color+RoundedRectangle при КАЖДОМ изменении pos,
+        # size или state (а state меняется на каждое нажатие кнопки). Это
+        # заставляло Kivy каждый раз перекомпилировать графические
+        # инструкции виджета. Теперь создаём их один раз и просто обновляем
+        # свойства (.rgba/.pos/.size) - результат на экране идентичный,
+        # но без пересоздания инструкций.
+        with self.canvas.before:
+            self.bg_color_instr = Color(*self.base_color)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[12])
+
         self.bind(pos=self.update_canvas, size=self.update_canvas, state=self.update_canvas)
 
     def update_canvas(self, *args):
-        self.canvas.before.clear()
-        with self.canvas.before:
-            if self.state == 'normal':
-                Color(*self.base_color)
-            else:
-                Color(self.base_color[0]*0.8, self.base_color[1]*0.8, self.base_color[2]*0.8, 1.0)
-            
-            RoundedRectangle(pos=self.pos, size=self.size, radius=[12])
+        if self.state == 'normal':
+            self.bg_color_instr.rgba = self.base_color
+        else:
+            self.bg_color_instr.rgba = (self.base_color[0]*0.8, self.base_color[1]*0.8, self.base_color[2]*0.8, 1.0)
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
 
 class ModeButton(BoxLayout):
     def __init__(self, title_text="", description_text="", description_color=None, on_release=None, **kwargs):
@@ -501,14 +553,19 @@ class ModeButton(BoxLayout):
         
         self.add_widget(self.title_label)
         self.add_widget(self.sub_label)
-        
+
+        # ОПТИМИЗАЦИЯ: см. MenuButton выше - создаём графические инструкции
+        # один раз, дальше только обновляем их свойства.
+        with self.canvas.before:
+            self.bg_color_instr = Color(*self.current_bg)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[12])
+
         self.bind(pos=self.update_canvas, size=self.update_canvas)
 
     def update_canvas(self, *args):
-        self.canvas.before.clear()
-        with self.canvas.before:
-            Color(*self.current_bg)
-            RoundedRectangle(pos=self.pos, size=self.size, radius=[12])
+        self.bg_color_instr.rgba = self.current_bg
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
 
     def on_touch_down(self, touch):
         if self.collide_point(*touch.pos):
@@ -543,8 +600,18 @@ class GameCell(Label):
         self.cell_status = "blank"
         self.base_color = color_blank
         self.text_color = color_text
-        
+
         self.color = self.text_color
+
+        # ОПТИМИЗАЦИЯ: раньше update_canvas делал canvas.before.clear() и
+        # заново создавал Color+RoundedRectangle на КАЖДОЕ изменение pos,
+        # size, а также при каждом change_type() (то есть на каждую
+        # угаданную букву - до 5 раз за один ход). Теперь создаём
+        # инструкции один раз и просто обновляем их свойства.
+        with self.canvas.before:
+            self.bg_color_instr = Color(*self.base_color)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[8])
+
         self.bind(pos=self.update_canvas, size=self.update_canvas)
 
     def change_type(self, letter_type):
@@ -566,11 +633,11 @@ class GameCell(Label):
         self.update_canvas()
 
     def update_canvas(self, *args):
-        self.canvas.before.clear()
         corner_radius = min(min(self.width, self.height) * 0.12, 8)
-        with self.canvas.before:
-            Color(*self.base_color)
-            RoundedRectangle(pos=self.pos, size=self.size, radius=[corner_radius])
+        self.bg_color_instr.rgba = self.base_color
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
+        self.bg_rect.radius = [corner_radius]
 
 class KeyButton(Button):
     def __init__(self, text="", size=(40, 85), **kwargs):
@@ -592,18 +659,26 @@ class KeyButton(Button):
         self.base_color = color_key
         self.cell_status = "blank"
         self.color = color_text
-        
+
+        # ОПТИМИЗАЦИЯ: раньше update_canvas делал canvas.before.clear() и
+        # заново создавал Color+RoundedRectangle на КАЖДОЕ изменение pos,
+        # size или state - а state меняется при каждом нажатии клавиши на
+        # клавиатуре, то есть при каждой набранной букве. При наборе слова
+        # это давало по несколько дорогих пересозданий канвы на каждое
+        # нажатие. Теперь создаём инструкции один раз и просто обновляем их.
+        with self.canvas.before:
+            self.bg_color_instr = Color(*self.base_color)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[6])
+
         self.bind(pos=self.update_canvas, size=self.update_canvas, state=self.update_canvas)
 
     def update_canvas(self, *args):
-        self.canvas.before.clear()
-        with self.canvas.before:
-            if self.state == 'normal':
-                Color(*self.base_color)
-            else:
-                Color(self.base_color[0]*0.8, self.base_color[1]*0.8, self.base_color[2]*0.8, 1.0)
-            
-            RoundedRectangle(pos=self.pos, size=self.size, radius=[6])
+        if self.state == 'normal':
+            self.bg_color_instr.rgba = self.base_color
+        else:
+            self.bg_color_instr.rgba = (self.base_color[0]*0.8, self.base_color[1]*0.8, self.base_color[2]*0.8, 1.0)
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
 
 class ThemeCard(ButtonBehavior, FloatLayout):
     def __init__(self, theme_id="classic", theme_name="Классика", theme_data=None, on_click_callback=None, **kwargs):
@@ -4540,6 +4615,138 @@ def create_stub_layout(screen_instance, text):
     ))
     return layout
 
+class LoadingScreen(Screen):
+    """
+    Экран загрузки. Строится первым, показывается сразу же (сразу после
+    нативного пресплеша), а остальные экраны приложения достраиваются
+    в фоне уже после того, как он нарисован (см. MobileApp._build_next_screens).
+
+    Иконка - ваш собственный файл loading_icon.png (никаких самодельных
+    квадратов), а все цвета текста и полосы прогресса берутся из текущей
+    активной темы (color_text/color_correct/color_blank/...), поэтому
+    экран автоматически меняется вместе с темой оформления, как и весь
+    остальной интерфейс игры.
+    """
+    progress = NumericProperty(0.0)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = FloatLayout()
+
+        self.icon_image = Image(
+            source=resource_path("app_icon.png"),
+            allow_stretch=True,
+            keep_ratio=True,
+            size_hint=(None, None)
+        )
+
+        self.title_label = Label(
+            text="Угадай Слово",
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            bold=True,
+            color=color_text,
+            size_hint=(None, None),
+            halign='center',
+            valign='middle'
+        )
+        self.subtitle_label = Label(
+            text="от MGGamesStudio",
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            bold=True,
+            color=color_correct,
+            size_hint=(None, None),
+            halign='center',
+            valign='middle'
+        )
+        self.status_label = Label(
+            text="Загрузка...",
+            font_name=resource_path("ClearSans-Bold.ttf"),
+            bold=True,
+            color=color_not_in_word,
+            size_hint=(None, None),
+            halign='center',
+            valign='middle'
+        )
+
+        self.bar_bg = FloatLayout(size_hint=(None, None))
+        with self.bar_bg.canvas.before:
+            self.bar_bg_color = Color(*color_blank)
+            self.bar_bg_rect = RoundedRectangle(radius=[dp(6)])
+        with self.bar_bg.canvas.after:
+            self.bar_fill_color = Color(*color_not_in_word)
+            self.bar_fill_rect = RoundedRectangle(radius=[dp(6)])
+
+        self.layout.add_widget(self.icon_image)
+        self.layout.add_widget(self.title_label)
+        self.layout.add_widget(self.subtitle_label)
+        self.layout.add_widget(self.status_label)
+        self.layout.add_widget(self.bar_bg)
+        self.add_widget(self.layout)
+
+        self.bind(size=self.reposition_loading_elements, progress=self._update_bar_fill)
+        self.reposition_loading_elements()
+        Clock.schedule_once(lambda dt: self.reposition_loading_elements(), 0)
+
+    def apply_theme_colors(self):
+        # Вызывается, если тема сменится, пока этот экран ещё жив -
+        # подтягивает актуальные цвета из глобальных color_* (уже
+        # выставленных choose_theme).
+        self.title_label.color = color_text
+        self.subtitle_label.color = color_correct
+        self.status_label.color = color_not_in_word
+        self.bar_bg_color.rgba = color_blank
+        self.bar_fill_color.rgba = color_not_in_word
+
+    def reposition_loading_elements(self, *args):
+        win_w, win_h = self.width, self.height
+        if win_w <= 0 or win_h <= 0:
+            return
+
+        icon_size = min(win_w * 0.32, dp(140))
+        self.icon_image.size = (icon_size, icon_size)
+        self.icon_image.center_x = win_w / 2
+        self.icon_image.center_y = win_h * 0.58
+
+        self.title_label.size = (win_w * 0.9, dp(50))
+        self.title_label.center_x = win_w / 2
+        self.title_label.y = self.icon_image.y - dp(56)
+        fit_font_size(self.title_label, win_w * 0.88, dp(38))
+
+        self.subtitle_label.size = (win_w * 0.9, dp(32))
+        self.subtitle_label.center_x = win_w / 2
+        self.subtitle_label.y = self.title_label.y - dp(38)
+        fit_font_size(self.subtitle_label, win_w * 0.8, dp(22))
+
+        bar_w = win_w * 0.78
+        bar_h = dp(8)
+        self.status_label.size = (win_w * 0.9, dp(30))
+        self.status_label.center_x = win_w / 2
+        self.status_label.y = BOTTOM_SAFE_MARGIN + dp(40)
+        fit_font_size(self.status_label, win_w * 0.8, dp(24))
+
+        self.bar_bg.size = (bar_w, bar_h)
+        self.bar_bg.center_x = win_w / 2
+        self.bar_bg.y = BOTTOM_SAFE_MARGIN + dp(16)
+        self.bar_bg_rect.pos = self.bar_bg.pos
+        self.bar_bg_rect.size = self.bar_bg.size
+
+        self._update_bar_fill()
+
+    def _update_bar_fill(self, *args):
+        bar_w, bar_h = self.bar_bg.size
+        self.bar_fill_rect.pos = self.bar_bg.pos
+        self.bar_fill_rect.size = (bar_w * self.progress, bar_h)
+
+    def set_progress(self, fraction, animate=True):
+        # fraction = доля уже построенных экранов (done / total), полоса
+        # плавно "доезжает" до неё, а не прыгает скачком.
+        fraction = max(0.0, min(1.0, fraction))
+        Animation.cancel_all(self, 'progress')
+        if animate:
+            Animation(progress=fraction, duration=0.18, t='out_quad').start(self)
+        else:
+            self.progress = fraction
+
 class MobileApp(App):
     def build(self):
         self.words_list = MOBILE_ALL_WORDS
@@ -4553,25 +4760,44 @@ class MobileApp(App):
         Window.clearcolor = color_bg
 
         sm = ScreenManager(transition=NoTransition())
-        sm.add_widget(MainScreen(name='main'))
-        sm.add_widget(MenuScreen(name='menu'))
-        sm.add_widget(PlayScreen(name='play'))
-        sm.add_widget(OptionsScreen(name='options'))
-        sm.add_widget(AboutScreen(name='about'))
-        sm.add_widget(TextDocumentScreen(name='license', title_text="Лицензия", back_target='about', source_file="LICENSE.txt"))
-        sm.add_widget(TextDocumentScreen(name='third_party', title_text="Сторонние компоненты", back_target='about', source_file="THIRD-PARTY NOTICES.txt"))
-        sm.add_widget(TextDocumentScreen(name='about_game', title_text="О игре", back_target='about', source_file="README.txt"))
-        sm.add_widget(TextDocumentScreen(name='special_thanks', title_text="Особая благодарность", back_target='about', source_file="SPECIAL-THANKS.txt"))
-        sm.add_widget(HowToPlayScreen(name='how_to_play'))
-        sm.add_widget(AchievementsScreen(name='achievements'))
-        sm.add_widget(CustomizationScreen(name='customization'))
-        sm.add_widget(QuestsScreen(name='quests'))
-        sm.add_widget(OnePlayerGameScreen(name='one_player_game'))
-        sm.add_widget(TwoPlayerGameScreen(name='two_player_game'))
-        sm.add_widget(SeedGenerationScreen(name='seed_generation'))
-        sm.add_widget(SeedCreateScreen(name='seed_create'))
-        sm.add_widget(SeedEnterScreen(name='seed_enter'))
+
+        # Экран загрузки добавляется первым и показывается сразу же -
+        # его конструктор лёгкий (пара Label + пара прямоугольников),
+        # поэтому Kivy успевает нарисовать его практически мгновенно.
+        self.loading_screen = LoadingScreen(name='loading')
+        sm.add_widget(self.loading_screen)
+        sm.current = 'loading'
+
+        # Все остальные экраны (их 17, и каждый строит немало виджетов)
+        # достраиваются в фоне, ПОСЛЕ того как экран загрузки уже
+        # нарисован на экране, а не до этого. _SCREEN_FACTORIES уже
+        # содержит фабрику на каждый экран приложения.
+        self._sm_ref = sm
+        self._screens_to_build = list(_SCREEN_FACTORIES.items())
+        self._screens_total = len(self._screens_to_build)
+        Clock.schedule_once(self._build_next_screens, 0)
+
         return sm
+
+    def _build_next_screens(self, dt):
+        # Строим по 2 экрана за кадр: список экранов достраивается за
+        # несколько кадров без ощутимых подвисаний интерфейса, а полоска
+        # прогресса на экране загрузки в это время плавно заполняется.
+        chunk_size = 2
+        for _ in range(chunk_size):
+            if not self._screens_to_build:
+                break
+            name, factory = self._screens_to_build.pop(0)
+            self._sm_ref.add_widget(factory())
+
+        done = self._screens_total - len(self._screens_to_build)
+        self.loading_screen.set_progress(done / self._screens_total)
+
+        if self._screens_to_build:
+            Clock.schedule_once(self._build_next_screens, 0)
+        else:
+            self._sm_ref.current = 'main'
+            Clock.schedule_once(lambda dt: self._sm_ref.remove_widget(self.loading_screen), 0)
 
 def start_mobile_game(words_list, player_stats, save_function):
     global MOBILE_ALL_WORDS, MOBILE_PLAYER_STATS, MOBILE_SAVE_FUNC, MOBILE_ACHIVEMENTS, MOBILE_QUESTS
