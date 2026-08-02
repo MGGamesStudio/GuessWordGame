@@ -3838,11 +3838,13 @@ class CustomizationScreen(Screen):
         self.btn_action.color = color_text
         self.btn_action.disabled_color = color_text
         self.btn_action.update_canvas()
+        self.btn_action_color.rgba = color_key
 
         self.btn_sell.base_color = color_key
         self.btn_sell.color = color_text
         self.btn_sell.disabled_color = color_not_in_word
         self.btn_sell.update_canvas()
+        self.btn_sell_color.rgba = color_key
 
         for card in self.theme_cards.values():
             card.update_indicators()
