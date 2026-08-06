@@ -194,6 +194,47 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 from kivy.graphics import Color, RoundedRectangle, Rectangle
+from kivy.core.image import Image as CoreImage
+from kivy.graphics.texture import Texture
+
+_ICON_TEXTURE_CACHE = {}
+
+def load_white_icon_texture(path):
+    """
+    Loads a PNG icon and returns a Kivy Texture whose RGB channels are
+    forced to pure white, keeping only the original alpha channel intact.
+
+    This exists because Kivy's Image.color acts as a multiplicative tint
+    (final_channel = pixel_channel * color_channel). A black-filled icon
+    (0, 0, 0) multiplied by any tint color stays black (0 * x = 0), so
+    recoloring never has any visible effect. Converting the icon to a
+    white-based mask (255 * x = x) makes the tint actually work, without
+    requiring the source .png files themselves to be edited.
+    """
+    if path in _ICON_TEXTURE_CACHE:
+        return _ICON_TEXTURE_CACHE[path]
+
+    core_img = CoreImage(path)
+    src_tex = core_img.texture
+
+    if src_tex.colorfmt != 'rgba':
+        # No alpha channel to preserve shape by - nothing safe to do,
+        # just reuse the texture as-is.
+        _ICON_TEXTURE_CACHE[path] = src_tex
+        return src_tex
+
+    pixels = bytearray(src_tex.pixels)
+    for i in range(0, len(pixels), 4):
+        pixels[i] = 255      # R
+        pixels[i + 1] = 255  # G
+        pixels[i + 2] = 255  # B
+        # alpha (pixels[i + 3]) stays untouched - keeps the glyph's shape
+
+    new_tex = Texture.create(size=src_tex.size, colorfmt='rgba')
+    new_tex.blit_buffer(bytes(pixels), colorfmt='rgba', bufferfmt='ubyte')
+    new_tex.flip_vertical()
+    _ICON_TEXTURE_CACHE[path] = new_tex
+    return new_tex
 
 # ----- ЦВЕТА -----
 color_themes = {
@@ -626,6 +667,30 @@ class KeyButton(Button):
             self.bg_color_instr.rgba = (self.base_color[0]*0.8, self.base_color[1]*0.8, self.base_color[2]*0.8, 1.0)
         self.bg_rect.pos = self.pos
         self.bg_rect.size = self.size
+
+class IconKeyButton(KeyButton):
+    def __init__(self, image_source="backspace.png", icon_ratio=0.5, size=(100, 50), **kwargs):
+        super().__init__(text="", size=size, **kwargs)
+        self._icon_ratio = icon_ratio
+        self.icon = Image(
+            size_hint=(None, None),
+            fit_mode="contain",
+            color=self.color,
+        )
+        self.icon.texture = load_white_icon_texture(resource_path(image_source))
+        self.add_widget(self.icon)
+        self.bind(pos=self._update_icon, size=self._update_icon)
+        self._update_icon()
+
+    def _update_icon(self, *args):
+        side = min(self.width, self.height)
+        icon_side = side * self._icon_ratio
+        self.icon.size = (icon_side, icon_side)
+        self.icon.center = self.center
+
+    def update_canvas(self, *args):
+        super().update_canvas(*args)
+        self.icon.color = self.color
 
 class ThemeCard(ButtonBehavior, FloatLayout):
     def __init__(self, theme_id="classic", theme_name="Классика", theme_data=None, on_click_callback=None, **kwargs):
@@ -1616,14 +1681,14 @@ class OnePlayerGameScreen(Screen):
             self.cells.append(cell)
             self.layout.add_widget(cell)
 
+        self.pending_match_coins = 0
+
         self.keyboard_keys = []
 
-        self.btn_erase = KeyButton(text="СТЕРЕТЬ", size=(100, 50))
-        self.btn_erase.font_size = '22sp'
+        self.btn_erase = IconKeyButton(image_source="backspace.png", size=(100, 50))
         self.btn_erase.bind(on_release=self.press_erase_key)
 
-        self.btn_enter = KeyButton(text="ВВОД", size=(100, 50))
-        self.btn_enter.font_size = '22sp'
+        self.btn_enter = IconKeyButton(image_source="corner-down-left.png", size=(100, 50))
         self.btn_enter.bind(on_release=self.press_enter_key)
 
         self.system_buttons = [self.btn_erase, self.btn_enter]
@@ -1717,8 +1782,8 @@ class OnePlayerGameScreen(Screen):
 
         KEY_SPACING_Y = 4
 
-        avail_h = keyboard_top_y - bottom_reserved - (3 * KEY_SPACING_Y)
-        KEY_HEIGHT = avail_h / 4
+        avail_h = keyboard_top_y - bottom_reserved - (2 * KEY_SPACING_Y)
+        KEY_HEIGHT = avail_h / 3
 
         for key in self.keyboard_keys:
             key.size = (KEY_WIDTH, KEY_HEIGHT)
@@ -1726,33 +1791,32 @@ class OnePlayerGameScreen(Screen):
         row_heights = [
             bottom_reserved,
             bottom_reserved + (KEY_HEIGHT + KEY_SPACING_Y),
-            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
-            bottom_reserved + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
+            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y)
         ]
+
+        self.btn_enter.size = (KEY_WIDTH, KEY_HEIGHT)
+        self.btn_erase.size = (KEY_WIDTH, KEY_HEIGHT)
 
         line_to_height_idx = {0: 2, 1: 1, 2: 0}
         for i, line_keys in enumerate(self.letter_buttons):
             h_idx = line_to_height_idx[i]
-            total_w = len(line_keys) * KEY_WIDTH + (len(line_keys) - 1) * KEY_SPACING_X
+            extra_slots = 2 if i == 2 else 0
+            total_w = (len(line_keys) + extra_slots) * KEY_WIDTH + (len(line_keys) + extra_slots - 1) * KEY_SPACING_X
             start_l_x = (win_w - total_w) / 2
-                
+
+            if i == 2:
+                self.btn_enter.pos = (start_l_x, row_heights[h_idx])
+                self.btn_enter.update_canvas()
+                start_l_x += KEY_WIDTH + KEY_SPACING_X
+
             for idx, key in enumerate(line_keys):
                 key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
                 key.update_canvas()
 
-        SYS_SPACING = 6
-        avail_sys_w = win_w - 16 - SYS_SPACING
-        SYS_WIDTH = avail_sys_w / 2
-        
-        start_sys_x = 8
-        
-        self.btn_erase.pos = (start_sys_x, row_heights[3])
-        self.btn_erase.size = (SYS_WIDTH, KEY_HEIGHT)
-        self.btn_erase.update_canvas()
-        
-        self.btn_enter.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights[3])
-        self.btn_enter.size = (SYS_WIDTH, KEY_HEIGHT)
-        self.btn_enter.update_canvas()
+            if i == 2:
+                erase_x = start_l_x + len(line_keys) * (KEY_WIDTH + KEY_SPACING_X)
+                self.btn_erase.pos = (erase_x, row_heights[h_idx])
+                self.btn_erase.update_canvas()
 
         apply_adaptive_fonts(self, CELL_HEIGHT, KEY_HEIGHT)
 
@@ -1849,7 +1913,7 @@ class OnePlayerGameScreen(Screen):
         coins = sum(5 if s == "correct" else (2 if s == "in_word" else 1) for s in row_statuses)
 
         if check_word == self.secret_word: coins += 10
-        MOBILE_PLAYER_STATS["player_coins"] = MOBILE_PLAYER_STATS.get("player_coins", 0) + coins
+        self.pending_match_coins += coins
         if greens >= 3: self.check_and_advance_mobile_quest("q2", 1)
         if greens < 5 and (greens + yellows) >= 3: self.check_and_advance_mobile_quest("q3", 1)
 
@@ -1919,6 +1983,13 @@ class OnePlayerGameScreen(Screen):
         global MOBILE_PLAYER_STATS, MOBILE_QUESTS
         stats = MOBILE_PLAYER_STATS
 
+        remaining_start = (self.current_attempt + 1) * 5
+        remaining_cells_count = len(self.cells[remaining_start:])
+        self.pending_match_coins += remaining_cells_count * 5
+
+        stats["player_coins"] = stats.get("player_coins", 0) + self.pending_match_coins
+        self.pending_match_coins = 0
+
         stats["total_wins"] = stats.get("total_wins", 0) + 1
         stats["current_win_streak"] = stats.get("current_win_streak", 0) + 1
 
@@ -1949,6 +2020,9 @@ class OnePlayerGameScreen(Screen):
     def handle_mobile_loss(self):
         global MOBILE_PLAYER_STATS, MOBILE_QUESTS
         stats = MOBILE_PLAYER_STATS
+
+        stats["player_coins"] = stats.get("player_coins", 0) + self.pending_match_coins
+        self.pending_match_coins = 0
 
         stats["total_losses"] = stats.get("total_losses", 0) + 1
         stats["current_win_streak"] = 0
@@ -2007,6 +2081,7 @@ class OnePlayerGameScreen(Screen):
             
         self.current_word = ""
         self.current_attempt = 0
+        self.pending_match_coins = 0
 
         if 'MOBILE_ALL_WORDS' in globals() and MOBILE_ALL_WORDS:
             self.secret_word = random.choice(MOBILE_ALL_WORDS).upper()
@@ -2102,12 +2177,10 @@ class TwoPlayerGameScreen(Screen):
 
         self.keyboard_keys = []
 
-        self.btn_erase = KeyButton(text="СТЕРЕТЬ", size=(100, 50))
-        self.btn_erase.font_size = '22sp'
+        self.btn_erase = IconKeyButton(image_source="backspace.png", size=(100, 50))
         self.btn_erase.bind(on_release=self.press_erase_key)
 
-        self.btn_enter = KeyButton(text="ВВОД", size=(100, 50))
-        self.btn_enter.font_size = '22sp'
+        self.btn_enter = IconKeyButton(image_source="corner-down-left.png", size=(100, 50))
         self.btn_enter.bind(on_release=self.press_enter_key)
 
         self.system_buttons = [self.btn_erase, self.btn_enter]
@@ -2185,20 +2258,19 @@ class TwoPlayerGameScreen(Screen):
         avail_w = win_w - 16 - 44
         KEY_WIDTH = avail_w / 12  
         KEY_SPACING_Y = 4
-        avail_h = keyboard_top_y - bottom_reserved - (3 * KEY_SPACING_Y)
-        KEY_HEIGHT = avail_h / 4  
+        avail_h = keyboard_top_y - bottom_reserved - (2 * KEY_SPACING_Y)
+        KEY_HEIGHT = avail_h / 3
 
         row_heights = [
             bottom_reserved,
             bottom_reserved + (KEY_HEIGHT + KEY_SPACING_Y),
-            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
-            bottom_reserved + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
+            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y)
         ]
 
         start_blank_x = side_margin
         
         if self.stage == "setup":
-            kbd_top_y = row_heights[3] + KEY_HEIGHT
+            kbd_top_y = row_heights[2] + KEY_HEIGHT
             top_boundary = win_h - top_reserved
 
             total_free_space_y = top_boundary - kbd_top_y
@@ -2249,28 +2321,29 @@ class TwoPlayerGameScreen(Screen):
         for key in self.keyboard_keys:
             key.size = (KEY_WIDTH, KEY_HEIGHT)
 
+        for btn in self.system_buttons:
+            btn.size = (KEY_WIDTH, KEY_HEIGHT)
+
         line_to_height_idx = {0: 2, 1: 1, 2: 0}
         for i, line_keys in enumerate(self.letter_buttons):
             h_idx = line_to_height_idx[i]
-            total_w = len(line_keys) * KEY_WIDTH + (len(line_keys) - 1) * KEY_SPACING_X
+            extra_slots = 2 if i == 2 else 0
+            total_w = (len(line_keys) + extra_slots) * KEY_WIDTH + (len(line_keys) + extra_slots - 1) * KEY_SPACING_X
             start_l_x = (win_w - total_w) / 2
+
+            if i == 2:
+                self.btn_enter.pos = (start_l_x, row_heights[h_idx])
+                self.btn_enter.update_canvas()
+                start_l_x += KEY_WIDTH + KEY_SPACING_X
+
             for idx, key in enumerate(line_keys):
                 key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
                 key.update_canvas()
 
-        SYS_SPACING = 6
-        avail_sys_w = win_w - 16 - SYS_SPACING
-        SYS_WIDTH = avail_sys_w / 2
-        start_sys_x = 8
-        
-        for btn in self.system_buttons:
-            btn.size = (SYS_WIDTH, KEY_HEIGHT)
-
-        self.btn_erase.pos = (start_sys_x, row_heights[3])
-        self.btn_erase.update_canvas()
-        
-        self.btn_enter.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights[3])
-        self.btn_enter.update_canvas()
+            if i == 2:
+                erase_x = start_l_x + len(line_keys) * (KEY_WIDTH + KEY_SPACING_X)
+                self.btn_erase.pos = (erase_x, row_heights[h_idx])
+                self.btn_erase.update_canvas()
 
         apply_adaptive_fonts(self, CELL_HEIGHT, KEY_HEIGHT)
 
@@ -2623,12 +2696,10 @@ class SeedCreateScreen(Screen):
 
         self.keyboard_keys = []
 
-        self.btn_erase = KeyButton(text="СТЕРЕТЬ", size=(100, 50))
-        self.btn_erase.font_size = '22sp'
+        self.btn_erase = IconKeyButton(image_source="backspace.png", size=(100, 50))
         self.btn_erase.bind(on_release=self.press_erase_key)
 
-        self.btn_enter = KeyButton(text="ВВОД", size=(100, 50))
-        self.btn_enter.font_size = '22sp'
+        self.btn_enter = IconKeyButton(image_source="corner-down-left.png", size=(100, 50))
         self.btn_enter.bind(on_release=self.press_enter_key)
 
         self.system_buttons = [self.btn_erase, self.btn_enter]
@@ -2758,43 +2829,43 @@ class SeedCreateScreen(Screen):
         avail_w = win_w - 16 - 44
         KEY_WIDTH = avail_w / 12
         KEY_SPACING_Y = 4
-        avail_h = keyboard_top_y - bottom_reserved - (3 * KEY_SPACING_Y)
-        KEY_HEIGHT = avail_h / 4
+        avail_h = keyboard_top_y - bottom_reserved - (2 * KEY_SPACING_Y)
+        KEY_HEIGHT = avail_h / 3
 
         row_heights = [
             bottom_reserved,
             bottom_reserved + (KEY_HEIGHT + KEY_SPACING_Y),
-            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
-            bottom_reserved + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
+            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y)
         ]
 
         for key in self.keyboard_keys:
             key.size = (KEY_WIDTH, KEY_HEIGHT)
 
+        for btn in self.system_buttons:
+            btn.size = (KEY_WIDTH, KEY_HEIGHT)
+
         line_to_height_idx = {0: 2, 1: 1, 2: 0}
         for i, line_keys in enumerate(self.letter_buttons):
             h_idx = line_to_height_idx[i]
-            total_w = len(line_keys) * KEY_WIDTH + (len(line_keys) - 1) * KEY_SPACING_X
+            extra_slots = 2 if i == 2 else 0
+            total_w = (len(line_keys) + extra_slots) * KEY_WIDTH + (len(line_keys) + extra_slots - 1) * KEY_SPACING_X
             start_l_x = (win_w - total_w) / 2
+
+            if i == 2:
+                self.btn_enter.pos = (start_l_x, row_heights[h_idx])
+                self.btn_enter.update_canvas()
+                start_l_x += KEY_WIDTH + KEY_SPACING_X
+
             for idx, key in enumerate(line_keys):
                 key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
                 key.update_canvas()
 
-        SYS_SPACING = 6
-        avail_sys_w = win_w - 16 - SYS_SPACING
-        SYS_WIDTH = avail_sys_w / 2
-        start_sys_x = 8
+            if i == 2:
+                erase_x = start_l_x + len(line_keys) * (KEY_WIDTH + KEY_SPACING_X)
+                self.btn_erase.pos = (erase_x, row_heights[h_idx])
+                self.btn_erase.update_canvas()
 
-        for btn in self.system_buttons:
-            btn.size = (SYS_WIDTH, KEY_HEIGHT)
-
-        self.btn_erase.pos = (start_sys_x, row_heights[3])
-        self.btn_erase.update_canvas()
-
-        self.btn_enter.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights[3])
-        self.btn_enter.update_canvas()
-
-        return row_heights[3] + KEY_HEIGHT
+        return row_heights[2] + KEY_HEIGHT
 
     def press_letter_key(self, instance):
         self.lbl_error.text = ""
@@ -2917,12 +2988,10 @@ class SeedEnterScreen(Screen):
 
         self.keyboard_keys = []
 
-        self.btn_erase = KeyButton(text="СТЕРЕТЬ", size=(100, 50))
-        self.btn_erase.font_size = '22sp'
+        self.btn_erase = IconKeyButton(image_source="backspace.png", size=(100, 50))
         self.btn_erase.bind(on_release=self.press_erase_key)
 
-        self.btn_enter = KeyButton(text="ВВОД", size=(100, 50))
-        self.btn_enter.font_size = '22sp'
+        self.btn_enter = IconKeyButton(image_source="corner-down-left.png", size=(100, 50))
         self.btn_enter.bind(on_release=self.press_enter_key)
 
         self.system_buttons = [self.btn_erase, self.btn_enter]
@@ -3046,43 +3115,43 @@ class SeedEnterScreen(Screen):
         avail_w = win_w - 16 - 44
         KEY_WIDTH = avail_w / 12
         KEY_SPACING_Y = 4
-        avail_h = keyboard_top_y - bottom_reserved - (3 * KEY_SPACING_Y)
-        KEY_HEIGHT = avail_h / 4
+        avail_h = keyboard_top_y - bottom_reserved - (2 * KEY_SPACING_Y)
+        KEY_HEIGHT = avail_h / 3
 
         row_heights = [
             bottom_reserved,
             bottom_reserved + (KEY_HEIGHT + KEY_SPACING_Y),
-            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y),
-            bottom_reserved + 3 * (KEY_HEIGHT + KEY_SPACING_Y)
+            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y)
         ]
 
         for key in self.keyboard_keys:
             key.size = (KEY_WIDTH, KEY_HEIGHT)
 
+        for btn in self.system_buttons:
+            btn.size = (KEY_WIDTH, KEY_HEIGHT)
+
         line_to_height_idx = {0: 2, 1: 1, 2: 0}
         for i, line_keys in enumerate(self.letter_buttons):
             h_idx = line_to_height_idx[i]
-            total_w = len(line_keys) * KEY_WIDTH + (len(line_keys) - 1) * KEY_SPACING_X
+            extra_slots = 2 if i == 2 else 0
+            total_w = (len(line_keys) + extra_slots) * KEY_WIDTH + (len(line_keys) + extra_slots - 1) * KEY_SPACING_X
             start_l_x = (win_w - total_w) / 2
+
+            if i == 2:
+                self.btn_enter.pos = (start_l_x, row_heights[h_idx])
+                self.btn_enter.update_canvas()
+                start_l_x += KEY_WIDTH + KEY_SPACING_X
+
             for idx, key in enumerate(line_keys):
                 key.pos = (start_l_x + idx * (KEY_WIDTH + KEY_SPACING_X), row_heights[h_idx])
                 key.update_canvas()
 
-        SYS_SPACING = 6
-        avail_sys_w = win_w - 16 - SYS_SPACING
-        SYS_WIDTH = avail_sys_w / 2
-        start_sys_x = 8
+            if i == 2:
+                erase_x = start_l_x + len(line_keys) * (KEY_WIDTH + KEY_SPACING_X)
+                self.btn_erase.pos = (erase_x, row_heights[h_idx])
+                self.btn_erase.update_canvas()
 
-        for btn in self.system_buttons:
-            btn.size = (SYS_WIDTH, KEY_HEIGHT)
-
-        self.btn_erase.pos = (start_sys_x, row_heights[3])
-        self.btn_erase.update_canvas()
-
-        self.btn_enter.pos = (start_sys_x + SYS_WIDTH + SYS_SPACING, row_heights[3])
-        self.btn_enter.update_canvas()
-
-        return row_heights[3] + KEY_HEIGHT
+        return row_heights[2] + KEY_HEIGHT
 
     def press_letter_key(self, instance):
         self.lbl_error.text = ""
