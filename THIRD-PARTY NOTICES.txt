@@ -10,20 +10,17 @@
 
 Игра разработана с использованием фреймворка Kivy.
 Kivy распространяется по лицензии MIT License.
-
-Сайт проекта: https://kivy.org
+https://kivy.org
 
 2. Python
 
 Игра разработана с использованием языка программирования Python.
 Python распространяется по лицензии Python Software Foundation License Version 2.
-
-Сайт проекта: https://www.python.org
+https://www.python.org
 
 3. Clear Sans
 
 В составе игры используется шрифт Clear Sans.
-
 Copyright © Intel Corporation.
 
 Шрифт распространяется в соответствии с условиями Apache License, Version 2.0.
@@ -31,10 +28,17 @@ Copyright © Intel Corporation.
 Текст лицензии Apache License, Version 2.0 доступен по адресу:
 https://www.apache.org/licenses/LICENSE-2.0
 
-4. Иные сторонние компоненты
+4. Tabler Icons.
+
+В составе игры используются иконки Tabler Icons.
+Copyright © Paweł Kuna
+
+Tabler Icons распространяются по лицензии MIT License.
+https://github.com/tabler/tabler-icons
+
+5. Иные сторонние компоненты
 
 Если в составе игры используются иные сторонние библиотеки, шрифты, изображения, звуки, движки или иные материалы, права на такие компоненты сохраняются за их правообладателями и регулируются соответствующими лицензиями.
-
 Настоящий документ не изменяет условия лицензий сторонних компонентов и носит исключительно информационный характер.
 
 © 2026 MGGamesStudio. Все права защищены.
