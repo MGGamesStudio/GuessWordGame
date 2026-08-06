@@ -1733,6 +1733,7 @@ class OnePlayerGameScreen(Screen):
         self.bg_rect.pos = (0, 0)
 
         GRID_GAP = dp(6)
+        EXTRA_TOP_GAP = dp(28)
         top_reserved = TOP_SAFE_MARGIN + dp(48) + GRID_GAP
         bottom_reserved = BOTTOM_SAFE_MARGIN
 
@@ -1747,7 +1748,7 @@ class OnePlayerGameScreen(Screen):
 
         avail_cell_w = win_w - (2 * side_margin) - 20
         CELL_WIDTH = avail_cell_w / 5  
-        CELL_HEIGHT = CELL_WIDTH * 1.243  
+        CELL_HEIGHT = CELL_WIDTH  
 
         total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
         max_allowed_height = (win_h - top_reserved - bottom_reserved) * 0.68
@@ -1756,14 +1757,19 @@ class OnePlayerGameScreen(Screen):
 
             total_blanks_height = max_allowed_height
             CELL_HEIGHT = (total_blanks_height - (5 * CELL_SPACING_Y)) / 6
-            CELL_WIDTH = CELL_HEIGHT / 1.243
+            CELL_WIDTH = CELL_HEIGHT
             side_margin = (win_w - (5 * CELL_WIDTH) - 20) / 2
 
         for cell in self.cells:
             cell.size = (CELL_WIDTH, CELL_HEIGHT)
 
+        # Позиционирование смещено вниз на EXTRA_TOP_GAP: сама сетка (и её кап по высоте
+        # выше) не меняется, но между кнопкой "Назад" и сеткой появляется больше воздуха,
+        # а клавиатура снизу автоматически становится ниже — ей достаётся меньше места.
+        top_reserved_pos = top_reserved + EXTRA_TOP_GAP
+
         start_blank_x = side_margin
-        start_blank_y = win_h - top_reserved - CELL_HEIGHT
+        start_blank_y = win_h - top_reserved_pos - CELL_HEIGHT
         
         cell_idx = 0
         for row in range(6):
@@ -1773,7 +1779,7 @@ class OnePlayerGameScreen(Screen):
                     self.cells[cell_idx].update_canvas()
                     cell_idx += 1
 
-        bottom_blanks_line = (win_h - top_reserved) - total_blanks_height
+        bottom_blanks_line = (win_h - top_reserved_pos) - total_blanks_height
         keyboard_top_y = bottom_blanks_line - GRID_GAP
 
         KEY_SPACING_X = 4
@@ -2238,7 +2244,7 @@ class TwoPlayerGameScreen(Screen):
         side_margin = win_w * 0.11
         avail_cell_w = win_w - (2 * side_margin) - 20
         CELL_WIDTH = avail_cell_w / 5  
-        CELL_HEIGHT = CELL_WIDTH * 1.243  
+        CELL_HEIGHT = CELL_WIDTH  
 
         total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
         max_allowed_height = (win_h - top_reserved - bottom_reserved) * 0.68
@@ -2246,7 +2252,7 @@ class TwoPlayerGameScreen(Screen):
         if total_blanks_height > max_allowed_height:
             total_blanks_height = max_allowed_height
             CELL_HEIGHT = (total_blanks_height - (5 * CELL_SPACING_Y)) / 6
-            CELL_WIDTH = CELL_HEIGHT / 1.243
+            CELL_WIDTH = CELL_HEIGHT
             side_margin = (win_w - (5 * CELL_WIDTH) - 20) / 2
 
         for cell in self.cells:
@@ -2754,14 +2760,14 @@ class SeedCreateScreen(Screen):
         side_margin = win_w * 0.11
         avail_cell_w = win_w - (2 * side_margin) - 20
         CELL_WIDTH = avail_cell_w / 5
-        CELL_HEIGHT = CELL_WIDTH * 1.243
+        CELL_HEIGHT = CELL_WIDTH
 
         total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
         max_allowed_height = (win_h - top_reserved - bottom_reserved) * 0.68
         if total_blanks_height > max_allowed_height:
             total_blanks_height = max_allowed_height
             CELL_HEIGHT = (total_blanks_height - (5 * CELL_SPACING_Y)) / 6
-            CELL_WIDTH = CELL_HEIGHT / 1.243
+            CELL_WIDTH = CELL_HEIGHT
             side_margin = (win_w - (5 * CELL_WIDTH) - 20) / 2
 
         for cell in self.cells:
@@ -3047,7 +3053,7 @@ class SeedEnterScreen(Screen):
         ref_side_margin = win_w * 0.11
         ref_avail_cell_w = win_w - (2 * ref_side_margin) - 20
         REF_CELL_WIDTH = ref_avail_cell_w / 5
-        REF_CELL_HEIGHT = REF_CELL_WIDTH * 1.243
+        REF_CELL_HEIGHT = REF_CELL_WIDTH
 
         total_blanks_height = (6 * REF_CELL_HEIGHT) + (5 * CELL_SPACING_Y)
         max_allowed_height = (win_h - top_reserved - bottom_reserved) * 0.68
@@ -3056,7 +3062,7 @@ class SeedEnterScreen(Screen):
             REF_CELL_HEIGHT = (total_blanks_height - (5 * CELL_SPACING_Y)) / 6
 
         CELL_HEIGHT = REF_CELL_HEIGHT
-        CELL_WIDTH = CELL_HEIGHT / 1.243
+        CELL_WIDTH = CELL_HEIGHT
         side_margin = (win_w - (SEED_LENGTH * CELL_WIDTH) - (5 * CELL_SPACING_X)) / 2
 
         for cell in self.cells:
