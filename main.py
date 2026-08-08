@@ -215,7 +215,7 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-from kivy.graphics import Color, RoundedRectangle, Rectangle
+from kivy.graphics import Color, RoundedRectangle, Rectangle, BoxShadow
 from kivy.core.image import Image as CoreImage
 from kivy.graphics.texture import Texture
 
@@ -327,6 +327,10 @@ def fit_font_size_wrapped(label, max_allowed_w, max_allowed_h, start_font_px):
         current_font -= 1
         label.font_size = f"{current_font}px"
         label.texture_update()
+
+def lerp_color(c1, c2, factor):
+    """Плавная линейная интерполяция между двумя RGBA-цветами (0..1 каждый канал)."""
+    return tuple(c1[i] + (c2[i] - c1[i]) * factor for i in range(4))
 
 def prepare_layout_for_dynamic_sizes(container, child_widgets):
     container.size_hint_y = None
@@ -560,6 +564,105 @@ class IconMenuButton(MenuButton):
         super().update_canvas(*args)
         if hasattr(self, 'icon'):
             self.icon.color = self.color
+
+class MainMenuButton(ButtonBehavior, FloatLayout):
+    """
+    Кнопка главного экрана: иконка слева (без цветного "чипа" под ней, просто
+    тонированная в content_color иконка) и текст справа от неё, без шеврона.
+
+    variant="primary"   -> заливка color_correct, текст/иконка белые (кнопка "Играть")
+    variant="secondary" -> заливка - лёгкая смесь color_bg/color_key (как в "Меню"),
+                            текст/иконка color_text
+
+    Тень - настоящий blur через kivy.graphics.BoxShadow (не имитация слоями),
+    всегда чёрная, расходится равномерно во все стороны (без сдвига вниз).
+    """
+
+    SHADOW_COLOR = (0, 0, 0, 0.22)
+    SHADOW_BLUR_RADIUS = dp(12)
+    SHADOW_SPREAD_RADIUS = (-dp(1), -dp(1))
+    CARD_RADIUS = 20
+
+    def __init__(self, text="", icon_name="", variant="secondary", **kwargs):
+        super().__init__(**kwargs)
+
+        self.variant = variant
+        if variant == "primary":
+            self.base_color = color_correct
+            self.content_color = (1.0, 1.0, 1.0, 1.0)
+        else:
+            self.base_color = lerp_color(color_bg, color_key, 0.20)
+            self.content_color = color_text
+
+        with self.canvas.before:
+            # настоящая мягкая тень под карточкой (реальный blur, не имитация слоями)
+            self.shadow_color_instr = Color(*self.SHADOW_COLOR)
+            self.shadow = BoxShadow(
+                pos=self.pos,
+                size=self.size,
+                offset=(0, 0),  # без сдвига вниз - тень равномерная со всех сторон
+                blur_radius=self.SHADOW_BLUR_RADIUS,
+                spread_radius=self.SHADOW_SPREAD_RADIUS,
+                border_radius=(self.CARD_RADIUS,) * 4,
+            )
+
+            # заливка самой карточки
+            self.bg_color_instr = Color(*self.base_color)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[self.CARD_RADIUS])
+
+        self.icon_img = Image(size_hint=(None, None), fit_mode="contain", color=self.content_color)
+        if icon_name:
+            self.icon_img.texture = load_white_icon_texture(icon_path(icon_name))
+        self.add_widget(self.icon_img)
+
+        self.label = Label(
+            text=text,
+            font_name=font_path("ClearSans-Bold.ttf"),
+            font_size='24sp',
+            bold=True,
+            color=self.content_color,
+            halign='left',
+            valign='middle',
+            size_hint=(None, None),
+        )
+        self.add_widget(self.label)
+
+        self.bind(pos=self._reposition, size=self._reposition, state=self._update_canvas)
+        self._reposition()
+
+    def _reposition(self, *args):
+        w, h = self.width, self.height
+        pad_side = h * 0.18
+
+        self.shadow.pos = self.pos
+        self.shadow.size = self.size
+
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
+
+        icon_side = h * 0.34
+        self.icon_img.size = (icon_side, icon_side)
+        self.icon_img.center = (self.x + pad_side + icon_side / 2, self.y + h / 2)
+
+        label_x = self.x + pad_side + icon_side + pad_side
+        # небольшой сдвиг вверх компенсирует оптический "провис" текста ниже
+        # геометрической середины карточки (эффект метрик жирного шрифта)
+        label_w = max(self.x + w - pad_side - label_x, dp(10))
+        self.label.pos = (label_x, self.y + dp(2))
+        self.label.size = (label_w, h)
+        self.label.text_size = (label_w, h)
+        fit_font_size(self.label, label_w, h * 0.38)
+
+    def _update_canvas(self, *args):
+        if self.state == 'normal':
+            self.bg_color_instr.rgba = self.base_color
+        else:
+            self.bg_color_instr.rgba = (
+                self.base_color[0] * 0.94, self.base_color[1] * 0.94,
+                self.base_color[2] * 0.94, self.base_color[3]
+            )
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
 
 class ModeButton(BoxLayout):
     def __init__(self, title_text="", description_text="", description_color=None, on_release=None, **kwargs):
@@ -906,12 +1009,83 @@ class ThemeCard(ButtonBehavior, FloatLayout):
         return super().on_touch_down(touch)
 
 # ----- ИГРА ----
+class LogoWordTiles(FloatLayout):
+    """
+    Ряд из 5 плиток логотипа "СЛОВО", раскрашенных так же, как игровые тайлы
+    (зелёный/жёлтый/серый) - С зелёная, Л жёлтая, О серая, В зелёная, О серая.
+    Цвета берутся из глобальных color_correct/color_in_word/color_not_in_word,
+    поэтому ряд автоматически подстраивается под смену темы (экран
+    пересоздаётся заново при смене темы).
+    """
+
+    LETTERS = ["С", "Л", "О", "В", "О"]
+    SPREAD_RATIO = 0.20  # отступ между плитками = 20% от размера плитки
+    TILE_RADIUS_RATIO = 0.20
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.tile_bg_colors = [color_correct, color_in_word, color_not_in_word, color_correct, color_not_in_word]
+        self.tile_color_instrs = []
+        self.tile_rects = []
+        self.labels = []
+
+        with self.canvas:
+            for col in self.tile_bg_colors:
+                c = Color(*col)
+                r = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[6])
+                self.tile_color_instrs.append(c)
+                self.tile_rects.append(r)
+
+        for letter in self.LETTERS:
+            lbl = Label(
+                text=letter,
+                font_name=font_path("ClearSans-Bold.ttf"),
+                bold=True,
+                color=(1.0, 1.0, 1.0, 1.0),
+                halign='center',
+                valign='middle',
+                size_hint=(None, None),
+            )
+            self.labels.append(lbl)
+            self.add_widget(lbl)
+
+        self.bind(pos=self._reposition, size=self._reposition)
+        self._reposition()
+
+    def _reposition(self, *args):
+        w, h = self.width, self.height
+        n = len(self.LETTERS)
+        if w <= 0 or h <= 0:
+            return
+
+        k = self.SPREAD_RATIO
+        tile_by_w = w / (n + (n - 1) * k)
+        tile_size = min(tile_by_w, h)
+        spacing = tile_size * k
+        total_w = tile_size * n + spacing * (n - 1)
+        start_x = self.x + (w - total_w) / 2
+        tile_y = self.y + (h - tile_size) / 2
+        radius = tile_size * self.TILE_RADIUS_RATIO
+
+        for i in range(n):
+            tx = start_x + i * (tile_size + spacing)
+            self.tile_rects[i].pos = (tx, tile_y)
+            self.tile_rects[i].size = (tile_size, tile_size)
+            self.tile_rects[i].radius = [radius]
+
+            lbl = self.labels[i]
+            lbl.pos = (tx, tile_y)
+            lbl.size = (tile_size, tile_size)
+            lbl.text_size = (tile_size, tile_size)
+            fit_font_size(lbl, tile_size * 0.6, tile_size * 0.62)
+
 class MainScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
         self.title_label = Label(
-            text="Угадай слово", 
+            text="УГАДАЙ",
             font_name=font_path("ClearSans-Bold.ttf"),
             bold=True, 
             color=color_text,
@@ -920,21 +1094,18 @@ class MainScreen(Screen):
             valign='middle'
         )
 
+        self.logo_tiles = LogoWordTiles(size_hint=(None, None))
+
         self.buttons_container = BoxLayout(
             orientation='vertical', 
             size_hint=(None, None)
         )
 
         self.buttons = [
-            MenuButton(text="Играть"),
-            MenuButton(text="Меню"),
-            MenuButton(text="Настройки")
+            MainMenuButton(text="Играть", icon_name="player-play.png", variant="primary"),
+            MainMenuButton(text="Меню", icon_name="menu-2.png", variant="secondary"),
+            MainMenuButton(text="Настройки", icon_name="settings.png", variant="secondary")
         ]
-        for btn in self.buttons:
-            btn.font_name = font_path("ClearSans-Bold.ttf")
-
-        self.buttons[0].base_color = color_correct
-        self.buttons[0].color = (1.0, 1.0, 1.0, 1.0)
 
         self.buttons[0].bind(on_release=lambda x: setattr(self.manager, 'current', 'play'))
         self.buttons[1].bind(on_release=lambda x: setattr(self.manager, 'current', 'menu'))
@@ -954,6 +1125,7 @@ class MainScreen(Screen):
         )
         
         self.layout.add_widget(self.title_label)
+        self.layout.add_widget(self.logo_tiles)
         self.layout.add_widget(self.buttons_container)
         self.layout.add_widget(self.copy_label)
         self.add_widget(self.layout)
@@ -989,14 +1161,137 @@ class MainScreen(Screen):
 
         for btn in self.buttons:
             btn.height = btn_h
-            fit_font_size(btn, container_w - dp(36), btn_h * 0.42)
 
         distance_to_top = top_limit - self.buttons_container.top
-        title_h = min(distance_to_top * 0.6, dp(60))
+        gap = dp(10)
+        title_h = min(distance_to_top * 0.42, dp(56))
+        tiles_h = min(distance_to_top * 0.30, dp(46))
+        content_h = title_h + gap + tiles_h
+        content_bottom = self.buttons_container.top + (distance_to_top - content_h) / 2
+
+        self.logo_tiles.size = (win_w * 0.68, tiles_h)
+        self.logo_tiles.center_x = win_w / 2
+        self.logo_tiles.y = content_bottom
+
         self.title_label.size = (win_w * 0.9, title_h)
         self.title_label.center_x = win_w / 2
-        self.title_label.y = self.buttons_container.top + (distance_to_top - title_h) / 2
+        self.title_label.y = self.logo_tiles.top + gap
         fit_font_size(self.title_label, win_w * 0.9, title_h * 0.85)
+
+class MenuRowButton(ButtonBehavior, FloatLayout):
+    """
+    Строка меню в стиле карточки: квадратная иконка слева (в цветном "чипе"),
+    текст по центру-слева и шеврон ">" справа.
+
+    Фон карточки — очень слабая смесь color_bg и color_key (небольшой уклон в
+    сторону color_key, не чистый color_bg), а чип под иконкой — чистый color_key. Тень под
+    карточкой — настоящая мягкая тень, нарисованная через kivy.graphics.BoxShadow
+    (аппаратный gaussian blur, а не имитация стопкой полупрозрачных слоёв). Тень
+    всегда чёрная и расходится равномерно во все стороны от карточки
+    (offset = (0, 0), без сдвига вниз). Текст/иконка/шеврон = color_text.
+    """
+
+    # тень всегда чёрная (не зависит от цвета текста/темы)
+    SHADOW_COLOR = (0, 0, 0, 0.22)
+    # мягкость тени (радиус размытия) и равномерное распространение вокруг карточки
+    SHADOW_BLUR_RADIUS = dp(12)
+    SHADOW_SPREAD_RADIUS = (-dp(1), -dp(1))
+    CARD_RADIUS = 18
+
+    def __init__(self, text="", icon_name="", chevron_name="c-right.png", **kwargs):
+        super().__init__(**kwargs)
+
+        self.base_color = lerp_color(color_bg, color_key, 0.20)
+        self.chip_color = color_key
+        self.text_color = color_text
+
+        with self.canvas.before:
+            # настоящая мягкая тень под карточкой (реальный blur, не имитация слоями)
+            self.shadow_color_instr = Color(*self.SHADOW_COLOR)
+            self.shadow = BoxShadow(
+                pos=self.pos,
+                size=self.size,
+                offset=(0, 0),  # без сдвига вниз - тень равномерная со всех сторон
+                blur_radius=self.SHADOW_BLUR_RADIUS,
+                spread_radius=self.SHADOW_SPREAD_RADIUS,
+                border_radius=(self.CARD_RADIUS,) * 4,
+            )
+
+            # заливка самой карточки
+            self.bg_color_instr = Color(*self.base_color)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[18])
+
+            # "чип" под иконкой
+            self.chip_color_instr = Color(*self.chip_color)
+            self.chip_rect = RoundedRectangle(pos=self.pos, size=(0, 0), radius=[12])
+
+        self.icon_img = Image(size_hint=(None, None), fit_mode="contain", color=self.text_color)
+        if icon_name:
+            self.icon_img.texture = load_white_icon_texture(icon_path(icon_name))
+        self.add_widget(self.icon_img)
+
+        self.label = Label(
+            text=text,
+            font_name=font_path("ClearSans-Bold.ttf"),
+            font_size='24sp',
+            bold=True,
+            color=self.text_color,
+            halign='left',
+            valign='middle',
+            size_hint=(None, None),
+        )
+        self.add_widget(self.label)
+
+        self.chevron_img = Image(size_hint=(None, None), fit_mode="contain", color=self.text_color)
+        self.chevron_img.texture = load_white_icon_texture(icon_path(chevron_name))
+        self.add_widget(self.chevron_img)
+
+        self.bind(pos=self._reposition, size=self._reposition, state=self._update_canvas)
+        self._reposition()
+
+    def _reposition(self, *args):
+        w, h = self.width, self.height
+        pad_side = h * 0.16
+        chip_side = h * 0.62
+
+        self.shadow.pos = self.pos
+        self.shadow.size = self.size
+
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
+
+        chip_x = self.x + pad_side
+        chip_y = self.y + (h - chip_side) / 2
+        self.chip_rect.pos = (chip_x, chip_y)
+        self.chip_rect.size = (chip_side, chip_side)
+
+        icon_side = chip_side * 0.5
+        self.icon_img.size = (icon_side, icon_side)
+        self.icon_img.center = (chip_x + chip_side / 2, chip_y + chip_side / 2)
+
+        chevron_side = h * 0.24
+        self.chevron_img.size = (chevron_side, chevron_side)
+        self.chevron_img.center = (self.x + w - pad_side - chevron_side / 2, self.y + h / 2)
+
+        label_x = chip_x + chip_side + pad_side
+        label_w = max(self.x + w - pad_side * 1.7 - chevron_side - label_x, dp(10))
+        # небольшой сдвиг вверх компенсирует оптический "провис" текста ниже
+        # геометрической середины карточки (эффект метрик жирного шрифта)
+        self.label.pos = (label_x, self.y + dp(2))
+        self.label.size = (label_w, h)
+        self.label.text_size = (label_w, h)
+        fit_font_size(self.label, label_w, h * 0.34)
+
+    def _update_canvas(self, *args):
+        if self.state == 'normal':
+            self.bg_color_instr.rgba = self.base_color
+        else:
+            self.bg_color_instr.rgba = (
+                self.base_color[0] * 0.94, self.base_color[1] * 0.94,
+                self.base_color[2] * 0.94, self.base_color[3]
+            )
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
 
 class MenuScreen(Screen):
     def __init__(self, **kwargs):
@@ -1023,13 +1318,12 @@ class MenuScreen(Screen):
         self.buttons_container = BoxLayout(orientation='vertical', size_hint=(None, None))
 
         self.buttons = [
-            MenuButton(text="Как играть"),
-            MenuButton(text="Достижения"),
-            MenuButton(text="Кастомизация"),
-            MenuButton(text="Квесты")
+            MenuRowButton(text="Как играть", icon_name="question-mark.png"),
+            MenuRowButton(text="Достижения", icon_name="trophy.png"),
+            MenuRowButton(text="Кастомизация", icon_name="palette.png"),
+            MenuRowButton(text="Квесты", icon_name="clipboard-text.png")
         ]
         for btn in self.buttons:
-            btn.font_name = font_path("ClearSans-Bold.ttf")
             btn.size_hint = (1, None)
             self.buttons_container.add_widget(btn)
 
@@ -1061,8 +1355,8 @@ class MenuScreen(Screen):
 
         container_w = win_w * 0.9
         total_elements = 4
-        spacing_h = dp(12)
-        max_btn_h = dp(76)
+        spacing_h = dp(18)
+        max_btn_h = dp(84)
 
         btn_h = (available_h - spacing_h * (total_elements - 1)) / total_elements
         btn_h = max(min(btn_h, max_btn_h), dp(44))
@@ -1075,7 +1369,6 @@ class MenuScreen(Screen):
 
         for btn in self.buttons:
             btn.height = btn_h
-            fit_font_size(btn, container_w - dp(36), btn_h * 0.4)
 
 class ToggleSwitch(ButtonBehavior, FloatLayout):
     progress = NumericProperty(0.0)
