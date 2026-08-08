@@ -228,6 +228,16 @@ from kivy.core.image import Image as CoreImage
 from kivy.graphics.texture import Texture
 
 _ICON_TEXTURE_CACHE = {}
+_MISSING_ICON_TEXTURE = None
+
+def _get_missing_icon_texture():
+    """1x1 прозрачная текстура-заглушка, чтобы отсутствующая/битая иконка
+    просто не отображалась, а не роняла всё приложение."""
+    global _MISSING_ICON_TEXTURE
+    if _MISSING_ICON_TEXTURE is None:
+        _MISSING_ICON_TEXTURE = Texture.create(size=(1, 1), colorfmt='rgba')
+        _MISSING_ICON_TEXTURE.blit_buffer(bytes([0, 0, 0, 0]), colorfmt='rgba', bufferfmt='ubyte')
+    return _MISSING_ICON_TEXTURE
 
 def load_white_icon_texture(path):
     """
@@ -240,31 +250,43 @@ def load_white_icon_texture(path):
     recoloring never has any visible effect. Converting the icon to a
     white-based mask (255 * x = x) makes the tint actually work, without
     requiring the source .png files themselves to be edited.
+
+    ВАЖНО: если файл иконки отсутствует, не читается или имя не совпадает
+    по регистру (частая причина падений именно на Android, где файловая
+    система чувствительна к регистру, в отличие от Windows) - функция
+    больше НЕ роняет всё приложение, а возвращает прозрачную заглушку и
+    печатает путь к проблемному файлу в лог, чтобы его было легко найти.
     """
     if path in _ICON_TEXTURE_CACHE:
         return _ICON_TEXTURE_CACHE[path]
 
-    core_img = CoreImage(path)
-    src_tex = core_img.texture
+    try:
+        core_img = CoreImage(path)
+        src_tex = core_img.texture
 
-    if src_tex.colorfmt != 'rgba':
-        # No alpha channel to preserve shape by - nothing safe to do,
-        # just reuse the texture as-is.
-        _ICON_TEXTURE_CACHE[path] = src_tex
-        return src_tex
+        if src_tex.colorfmt != 'rgba':
+            # No alpha channel to preserve shape by - nothing safe to do,
+            # just reuse the texture as-is.
+            _ICON_TEXTURE_CACHE[path] = src_tex
+            return src_tex
 
-    pixels = bytearray(src_tex.pixels)
-    for i in range(0, len(pixels), 4):
-        pixels[i] = 255      # R
-        pixels[i + 1] = 255  # G
-        pixels[i + 2] = 255  # B
-        # alpha (pixels[i + 3]) stays untouched - keeps the glyph's shape
+        pixels = bytearray(src_tex.pixels)
+        for i in range(0, len(pixels), 4):
+            pixels[i] = 255      # R
+            pixels[i + 1] = 255  # G
+            pixels[i + 2] = 255  # B
+            # alpha (pixels[i + 3]) stays untouched - keeps the glyph's shape
 
-    new_tex = Texture.create(size=src_tex.size, colorfmt='rgba')
-    new_tex.blit_buffer(bytes(pixels), colorfmt='rgba', bufferfmt='ubyte')
-    new_tex.flip_vertical()
-    _ICON_TEXTURE_CACHE[path] = new_tex
-    return new_tex
+        new_tex = Texture.create(size=src_tex.size, colorfmt='rgba')
+        new_tex.blit_buffer(bytes(pixels), colorfmt='rgba', bufferfmt='ubyte')
+        new_tex.flip_vertical()
+        _ICON_TEXTURE_CACHE[path] = new_tex
+        return new_tex
+    except Exception as e:
+        print(f"[MGGamesStudio] НЕ УДАЛОСЬ ЗАГРУЗИТЬ ИКОНКУ: {path} ({e})")
+        fallback = _get_missing_icon_texture()
+        _ICON_TEXTURE_CACHE[path] = fallback
+        return fallback
 
 # ----- ЦВЕТА -----
 color_themes = {
