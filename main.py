@@ -215,7 +215,15 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-from kivy.graphics import Color, RoundedRectangle, Rectangle, BoxShadow
+try:
+    from kivy.graphics import Color, RoundedRectangle, Rectangle, BoxShadow
+    _BOX_SHADOW_AVAILABLE = True
+except ImportError:
+    # BoxShadow появился в Kivy 2.2.0 - на более старой версии просто
+    # отключаем настоящую тень вместо падения всего приложения при старте.
+    from kivy.graphics import Color, RoundedRectangle, Rectangle
+    BoxShadow = None
+    _BOX_SHADOW_AVAILABLE = False
 from kivy.core.image import Image as CoreImage
 from kivy.graphics.texture import Texture
 
@@ -596,15 +604,18 @@ class MainMenuButton(ButtonBehavior, FloatLayout):
 
         with self.canvas.before:
             # настоящая мягкая тень под карточкой (реальный blur, не имитация слоями)
-            self.shadow_color_instr = Color(*self.SHADOW_COLOR)
-            self.shadow = BoxShadow(
-                pos=self.pos,
-                size=self.size,
-                offset=(0, 0),  # без сдвига вниз - тень равномерная со всех сторон
-                blur_radius=self.SHADOW_BLUR_RADIUS,
-                spread_radius=self.SHADOW_SPREAD_RADIUS,
-                border_radius=(self.CARD_RADIUS,) * 4,
-            )
+            # На Kivy < 2.2.0 (нет BoxShadow) тень просто отключается, без падения приложения
+            self.shadow = None
+            if _BOX_SHADOW_AVAILABLE:
+                self.shadow_color_instr = Color(*self.SHADOW_COLOR)
+                self.shadow = BoxShadow(
+                    pos=self.pos,
+                    size=self.size,
+                    offset=(0, 0),  # без сдвига вниз - тень равномерная со всех сторон
+                    blur_radius=self.SHADOW_BLUR_RADIUS,
+                    spread_radius=self.SHADOW_SPREAD_RADIUS,
+                    border_radius=(self.CARD_RADIUS,) * 4,
+                )
 
             # заливка самой карточки
             self.bg_color_instr = Color(*self.base_color)
@@ -634,8 +645,9 @@ class MainMenuButton(ButtonBehavior, FloatLayout):
         w, h = self.width, self.height
         pad_side = h * 0.18
 
-        self.shadow.pos = self.pos
-        self.shadow.size = self.size
+        if self.shadow is not None:
+            self.shadow.pos = self.pos
+            self.shadow.size = self.size
 
         self.bg_rect.pos = self.pos
         self.bg_rect.size = self.size
@@ -1207,15 +1219,18 @@ class MenuRowButton(ButtonBehavior, FloatLayout):
 
         with self.canvas.before:
             # настоящая мягкая тень под карточкой (реальный blur, не имитация слоями)
-            self.shadow_color_instr = Color(*self.SHADOW_COLOR)
-            self.shadow = BoxShadow(
-                pos=self.pos,
-                size=self.size,
-                offset=(0, 0),  # без сдвига вниз - тень равномерная со всех сторон
-                blur_radius=self.SHADOW_BLUR_RADIUS,
-                spread_radius=self.SHADOW_SPREAD_RADIUS,
-                border_radius=(self.CARD_RADIUS,) * 4,
-            )
+            # На Kivy < 2.2.0 (нет BoxShadow) тень просто отключается, без падения приложения
+            self.shadow = None
+            if _BOX_SHADOW_AVAILABLE:
+                self.shadow_color_instr = Color(*self.SHADOW_COLOR)
+                self.shadow = BoxShadow(
+                    pos=self.pos,
+                    size=self.size,
+                    offset=(0, 0),  # без сдвига вниз - тень равномерная со всех сторон
+                    blur_radius=self.SHADOW_BLUR_RADIUS,
+                    spread_radius=self.SHADOW_SPREAD_RADIUS,
+                    border_radius=(self.CARD_RADIUS,) * 4,
+                )
 
             # заливка самой карточки
             self.bg_color_instr = Color(*self.base_color)
@@ -1254,8 +1269,9 @@ class MenuRowButton(ButtonBehavior, FloatLayout):
         pad_side = h * 0.16
         chip_side = h * 0.62
 
-        self.shadow.pos = self.pos
-        self.shadow.size = self.size
+        if self.shadow is not None:
+            self.shadow.pos = self.pos
+            self.shadow.size = self.size
 
         self.bg_rect.pos = self.pos
         self.bg_rect.size = self.size
