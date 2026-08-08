@@ -66,6 +66,28 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+def icon_path(icon_name):
+    """
+    Возвращает путь к иконке внутри папки guesswordgame-icons,
+    которая лежит рядом с этим файлом с кодом (или рядом с exe/apk при сборке).
+    """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, "guesswordgame-icons", icon_name)
+
+def font_path(font_name):
+    """
+    Возвращает путь к шрифту внутри папки guesswordgame-fonts,
+    которая лежит рядом с этим файлом с кодом (или рядом с exe/apk при сборке).
+    """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, "guesswordgame-fonts", font_name)
+
 try:
     game_save_dir = user_data_dir("GuessWordGame", "MGGamesStudio")
     if not os.path.exists(game_save_dir):
@@ -479,7 +501,7 @@ class MenuButton(Button):
     def __init__(self, text="", pos_hint=None, size_hint=(0.93, None), height=84, **kwargs):
         super().__init__(**kwargs)
         self.text = text
-        self.font_name = resource_path("ClearSans-Bold.ttf")
+        self.font_name = font_path("ClearSans-Bold.ttf")
         self.font_size = '30sp'
         self.bold = True
         
@@ -531,7 +553,7 @@ class ModeButton(BoxLayout):
 
         self.title_label = Label(
             text=title_text,
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             font_size='30sp',
             bold=True,
             color=color_text,
@@ -543,7 +565,7 @@ class ModeButton(BoxLayout):
         
         self.sub_label = Label(
             text=description_text,
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             font_size='14sp',
             color=description_color if description_color else color_text,
             halign='center',
@@ -588,7 +610,7 @@ class GameCell(Label):
     def __init__(self, size=(74, 92), pos=(0, 0), **kwargs):
         super().__init__(**kwargs)
         self.text = ""
-        self.font_name = resource_path("ClearSans-Bold.ttf")
+        self.font_name = font_path("ClearSans-Bold.ttf")
         self.font_size = '32sp'
         self.bold = True
         
@@ -637,7 +659,7 @@ class KeyButton(Button):
     def __init__(self, text="", size=(40, 85), **kwargs):
         super().__init__(**kwargs)
         self.text = text
-        self.font_name = resource_path("ClearSans-Bold.ttf")
+        self.font_name = font_path("ClearSans-Bold.ttf")
         self.font_size = '16sp'
         self.bold = True
         self.halign = 'center'
@@ -677,7 +699,7 @@ class IconKeyButton(KeyButton):
             fit_mode="contain",
             color=self.color,
         )
-        self.icon.texture = load_white_icon_texture(resource_path(image_source))
+        self.icon.texture = load_white_icon_texture(icon_path(image_source))
         self.add_widget(self.icon)
         self.bind(pos=self._update_icon, size=self._update_icon)
         self._update_icon()
@@ -729,7 +751,7 @@ class ThemeCard(ButtonBehavior, FloatLayout):
 
         self.lbl_name = Label(
             text=theme_name,
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             font_size='18sp',
             color=self.c_text,
             bold=True,
@@ -747,7 +769,7 @@ class ThemeCard(ButtonBehavior, FloatLayout):
         for i in range(5):
             lbl_a = Label(
                 text="A",
-                font_name=resource_path("ClearSans-Bold.ttf"),
+                font_name=font_path("ClearSans-Bold.ttf"),
                 font_size='22sp',
                 color=self.text_colors[i],
                 bold=True,
@@ -865,7 +887,7 @@ class MainScreen(Screen):
         self.layout = FloatLayout()
         self.title_label = Label(
             text="Угадай слово", 
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             bold=True, 
             color=color_text,
             size_hint=(None, None), 
@@ -884,7 +906,7 @@ class MainScreen(Screen):
             MenuButton(text="Настройки")
         ]
         for btn in self.buttons:
-            btn.font_name = resource_path("ClearSans-Bold.ttf")
+            btn.font_name = font_path("ClearSans-Bold.ttf")
 
         self.buttons[0].base_color = color_correct
         self.buttons[0].color = (1.0, 1.0, 1.0, 1.0)
@@ -899,7 +921,7 @@ class MainScreen(Screen):
 
         self.copy_label = Label(
             text="Угадай слово by MGGamesStudio. v.1.1.0", 
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             color=color_not_in_word,
             size_hint=(None, None),
             halign='center',
@@ -957,14 +979,14 @@ class MenuScreen(Screen):
         self.layout = FloatLayout()
 
         self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
-        self.btn_back.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_back.font_name = font_path("ClearSans-Bold.ttf")
         self.btn_back.font_size = '20sp'
         self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'main'))
         self.layout.add_widget(self.btn_back)
 
         self.title_label = Label(
             text="Меню",
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             bold=True,
             color=color_text,
             size_hint=(None, None),
@@ -982,7 +1004,7 @@ class MenuScreen(Screen):
             MenuButton(text="Квесты")
         ]
         for btn in self.buttons:
-            btn.font_name = resource_path("ClearSans-Bold.ttf")
+            btn.font_name = font_path("ClearSans-Bold.ttf")
             btn.size_hint = (1, None)
             self.buttons_container.add_widget(btn)
 
@@ -1102,7 +1124,7 @@ class SettingToggleRow(FloatLayout):
 
         self.label = Label(
             text=text,
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             color=color_text,
             halign='left',
             valign='top',
@@ -1147,7 +1169,7 @@ class SettingLinkRow(ButtonBehavior, FloatLayout):
 
         self.label = Label(
             text=text,
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             color=color_correct,
             halign='left',
             valign='top',
@@ -1190,7 +1212,7 @@ class SettingInfoRow(FloatLayout):
 
         self.value_label = Label(
             text=value,
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             color=color_not_in_word,
             halign='right',
             valign='top',
@@ -1200,7 +1222,7 @@ class SettingInfoRow(FloatLayout):
 
         self.label = Label(
             text=text,
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             color=color_text,
             halign='left',
             valign='top',
@@ -1248,14 +1270,14 @@ class OptionsScreen(Screen):
         self.layout = FloatLayout()
 
         self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
-        self.btn_back.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_back.font_name = font_path("ClearSans-Bold.ttf")
         self.btn_back.font_size = '20sp'
         self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'main'))
         self.layout.add_widget(self.btn_back)
 
         self.title_label = Label(
             text="Настройки",
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             bold=True,
             color=color_text,
             size_hint=(None, None),
@@ -1346,14 +1368,14 @@ class AboutScreen(Screen):
         self.layout = FloatLayout()
 
         self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
-        self.btn_back.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_back.font_name = font_path("ClearSans-Bold.ttf")
         self.btn_back.font_size = '20sp'
         self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'options'))
         self.layout.add_widget(self.btn_back)
 
         self.title_label = Label(
             text="О программе",
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             bold=True,
             color=color_text,
             size_hint=(None, None),
@@ -1420,14 +1442,14 @@ class TextDocumentScreen(Screen):
         self.layout = FloatLayout()
 
         self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
-        self.btn_back.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_back.font_name = font_path("ClearSans-Bold.ttf")
         self.btn_back.font_size = '20sp'
         self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', self.back_target))
         self.layout.add_widget(self.btn_back)
 
         self.title_label = Label(
             text=title_text,
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             bold=True,
             color=color_text,
             size_hint=(None, None),
@@ -1446,7 +1468,7 @@ class TextDocumentScreen(Screen):
 
         self.text_label = Label(
             text=self._load_document_text(source_file),
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             font_size='14sp',
             color=color_text,
             size_hint_y=None,
@@ -1499,14 +1521,14 @@ class PlayScreen(Screen):
         self.layout = FloatLayout()
 
         self.btn_back = MenuButton(text="Назад", size_hint=(None, None), size=(100, 54))
-        self.btn_back.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_back.font_name = font_path("ClearSans-Bold.ttf")
         self.btn_back.font_size = '20sp'
         self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'main'))
         self.layout.add_widget(self.btn_back)
 
         self.title_label = Label(
             text="ВЫБЕРИТЕ РЕЖИМ ИГРЫ",
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             bold=True,
             color=color_text,
             size_hint=(None, None),
@@ -1517,7 +1539,7 @@ class PlayScreen(Screen):
 
         self.category_label = Label(
             text="Оффлайн",
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             bold=True,
             color=color_text,
             size_hint=(None, None),
@@ -1566,7 +1588,7 @@ class PlayScreen(Screen):
         self.layout.add_widget(self.mode_container)
         self.footer_label = Label(
             text="Больше режимов нет.",
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             color=color_not_in_word,
             size_hint=(None, None),
             halign='center',
@@ -1733,7 +1755,6 @@ class OnePlayerGameScreen(Screen):
         self.bg_rect.pos = (0, 0)
 
         GRID_GAP = dp(6)
-        EXTRA_TOP_GAP = dp(28)
         top_reserved = TOP_SAFE_MARGIN + dp(48) + GRID_GAP
         bottom_reserved = BOTTOM_SAFE_MARGIN
 
@@ -1741,55 +1762,16 @@ class OnePlayerGameScreen(Screen):
         self.btn_exit_top.pos = (win_w - dp(92) - dp(14), win_h - TOP_SAFE_MARGIN - dp(48))
         fit_font_size(self.btn_exit_top, self.btn_exit_top.width - dp(18), self.btn_exit_top.height * 0.42)
 
-        CELL_SPACING_X = 5
-        CELL_SPACING_Y = 5
-
-        side_margin = win_w * 0.11
-
-        avail_cell_w = win_w - (2 * side_margin) - 20
-        CELL_WIDTH = avail_cell_w / 5  
-        CELL_HEIGHT = CELL_WIDTH  
-
-        total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
-        max_allowed_height = (win_h - top_reserved - bottom_reserved) * 0.68
-
-        if total_blanks_height > max_allowed_height:
-
-            total_blanks_height = max_allowed_height
-            CELL_HEIGHT = (total_blanks_height - (5 * CELL_SPACING_Y)) / 6
-            CELL_WIDTH = CELL_HEIGHT
-            side_margin = (win_w - (5 * CELL_WIDTH) - 20) / 2
-
-        for cell in self.cells:
-            cell.size = (CELL_WIDTH, CELL_HEIGHT)
-
-        # Позиционирование смещено вниз на EXTRA_TOP_GAP: сама сетка (и её кап по высоте
-        # выше) не меняется, но между кнопкой "Назад" и сеткой появляется больше воздуха,
-        # а клавиатура снизу автоматически становится ниже — ей достаётся меньше места.
-        top_reserved_pos = top_reserved + EXTRA_TOP_GAP
-
-        start_blank_x = side_margin
-        start_blank_y = win_h - top_reserved_pos - CELL_HEIGHT
-        
-        cell_idx = 0
-        for row in range(6):
-            for col in range(5):
-                if cell_idx < len(self.cells):
-                    self.cells[cell_idx].pos = (start_blank_x + col * (CELL_WIDTH + CELL_SPACING_X), start_blank_y - row * (CELL_HEIGHT + CELL_SPACING_Y))
-                    self.cells[cell_idx].update_canvas()
-                    cell_idx += 1
-
-        bottom_blanks_line = (win_h - top_reserved_pos) - total_blanks_height
-        keyboard_top_y = bottom_blanks_line - GRID_GAP
-
+        # ----- КЛАВИАТУРА: фиксированная высота (доля от высоты экрана), не зависит от
+        # того, сколько места осталось под сеткой — высота клавиатуры всегда одинаковая. -----
         KEY_SPACING_X = 4
+        KEY_SPACING_Y = 4
+        KEY_HEIGHT_FRACTION = 0.0786
         avail_w = win_w - 16 - 44
         KEY_WIDTH = avail_w / 12
-
-        KEY_SPACING_Y = 4
-
-        avail_h = keyboard_top_y - bottom_reserved - (2 * KEY_SPACING_Y)
-        KEY_HEIGHT = avail_h / 3
+        KEY_HEIGHT = win_h * KEY_HEIGHT_FRACTION
+        keyboard_total_height = (3 * KEY_HEIGHT) + (2 * KEY_SPACING_Y)
+        keyboard_top_y = bottom_reserved + keyboard_total_height
 
         for key in self.keyboard_keys:
             key.size = (KEY_WIDTH, KEY_HEIGHT)
@@ -1823,6 +1805,49 @@ class OnePlayerGameScreen(Screen):
                 erase_x = start_l_x + len(line_keys) * (KEY_WIDTH + KEY_SPACING_X)
                 self.btn_erase.pos = (erase_x, row_heights[h_idx])
                 self.btn_erase.update_canvas()
+
+        # ----- СЕТКА 5×6: ширина клеток — от ширины экрана (как раньше). Высота
+        # ограничена так, чтобы сетка не наезжала на клавиатуру, и ЦЕНТРИРУЕТСЯ по
+        # вертикали в промежутке между кнопкой "Назад" и клавиатурой — сверху и снизу
+        # от сетки остаётся поровну свободного места. -----
+        CELL_SPACING_X = 5
+        CELL_SPACING_Y = 5
+
+        side_margin = win_w * 0.11
+
+        avail_cell_w = win_w - (2 * side_margin) - 20
+        CELL_WIDTH = avail_cell_w / 5  
+        CELL_HEIGHT = CELL_WIDTH  
+
+        total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
+
+        top_boundary = win_h - top_reserved
+        avail_for_grid_space = top_boundary - keyboard_top_y - GRID_GAP
+        max_allowed_height = avail_for_grid_space * 0.68
+
+        if total_blanks_height > max_allowed_height:
+
+            total_blanks_height = max_allowed_height
+            CELL_HEIGHT = (total_blanks_height - (5 * CELL_SPACING_Y)) / 6
+            CELL_WIDTH = CELL_HEIGHT
+            side_margin = (win_w - (5 * CELL_WIDTH) - 20) / 2
+
+        for cell in self.cells:
+            cell.size = (CELL_WIDTH, CELL_HEIGHT)
+
+        free_space_y = avail_for_grid_space - total_blanks_height
+        block_bottom_y = keyboard_top_y + GRID_GAP + (free_space_y / 2)
+
+        start_blank_x = side_margin
+        start_blank_y = block_bottom_y + total_blanks_height - CELL_HEIGHT
+
+        cell_idx = 0
+        for row in range(6):
+            for col in range(5):
+                if cell_idx < len(self.cells):
+                    self.cells[cell_idx].pos = (start_blank_x + col * (CELL_WIDTH + CELL_SPACING_X), start_blank_y - row * (CELL_HEIGHT + CELL_SPACING_Y))
+                    self.cells[cell_idx].update_canvas()
+                    cell_idx += 1
 
         apply_adaptive_fonts(self, CELL_HEIGHT, KEY_HEIGHT)
 
@@ -2123,18 +2148,18 @@ class OnePlayerGameScreen(Screen):
         msg_font_size = safe_screen_side * 0.04
         tip_font_size = safe_screen_side * 0.03
 
-        lbl_title = Label(text=title_text, font_name=resource_path("ClearSans-Bold.ttf"),
+        lbl_title = Label(text=title_text, font_name=font_path("ClearSans-Bold.ttf"),
                           font_size=f"{title_font_size}px", color=title_color, bold=True,
                           size_hint=(1, None), height=popup_height * 0.25, 
                           pos_hint={'center_x': 0.5, 'top': 0.9})
 
-        lbl_msg = Label(text=msg_text, font_name=resource_path("ClearSans-Bold.ttf"),
+        lbl_msg = Label(text=msg_text, font_name=font_path("ClearSans-Bold.ttf"),
                         font_size=f"{msg_font_size}px", color=color_text, bold=True,
                         size_hint=(1, None), height=popup_height * 0.25, 
                         pos_hint={'center_x': 0.5, 'center_y': 0.45})
 
         tip_text = "Кликните в любое место для выхода в меню" if is_end_game else "Кликните в любое место, чтобы скрыть"
-        lbl_tip = Label(text=tip_text, font_name=resource_path("ClearSans-Bold.ttf"),
+        lbl_tip = Label(text=tip_text, font_name=font_path("ClearSans-Bold.ttf"),
                         font_size=f"{tip_font_size}px", color=(100/255, 116/255, 139/255, 1.0), bold=True,
                         size_hint=(1, None), height=popup_height * 0.15, 
                         pos_hint={'center_x': 0.5, 'y': 0.08})
@@ -2164,11 +2189,11 @@ class TwoPlayerGameScreen(Screen):
             Color(*color_bg)
             self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
 
-        self.lbl_title = Label(text="ЗАГАДАЙТЕ СЛОВО", font_name=resource_path("ClearSans-Bold.ttf"),
+        self.lbl_title = Label(text="ЗАГАДАЙТЕ СЛОВО", font_name=font_path("ClearSans-Bold.ttf"),
                                font_size='32sp', color=color_text, bold=True, size_hint=(None, None))
-        self.lbl_subtitle = Label(text="Второй игрок должен отвернуться от экрана!", font_name=resource_path("ClearSans-Bold.ttf"),
+        self.lbl_subtitle = Label(text="Второй игрок должен отвернуться от экрана!", font_name=font_path("ClearSans-Bold.ttf"),
                                   font_size='14sp', color=color_not_in_word, bold=True, size_hint=(None, None))
-        self.lbl_error = Label(text="", font_name=resource_path("ClearSans-Bold.ttf"),
+        self.lbl_error = Label(text="", font_name=font_path("ClearSans-Bold.ttf"),
                                font_size='15sp', color=color_in_word, bold=True, size_hint=(None, None))
         self.layout.add_widget(self.lbl_error)
         self.layout.add_widget(self.lbl_title)
@@ -2239,6 +2264,23 @@ class TwoPlayerGameScreen(Screen):
         self.btn_exit_top.pos = (win_w - dp(92) - dp(14), win_h - TOP_SAFE_MARGIN - dp(48))
         fit_font_size(self.btn_exit_top, self.btn_exit_top.width - dp(18), self.btn_exit_top.height * 0.42)
 
+        # ----- КЛАВИАТУРА: фиксированная высота (доля от высоты экрана), как и на
+        # остальных экранах игры — не зависит от того, сколько места осталось под сеткой. -----
+        KEY_SPACING_X = 4
+        KEY_SPACING_Y = 4
+        KEY_HEIGHT_FRACTION = 0.0786
+        avail_w = win_w - 16 - 44
+        KEY_WIDTH = avail_w / 12
+        KEY_HEIGHT = win_h * KEY_HEIGHT_FRACTION
+        keyboard_total_height = (3 * KEY_HEIGHT) + (2 * KEY_SPACING_Y)
+        keyboard_top_y = bottom_reserved + keyboard_total_height
+
+        row_heights = [
+            bottom_reserved,
+            bottom_reserved + (KEY_HEIGHT + KEY_SPACING_Y),
+            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y)
+        ]
+
         CELL_SPACING_X = 5
         CELL_SPACING_Y = 5
         side_margin = win_w * 0.11
@@ -2247,7 +2289,10 @@ class TwoPlayerGameScreen(Screen):
         CELL_HEIGHT = CELL_WIDTH  
 
         total_blanks_height = (6 * CELL_HEIGHT) + (5 * CELL_SPACING_Y)
-        max_allowed_height = (win_h - top_reserved - bottom_reserved) * 0.68
+
+        top_boundary = win_h - top_reserved
+        avail_for_grid_space = top_boundary - keyboard_top_y - GRID_GAP
+        max_allowed_height = avail_for_grid_space * 0.68
 
         if total_blanks_height > max_allowed_height:
             total_blanks_height = max_allowed_height
@@ -2258,26 +2303,10 @@ class TwoPlayerGameScreen(Screen):
         for cell in self.cells:
             cell.size = (CELL_WIDTH, CELL_HEIGHT)
 
-        virtual_bottom_line = (win_h - top_reserved) - total_blanks_height
-        keyboard_top_y = virtual_bottom_line - GRID_GAP
-        KEY_SPACING_X = 4
-        avail_w = win_w - 16 - 44
-        KEY_WIDTH = avail_w / 12  
-        KEY_SPACING_Y = 4
-        avail_h = keyboard_top_y - bottom_reserved - (2 * KEY_SPACING_Y)
-        KEY_HEIGHT = avail_h / 3
-
-        row_heights = [
-            bottom_reserved,
-            bottom_reserved + (KEY_HEIGHT + KEY_SPACING_Y),
-            bottom_reserved + 2 * (KEY_HEIGHT + KEY_SPACING_Y)
-        ]
-
         start_blank_x = side_margin
         
         if self.stage == "setup":
-            kbd_top_y = row_heights[2] + KEY_HEIGHT
-            top_boundary = win_h - top_reserved
+            kbd_top_y = keyboard_top_y
 
             total_free_space_y = top_boundary - kbd_top_y
             start_blank_y = kbd_top_y + (total_free_space_y - CELL_HEIGHT) // 2
@@ -2311,7 +2340,11 @@ class TwoPlayerGameScreen(Screen):
             self.lbl_error.size = self.lbl_error.texture_size
             self.lbl_error.pos = (win_w // 2 - self.lbl_error.width // 2, center_below_y - self.lbl_error.height // 2)
         else:
-            start_blank_y = win_h - top_reserved - CELL_HEIGHT
+            # ----- СЕТКА 5×6 центрируется по вертикали между кнопкой "Назад" и
+            # клавиатурой — сверху и снизу от сетки остаётся поровну свободного места. -----
+            free_space_y = avail_for_grid_space - total_blanks_height
+            block_bottom_y = keyboard_top_y + GRID_GAP + (free_space_y / 2)
+            start_blank_y = block_bottom_y + total_blanks_height - CELL_HEIGHT
 
         cell_idx = 0
         for row in range(6):
@@ -2533,18 +2566,18 @@ class TwoPlayerGameScreen(Screen):
         msg_font_size = safe_screen_side * 0.04
         tip_font_size = safe_screen_side * 0.03
 
-        lbl_title = Label(text=title_text, font_name=resource_path("ClearSans-Bold.ttf"),
+        lbl_title = Label(text=title_text, font_name=font_path("ClearSans-Bold.ttf"),
                           font_size=f"{title_font_size}px", color=title_color, bold=True,
                           size_hint=(1, None), height=popup_height * 0.25, 
                           pos_hint={'center_x': 0.5, 'top': 0.9})
 
-        lbl_msg = Label(text=msg_text, font_name=resource_path("ClearSans-Bold.ttf"),
+        lbl_msg = Label(text=msg_text, font_name=font_path("ClearSans-Bold.ttf"),
                         font_size=f"{msg_font_size}px", color=color_text, bold=True,
                         size_hint=(1, None), height=popup_height * 0.25, 
                         pos_hint={'center_x': 0.5, 'center_y': 0.45})
         
         tip_text = "Кликните в любое место для выхода в меню" if is_end_game else "Кликните в любое место, чтобы скрыть"
-        lbl_tip = Label(text=tip_text, font_name=resource_path("ClearSans-Bold.ttf"),
+        lbl_tip = Label(text=tip_text, font_name=font_path("ClearSans-Bold.ttf"),
                         font_size=f"{tip_font_size}px", color=color_not_in_word, bold=True,
                         size_hint=(1, None), height=popup_height * 0.15, 
                         pos_hint={'center_x': 0.5, 'y': 0.08})
@@ -2580,7 +2613,7 @@ class SeedGenerationScreen(Screen):
 
         self.title_label = Label(
             text="ГЕНЕРАЦИЯ СИДА",
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             bold=True,
             color=color_text,
             size_hint=(None, None),
@@ -2591,7 +2624,7 @@ class SeedGenerationScreen(Screen):
 
         self.lbl_stub = Label(
             text="Создайте сид из своего слова и отправьте его другу,\nили введите сид, который вам прислали, чтобы отгадать слово.",
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             bold=True,
             color=color_not_in_word,
             size_hint=(None, None),
@@ -2606,13 +2639,13 @@ class SeedGenerationScreen(Screen):
         )
 
         self.btn_create_seed = MenuButton(text="Создать сид")
-        self.btn_create_seed.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_create_seed.font_name = font_path("ClearSans-Bold.ttf")
         self.btn_create_seed.base_color = color_correct
         self.btn_create_seed.color = (1.0, 1.0, 1.0, 1.0)
         self.btn_create_seed.bind(on_release=lambda x: setattr(self.manager, 'current', 'seed_create'))
 
         self.btn_enter_seed = MenuButton(text="Ввести сид")
-        self.btn_enter_seed.font_name = resource_path("ClearSans-Bold.ttf")
+        self.btn_enter_seed.font_name = font_path("ClearSans-Bold.ttf")
         self.btn_enter_seed.bind(on_release=lambda x: setattr(self.manager, 'current', 'seed_enter'))
 
         self.mode_buttons = [self.btn_create_seed, self.btn_enter_seed]
@@ -2680,13 +2713,13 @@ class SeedCreateScreen(Screen):
             Color(*color_bg)
             self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
 
-        self.lbl_title = Label(text="СОЗДАЙТЕ СИД", font_name=resource_path("ClearSans-Bold.ttf"),
+        self.lbl_title = Label(text="СОЗДАЙТЕ СИД", font_name=font_path("ClearSans-Bold.ttf"),
                                font_size='32sp', color=color_text, bold=True, size_hint=(None, None))
-        self.lbl_subtitle = Label(text="Введите загаданное слово, чтобы получить его сид", font_name=resource_path("ClearSans-Bold.ttf"),
+        self.lbl_subtitle = Label(text="Введите загаданное слово, чтобы получить его сид", font_name=font_path("ClearSans-Bold.ttf"),
                                   font_size='14sp', color=color_not_in_word, bold=True, size_hint=(None, None))
-        self.lbl_error = Label(text="", font_name=resource_path("ClearSans-Bold.ttf"),
+        self.lbl_error = Label(text="", font_name=font_path("ClearSans-Bold.ttf"),
                                font_size='15sp', color=color_in_word, bold=True, size_hint=(None, None))
-        self.lbl_seed = Label(text="", font_name=resource_path("ClearSans-Bold.ttf"),
+        self.lbl_seed = Label(text="", font_name=font_path("ClearSans-Bold.ttf"),
                               font_size='20sp', color=color_correct, bold=True, size_hint=(None, None))
         self.layout.add_widget(self.lbl_error)
         self.layout.add_widget(self.lbl_seed)
@@ -2825,18 +2858,14 @@ class SeedCreateScreen(Screen):
         apply_adaptive_fonts(self, CELL_HEIGHT, self.keyboard_keys[0].height if self.keyboard_keys else dp(50))
 
     def _layout_keyboard(self, win_w, win_h, bottom_reserved, top_reserved, cell_height):
-        GRID_GAP = dp(6)
-        CELL_SPACING_Y = 5
-        total_blanks_height_kb = (6 * cell_height) + (5 * CELL_SPACING_Y)
-        virtual_bottom_line = (win_h - top_reserved) - total_blanks_height_kb
-        keyboard_top_y = virtual_bottom_line - GRID_GAP
+        # ----- КЛАВИАТУРА: та же фиксированная высота (доля от высоты экрана), что и
+        # на игровых экранах, чтобы клавиатура выглядела одинаково на всех экранах. -----
         KEY_SPACING_X = 4
-
+        KEY_SPACING_Y = 4
+        KEY_HEIGHT_FRACTION = 0.0786
         avail_w = win_w - 16 - 44
         KEY_WIDTH = avail_w / 12
-        KEY_SPACING_Y = 4
-        avail_h = keyboard_top_y - bottom_reserved - (2 * KEY_SPACING_Y)
-        KEY_HEIGHT = avail_h / 3
+        KEY_HEIGHT = win_h * KEY_HEIGHT_FRACTION
 
         row_heights = [
             bottom_reserved,
@@ -2975,11 +3004,11 @@ class SeedEnterScreen(Screen):
             Color(*color_bg)
             self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
 
-        self.lbl_title = Label(text="ВВЕДИТЕ СИД", font_name=resource_path("ClearSans-Bold.ttf"),
+        self.lbl_title = Label(text="ВВЕДИТЕ СИД", font_name=font_path("ClearSans-Bold.ttf"),
                                font_size='32sp', color=color_text, bold=True, size_hint=(None, None))
-        self.lbl_subtitle = Label(text="Введите сид, который вам прислал друг", font_name=resource_path("ClearSans-Bold.ttf"),
+        self.lbl_subtitle = Label(text="Введите сид, который вам прислал друг", font_name=font_path("ClearSans-Bold.ttf"),
                                   font_size='14sp', color=color_not_in_word, bold=True, size_hint=(None, None))
-        self.lbl_error = Label(text="", font_name=resource_path("ClearSans-Bold.ttf"),
+        self.lbl_error = Label(text="", font_name=font_path("ClearSans-Bold.ttf"),
                                font_size='15sp', color=color_in_word, bold=True, size_hint=(None, None))
         self.layout.add_widget(self.lbl_error)
         self.layout.add_widget(self.lbl_title)
@@ -3111,18 +3140,14 @@ class SeedEnterScreen(Screen):
         apply_adaptive_fonts(self, CELL_HEIGHT, self.keyboard_keys[0].height if self.keyboard_keys else dp(50))
 
     def _layout_keyboard(self, win_w, win_h, bottom_reserved, top_reserved, cell_height):
-        GRID_GAP = dp(6)
-        CELL_SPACING_Y = 5
-        total_blanks_height_kb = (6 * cell_height) + (5 * CELL_SPACING_Y)
-        virtual_bottom_line = (win_h - top_reserved) - total_blanks_height_kb
-        keyboard_top_y = virtual_bottom_line - GRID_GAP
+        # ----- КЛАВИАТУРА: та же фиксированная высота (доля от высоты экрана), что и
+        # на игровых экранах, чтобы клавиатура выглядела одинаково на всех экранах. -----
         KEY_SPACING_X = 4
-
+        KEY_SPACING_Y = 4
+        KEY_HEIGHT_FRACTION = 0.0786
         avail_w = win_w - 16 - 44
         KEY_WIDTH = avail_w / 12
-        KEY_SPACING_Y = 4
-        avail_h = keyboard_top_y - bottom_reserved - (2 * KEY_SPACING_Y)
-        KEY_HEIGHT = avail_h / 3
+        KEY_HEIGHT = win_h * KEY_HEIGHT_FRACTION
 
         row_heights = [
             bottom_reserved,
@@ -3250,7 +3275,7 @@ class HowToPlayScreen(Screen):
         self.layout.add_widget(self.btn_back)
         self.title_label = Label(
             text="Как играть",
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             font_size='28sp',
             bold=True,
             color=color_text,
@@ -3266,14 +3291,14 @@ class HowToPlayScreen(Screen):
         self.row_labels = []
 
         def add_title(text):
-            lbl = Label(text=text, font_name=resource_path("ClearSans-Bold.ttf"), font_size='18sp', 
+            lbl = Label(text=text, font_name=font_path("ClearSans-Bold.ttf"), font_size='18sp', 
                         bold=True, color=color_in_word, size_hint_y=None, halign='left', valign='middle')
             lbl.bind(texture_size=lambda inst, val: setattr(inst, 'height', val[1]))
             self.title_labels.append(lbl)
             self.content_box.add_widget(lbl)
             
         def add_text(text, custom_color=None):
-            lbl = Label(text=text, font_name=resource_path("ClearSans-Bold.ttf"), font_size='14sp', 
+            lbl = Label(text=text, font_name=font_path("ClearSans-Bold.ttf"), font_size='14sp', 
                         color=custom_color if custom_color else color_text, size_hint_y=None, halign='left', valign='top')
             lbl.bind(texture_size=lambda inst, val: setattr(inst, 'height', val[1]))
             self.text_labels.append(lbl)
@@ -3291,7 +3316,7 @@ class HowToPlayScreen(Screen):
             cell.valign = 'middle'
             cell.padding = [0, 0, 0, 4]
             
-            desc = Label(text=description, font_name=resource_path("ClearSans-Bold.ttf"), font_size='14sp', 
+            desc = Label(text=description, font_name=font_path("ClearSans-Bold.ttf"), font_size='14sp', 
                         color=text_col if text_col else color_text, size_hint_y=None, halign='left', valign='top')
 
             desc.bind(texture_size=lambda inst, val: [
@@ -3406,7 +3431,7 @@ class AchievementsScreen(Screen):
 
         self.lbl_main_title = Label(
             text="Достижения", 
-            font_name=resource_path("ClearSans-Bold.ttf"), 
+            font_name=font_path("ClearSans-Bold.ttf"), 
             bold=True, 
             color=color_text,
             size_hint=(None, None),
@@ -3525,7 +3550,7 @@ class AchievementsScreen(Screen):
         
         lbl_lbl = Label(
             text=label_text, 
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             color=color_not_in_word,
             size_hint=(1, 0.45),
             pos_hint={'x': 0, 'y': 0.48},
@@ -3536,7 +3561,7 @@ class AchievementsScreen(Screen):
         
         lbl_val = Label(
             text=val_text, 
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             color=val_color, 
             bold=True, 
             size_hint=(1, 0.5),
@@ -3603,7 +3628,7 @@ class AchievementsScreen(Screen):
 
     def fill_achievement_widgets(self, row, name, description, got, date_str, type_text, rarity_color, text_color, status_color, bg_rect, ribbon_rect):
         text_w = self.width - 45
-        font_path = resource_path("ClearSans-Bold.ttf")
+        font_path = font_path("ClearSans-Bold.ttf")
         name_lbl = Label(
             text=name.upper(), font_name=font_path,
             font_size='18sp', color=text_color, bold=True,
@@ -3787,7 +3812,7 @@ class CustomizationScreen(Screen):
         
         self.lbl_title = Label(
             text="Кастомизация", 
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             font_size='32sp', 
             color=color_text, 
             bold=True, 
@@ -3796,12 +3821,12 @@ class CustomizationScreen(Screen):
             valign='middle'
         )
 
-        self.lbl_coins_title = Label(text="Монеты:", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
-        self.lbl_theme_title = Label(text="Тема:", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
-        self.lbl_status_title = Label(text="Статус:", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
-        self.lbl_coins_val = Label(text="0",font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_in_word,size_hint=(None, None), halign='center', valign='middle')
-        self.lbl_theme_val = Label(text="Классика", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
-        self.lbl_status_val = Label(text="Применено", font_name=resource_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
+        self.lbl_coins_title = Label(text="Монеты:", font_name=font_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
+        self.lbl_theme_title = Label(text="Тема:", font_name=font_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
+        self.lbl_status_title = Label(text="Статус:", font_name=font_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
+        self.lbl_coins_val = Label(text="0",font_name=font_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_in_word,size_hint=(None, None), halign='center', valign='middle')
+        self.lbl_theme_val = Label(text="Классика", font_name=font_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
+        self.lbl_status_val = Label(text="Применено", font_name=font_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
 
         for lbl in [self.lbl_coins_title, self.lbl_theme_title, self.lbl_status_title, self.lbl_coins_val, self.lbl_theme_val, self.lbl_status_val]:
             lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
@@ -4201,7 +4226,7 @@ class QuestsScreen(Screen):
         
         self.lbl_main_title = Label(
             text="Квесты", 
-            font_name=resource_path("ClearSans-Bold.ttf"), 
+            font_name=font_path("ClearSans-Bold.ttf"), 
             bold=True, 
             color=color_text,
             size_hint=(None, None),
@@ -4385,7 +4410,7 @@ class QuestsScreen(Screen):
         
         lbl_lbl = Label(
             text=label_text, 
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             color=color_not_in_word,
             size_hint=(1, 0.45),
             pos_hint={'x': 0, 'y': 0.48},
@@ -4396,7 +4421,7 @@ class QuestsScreen(Screen):
         
         lbl_val = Label(
             text=val_text, 
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             color=val_color, 
             bold=True, 
             size_hint=(1, 0.5),
@@ -4463,13 +4488,13 @@ class QuestsScreen(Screen):
     def fill_quest_row_widgets(self, row, name, description, progress, goal, reward, text_color, progress_color, is_done, type_text, rarity_color, bg_rect, ribbon_rect):
         text_w = self.width - 45
         name_lbl = Label(
-            text=name.upper(), font_name=resource_path("ClearSans-Bold.ttf"),
+            text=name.upper(), font_name=font_path("ClearSans-Bold.ttf"),
             font_size='18sp', color=text_color, bold=True,
             size_hint=(None, None), width=text_w, text_size=(text_w, None),
             halign='left', valign='top'
         )
         desc_lbl = Label(
-            text=description, font_name=resource_path("ClearSans-Bold.ttf"),
+            text=description, font_name=font_path("ClearSans-Bold.ttf"),
             font_size='13sp', color=text_color,
             size_hint=(None, None), width=text_w, text_size=(text_w, None),
             halign='left', valign='top'
@@ -4480,7 +4505,7 @@ class QuestsScreen(Screen):
         info_line = FloatLayout(size_hint=(1, None), height=info_h)
         seg_w = max((self.width - dp(24)) / 3, dp(60))
         lbl_rare = Label(
-            text=type_text, font_name=resource_path("ClearSans-Bold.ttf"),
+            text=type_text, font_name=font_path("ClearSans-Bold.ttf"),
             color=rarity_color, bold=True, size_hint=(None, None),
             size=(seg_w, info_h), pos_hint={'x': 0.06, 'center_y': 0.5},
             halign='left', valign='middle'
@@ -4488,7 +4513,7 @@ class QuestsScreen(Screen):
         fit_font_size(lbl_rare, seg_w - dp(8), dp(13))
         lbl_rare.text_size = (seg_w, info_h)
         lbl_rew = Label(
-            text=f"Награда: {reward}", font_name=resource_path("ClearSans-Bold.ttf"),
+            text=f"Награда: {reward}", font_name=font_path("ClearSans-Bold.ttf"),
             color=color_in_word, bold=True, size_hint=(None, None),
             size=(seg_w, info_h), pos_hint={'center_x': 0.5, 'center_y': 0.5},
             halign='center', valign='middle'
@@ -4497,7 +4522,7 @@ class QuestsScreen(Screen):
         lbl_rew.text_size = (seg_w, info_h)
         status_txt = "ВЫПОЛНЕНО" if is_done else f"{progress}/{goal}"
         lbl_stat = Label(
-            text=status_txt, font_name=resource_path("ClearSans-Bold.ttf"),
+            text=status_txt, font_name=font_path("ClearSans-Bold.ttf"),
             color=progress_color, bold=True, size_hint=(None, None),
             size=(seg_w, info_h), pos_hint={'right': 0.97, 'center_y': 0.5},
             halign='right', valign='middle'
@@ -4623,7 +4648,7 @@ def create_stub_layout(screen_instance, text):
     layout.add_widget(btn_back)
     layout.add_widget(Label(
         text=text, 
-        font_name=resource_path("ClearSans-Bold.ttf"), 
+        font_name=font_path("ClearSans-Bold.ttf"), 
         font_size='32sp', 
         bold=True, 
         color=color_text,
@@ -4646,7 +4671,7 @@ class LoadingScreen(Screen):
 
         self.title_label = Label(
             text="Угадай Слово",
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             bold=True,
             color=color_text,
             size_hint=(None, None),
@@ -4655,7 +4680,7 @@ class LoadingScreen(Screen):
         )
         self.subtitle_label = Label(
             text="от MGGamesStudio",
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             bold=True,
             color=color_correct,
             size_hint=(None, None),
@@ -4664,7 +4689,7 @@ class LoadingScreen(Screen):
         )
         self.status_label = Label(
             text="Загрузка...",
-            font_name=resource_path("ClearSans-Bold.ttf"),
+            font_name=font_path("ClearSans-Bold.ttf"),
             bold=True,
             color=color_not_in_word,
             size_hint=(None, None),
@@ -4749,7 +4774,7 @@ class LoadingScreen(Screen):
 class MobileApp(App):
     def build(self):
         self.title = "Угадай Слово"
-        self.icon = "app_icon.png"
+        self.icon = resource_path("app_icon.png")
         self.words_list = MOBILE_ALL_WORDS
         saved_theme = MOBILE_PLAYER_STATS.get("active_theme_name", "classic")
         theme_translator = {"классика": "classic", "ночь": "night", "океан": "ocean", "закат": "sunset", "сакура": "sakura", "лес": "forest", "король": "royal", "лава": "lava", "изумруд": "emerald", "конфета": "candy", "неон": "neon", "золото": "gold"}
