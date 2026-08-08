@@ -531,6 +531,211 @@ def apply_adaptive_fonts(screen_instance, cell_height, key_height):
         btn.shorten = False
         btn.padding = [0, 0, 0, sys_pad_bottom]
 
+# ----- ПОДТВЕРЖДЕНИЕ ВЫХОДА ИЗ ИГРОВОГО РЕЖИМА -----
+
+# Иконка-предупреждение (alert-circle.png) всегда красная - это универсальный
+# сигнал "внимание", он не завязан на текущую цветовую тему оформления.
+EXIT_ALERT_BADGE_COLOR = (254/255, 226/255, 226/255, 1.0)
+EXIT_ALERT_ICON_COLOR = (185/255, 28/255, 28/255, 1.0)
+
+def is_confirm_exit_enabled():
+    """
+    Читает настройку "Спрашивать о выходе из игры" (ключ confirm_exit).
+    При самом первом запуске игры (пока сохранённых настроек ещё нет)
+    настройка считается включённой по умолчанию.
+    """
+    if 'MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS:
+        saved_settings = MOBILE_PLAYER_STATS.get("settings", {})
+        return saved_settings.get("confirm_exit", True)
+    return True
+
+class ExitConfirmButton(Button):
+    """Простая прямоугольная кнопка со скруглёнными углами и затемнением
+    при нажатии - используется в плашке подтверждения выхода."""
+
+    def __init__(self, text="", base_color=None, text_color=None, **kwargs):
+        super().__init__(**kwargs)
+        self.text = text
+        self.font_name = font_path("ClearSans-Bold.ttf")
+        self.font_size = '18sp'
+        self.bold = True
+        self.halign = 'center'
+        self.valign = 'middle'
+
+        self.background_normal = ''
+        self.background_down = ''
+        self.background_color = (0, 0, 0, 0)
+
+        self.base_color = base_color if base_color else color_key
+        self.color = text_color if text_color else color_text
+
+        with self.canvas.before:
+            self.bg_color_instr = Color(*self.base_color)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[14])
+
+        self.bind(pos=self.update_canvas, size=self.update_canvas, state=self.update_canvas)
+
+    def update_canvas(self, *args):
+        if self.state == 'normal':
+            self.bg_color_instr.rgba = self.base_color
+        else:
+            self.bg_color_instr.rgba = (self.base_color[0]*0.85, self.base_color[1]*0.85,
+                                         self.base_color[2]*0.85, self.base_color[3])
+        radius = min(self.height / 2.0, dp(14))
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
+        self.bg_rect.radius = [radius]
+        # text_size сюда специально не пишем: раньше это заставляло текст
+        # переноситься на вторую строку при нехватке ширины. Актуальный
+        # text_size выставляется снаружи, в show_exit_confirm_popup, вместе
+        # с подбором размера шрифта под фактическую ширину кнопки.
+
+def show_exit_confirm_popup(on_confirm):
+    """
+    Показывает плашку "Вы точно хотите выйти?" со значком alert-circle,
+    мелкой подписью про сброс игры и двумя кнопками - "Отмена" (просто
+    закрывает плашку) и "Выйти" (закрывает плашку и вызывает on_confirm).
+    """
+    win_w = Window.width
+    win_h = Window.height
+    safe_screen_side = min(win_w, win_h)
+    popup_height = win_h * 0.38
+    # Ширина плашки ограничена сверху фиксированным значением, чтобы на
+    # широких/альбомных экранах она не растягивалась чрезмерно - иначе
+    # зазор между кнопками "Отмена" и "Выйти" становится слишком большим.
+    popup_width = min(win_w * 0.82, dp(420))
+
+    transparent_texture = Texture.create(size=(1, 1), colorfmt='rgba')
+    transparent_texture.blit_buffer(b'\x00\x00\x00\x00', colorfmt='rgba', bufferfmt='ubyte')
+
+    view = ModalView(size_hint=(None, None), size=(popup_width, popup_height), auto_dismiss=True)
+    view.background_image = transparent_texture
+    view.overlay_color = (0, 0, 0, 0.5)
+
+    box = FloatLayout()
+    with box.canvas.before:
+        Color(*color_bg)
+        popup_rect = RoundedRectangle(pos=view.pos, size=view.size, radius=[18])
+
+    def update_popup_bg(inst, value):
+        popup_rect.pos = view.pos
+        popup_rect.size = view.size
+    view.bind(pos=update_popup_bg, size=update_popup_bg)
+
+    # Значок опущен ниже (top=0.90 вместо 0.97), чтобы над ним появился
+    # заметный отступ до верхнего края плашки.
+    badge_side = popup_height * 0.24
+    icon_badge = FloatLayout(size_hint=(None, None), size=(badge_side, badge_side),
+                              pos_hint={'center_x': 0.5, 'top': 0.90})
+    with icon_badge.canvas.before:
+        Color(*EXIT_ALERT_BADGE_COLOR)
+        badge_ellipse = Ellipse(pos=icon_badge.pos, size=icon_badge.size)
+
+    def update_badge(inst, value):
+        badge_ellipse.pos = icon_badge.pos
+        badge_ellipse.size = icon_badge.size
+    icon_badge.bind(pos=update_badge, size=update_badge)
+
+    icon_img = Image(size_hint=(None, None), size=(badge_side * 0.52, badge_side * 0.52),
+                      pos_hint={'center_x': 0.5, 'center_y': 0.5}, fit_mode="contain",
+                      color=EXIT_ALERT_ICON_COLOR)
+    icon_img.texture = load_white_icon_texture(icon_path("alert-circle.png"))
+    icon_badge.add_widget(icon_img)
+
+    lbl_title = Label(text="Вы точно хотите выйти?", font_name=font_path("ClearSans-Bold.ttf"),
+                      color=color_text, bold=True, halign='center', valign='middle',
+                      size_hint=(1, None), height=popup_height * 0.15,
+                      pos_hint={'center_x': 0.5, 'top': 0.62})
+
+    lbl_msg = Label(text="При выходе игра сбрасывается.", font_name=font_path("ClearSans-Bold.ttf"),
+                    color=color_not_in_word, bold=True, halign='center', valign='middle',
+                    size_hint=(1, None), height=popup_height * 0.12,
+                    pos_hint={'center_x': 0.5, 'top': 0.44})
+
+    btn_h = popup_height * 0.19
+    # Зазор и боковые отступы кнопок заданы в фиксированных dp (а не в
+    # долях ширины плашки), поэтому на широких экранах кнопки не
+    # расходятся слишком далеко друг от друга.
+    btn_gap = dp(14)
+    btn_side_margin = dp(20)
+    btn_cancel = ExitConfirmButton(text="Отмена",
+                                    base_color=lerp_color(color_bg, color_key, 0.35),
+                                    text_color=color_text,
+                                    size_hint=(None, None), height=btn_h,
+                                    pos_hint={'y': 0.08})
+    btn_exit = ExitConfirmButton(text="Выйти",
+                                  base_color=EXIT_ALERT_ICON_COLOR,
+                                  text_color=(1.0, 1.0, 1.0, 1.0),
+                                  size_hint=(None, None), height=btn_h,
+                                  pos_hint={'y': 0.08})
+
+    def _on_cancel(instance):
+        view.dismiss()
+
+    def _on_confirm(instance):
+        view.dismiss()
+        if on_confirm:
+            on_confirm()
+
+    btn_cancel.bind(on_release=_on_cancel)
+    btn_exit.bind(on_release=_on_confirm)
+
+    for widget in (icon_badge, lbl_title, lbl_msg, btn_cancel, btn_exit):
+        box.add_widget(widget)
+
+    def _layout_popup(*args):
+        box_w = view.width if view.width > 1 else popup_width
+
+        # Заголовок и мелкая подпись: text_size выставляется РАВНЫМ
+        # реальному размеру виджета (а не только ширине под подбор
+        # шрифта) - без этого halign/valign игнорируются, и текст
+        # прижимается к левому краю вместо центра.
+        fit_font_size(lbl_title, box_w * 0.88, safe_screen_side * 0.058)
+        # ВАЖНО: используем box_w и lbl_title.height напрямую, а НЕ
+        # lbl_title.size. В момент этого вызова label ещё не привязан к
+        # родителю (box добавляется в view только в конце функции), поэтому
+        # его .width ещё не пересчитан Kivy-layout'ом и равен старому/
+        # дефолтному значению (обычно 100), а не реальной ширине плашки.
+        # Если поставить text_size из такого "size", получится крошечная
+        # ширина - и длинный текст переносится на кучу строк с обрезкой
+        # по высоте (это и была причина "ХОТ" вместо всего заголовка).
+        lbl_title.text_size = (box_w, lbl_title.height)
+
+        # Подпись теперь тоже подбирается как одна строка (fit_font_size,
+        # а не fit_font_size_wrapped): при нехватке места шрифт
+        # уменьшается, а не переносится на вторую строку.
+        fit_font_size(lbl_msg, box_w * 0.82, safe_screen_side * 0.034)
+        # Та же причина, что и для заголовка - берём box_w и явную высоту,
+        # а не lbl_msg.size (см. комментарий выше).
+        lbl_msg.text_size = (box_w, lbl_msg.height)
+
+        # Ширина и положение кнопок пересчитываются из фиксированных dp,
+        # переведённых в доли текущей ширины плашки.
+        margin_frac = btn_side_margin / box_w
+        gap_frac = btn_gap / box_w
+        btn_w_frac = max((1.0 - margin_frac * 2 - gap_frac) / 2.0, 0.05)
+        btn_cancel.size_hint = (btn_w_frac, None)
+        btn_exit.size_hint = (btn_w_frac, None)
+        btn_cancel.pos_hint = {'x': margin_frac, 'y': 0.08}
+        btn_exit.pos_hint = {'right': 1.0 - margin_frac, 'y': 0.08}
+
+        # Текст на кнопках подбирается под их фактическую ширину и
+        # остаётся в одну строку вместо переноса.
+        btn_w_px = btn_w_frac * box_w
+        for btn in (btn_cancel, btn_exit):
+            btn.text_size = (None, None)
+            fit_font_size(btn, btn_w_px - dp(16), btn_h * 0.42)
+            # Аналогично: btn.size тут ещё не обновлён Kivy-layout'ом
+            # (мы только что поменяли size_hint, а не реальный размер),
+            # поэтому используем уже посчитанные btn_w_px/btn_h напрямую.
+            btn.text_size = (btn_w_px, btn_h)
+
+    view.bind(size=_layout_popup)
+    _layout_popup()
+
+    view.add_widget(box)
+    view.open()
+
 class MenuButton(Button):
     def __init__(self, text="", pos_hint=None, size_hint=(0.93, None), height=84, **kwargs):
         super().__init__(**kwargs)
@@ -769,6 +974,14 @@ class ModeButton(BoxLayout):
         return super().on_touch_up(touch)
 
 class GameCell(Label):
+    # Радиус скругления всегда = этой доле от меньшей стороны клетки.
+    # Значение подобрано по пиксельным замерам референсного скриншота
+    # (там радиус ≈ 7px при клетке ≈159px, то есть ~4.5%).
+    # Никакого фиксированного "потолка" в пикселях больше нет, поэтому
+    # уголки масштабируются вместе с размером клетки и не раздуваются
+    # на маленьких бланках (квадрат больше не превращается в кружок).
+    CORNER_RATIO = 0.045
+
     def __init__(self, size=(74, 92), pos=(0, 0), **kwargs):
         super().__init__(**kwargs)
         self.text = ""
@@ -788,7 +1001,8 @@ class GameCell(Label):
 
         with self.canvas.before:
             self.bg_color_instr = Color(*self.base_color)
-            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[8])
+            init_radius = min(self.size[0], self.size[1]) * self.CORNER_RATIO
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[init_radius])
 
         self.bind(pos=self.update_canvas, size=self.update_canvas)
 
@@ -811,7 +1025,7 @@ class GameCell(Label):
         self.update_canvas()
 
     def update_canvas(self, *args):
-        corner_radius = min(min(self.width, self.height) * 0.12, 8)
+        corner_radius = min(self.width, self.height) * self.CORNER_RATIO
         self.bg_color_instr.rgba = self.base_color
         self.bg_rect.pos = self.pos
         self.bg_rect.size = self.size
@@ -1617,7 +1831,7 @@ class SettingInfoRow(FloatLayout):
 
 class OptionsScreen(Screen):
     settings_definitions = [
-        {"type": "toggle", "key": "confirm_exit", "text": "Спрашивать повторно при выходе из игры", "default": False},
+        {"type": "toggle", "key": "confirm_exit", "text": "Спрашивать о выходе из игры", "default": True},
         {"type": "link", "text": "О программе", "target": "about"}
     ]
 
@@ -2052,6 +2266,10 @@ class OnePlayerGameScreen(Screen):
             Color(*color_bg)
             self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
 
+        self.lbl_error = Label(text="", font_name=font_path("ClearSans-Bold.ttf"),
+                               font_size='15sp', color=color_in_word, bold=True, size_hint=(None, None))
+        self.layout.add_widget(self.lbl_error)
+
         self.cells = []
         for _ in range(30):
             cell = GameCell(size=(74, 92))
@@ -2205,9 +2423,18 @@ class OnePlayerGameScreen(Screen):
                     self.cells[cell_idx].update_canvas()
                     cell_idx += 1
 
+        space_below_cells = block_bottom_y - keyboard_top_y
+        center_below_y = keyboard_top_y + (space_below_cells / 2)
+
+        fit_font_size(self.lbl_error, win_w * 0.85, dp(16))
+        self.lbl_error.text_size = (None, None)
+        self.lbl_error.size = self.lbl_error.texture_size
+        self.lbl_error.pos = (win_w // 2 - self.lbl_error.width // 2, center_below_y - self.lbl_error.height // 2)
+
         apply_adaptive_fonts(self, CELL_HEIGHT, KEY_HEIGHT)
 
     def press_letter_key(self, instance):
+        self.lbl_error.text = ""
         letter = instance.text
 
         if len(self.current_word) < 5:
@@ -2219,6 +2446,7 @@ class OnePlayerGameScreen(Screen):
                 self.current_word += letter
 
     def press_erase_key(self, instance):
+        self.lbl_error.text = ""
         if len(self.current_word) > 0:
             cell_idx = (self.current_attempt * 5) + len(self.current_word) - 1
 
@@ -2244,9 +2472,13 @@ class OnePlayerGameScreen(Screen):
                 if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
                     MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
 
-                self.show_game_popup("Такого слова нет в словаре", "Введите другое слово.", color_text, is_end_game=False)
+                self.lbl_error.color = color_in_word
+                self.lbl_error.text = "Такого слова нет в словаре!"
+                self.reposition_elements(None, None)
         else:
-            self.show_game_popup("Слово не из 5 букв", "Заполните все 5 ячеек перед вводом.", color_text, is_end_game=False)
+            self.lbl_error.color = color_in_word
+            self.lbl_error.text = "Слово не из 5 букв!"
+            self.reposition_elements(None, None)
 
     def evaluate_word_colors_mobile(self, check_word):
         global MOBILE_PLAYER_STATS, MOBILE_QUESTS
@@ -2445,10 +2677,17 @@ class OnePlayerGameScreen(Screen):
             self.handle_mobile_loss()
 
     def press_exit_key(self, instance):
+        if is_confirm_exit_enabled():
+            show_exit_confirm_popup(lambda: self._do_exit(instance))
+        else:
+            self._do_exit(instance)
+
+    def _do_exit(self, instance):
         self.reset_game()
         self.manager.current = 'play'
 
     def reset_game(self):
+        self.lbl_error.text = ""
         for cell in self.cells:
             cell.text = ""
             cell.base_color = color_blank
@@ -2532,7 +2771,7 @@ class OnePlayerGameScreen(Screen):
         view.bind(on_touch_down=self_dismiss)
         
         if is_end_game:
-            view.bind(on_dismiss=lambda x: self.press_exit_key(None))
+            view.bind(on_dismiss=lambda x: self._do_exit(None))
             
         view.open()
 
@@ -2702,6 +2941,14 @@ class TwoPlayerGameScreen(Screen):
             block_bottom_y = keyboard_top_y + GRID_GAP + (free_space_y / 2)
             start_blank_y = block_bottom_y + total_blanks_height - CELL_HEIGHT
 
+            space_below_cells = block_bottom_y - keyboard_top_y
+            center_below_y = keyboard_top_y + (space_below_cells / 2)
+
+            fit_font_size(self.lbl_error, win_w * 0.85, dp(16))
+            self.lbl_error.text_size = (None, None)
+            self.lbl_error.size = self.lbl_error.texture_size
+            self.lbl_error.pos = (win_w // 2 - self.lbl_error.width // 2, center_below_y - self.lbl_error.height // 2)
+
         cell_idx = 0
         for row in range(6):
             for col in range(5):
@@ -2765,12 +3012,9 @@ class TwoPlayerGameScreen(Screen):
 
     def press_enter_key(self, instance):
         if len(self.current_word) != 5:
-            if self.stage == "setup":
-                self.lbl_error.color = color_in_word
-                self.lbl_error.text = "Слово не из 5 букв!"
-                self.reposition_elements(None, None)
-            else:
-                self.show_game_popup("Слово не из 5 букв", "Заполните все 5 ячеек перед вводом.", color_text, is_end_game=False)
+            self.lbl_error.color = color_in_word
+            self.lbl_error.text = "Слово не из 5 букв!"
+            self.reposition_elements(None, None)
             return
 
         check_word = self.current_word.upper()
@@ -2853,14 +3097,17 @@ class TwoPlayerGameScreen(Screen):
                     is_end_game=True
                 )
         else:
-            if self.stage == "setup":
-                self.lbl_error.color = color_in_word
-                self.lbl_error.text = "Такого слова нет в словаре!"
-                self.reposition_elements(None, None)
-            else:
-                self.show_game_popup("Такого слова нет в словаре", "Введите другое слово.", color_text, is_end_game=False)
+            self.lbl_error.color = color_in_word
+            self.lbl_error.text = "Такого слова нет в словаре!"
+            self.reposition_elements(None, None)
 
     def press_exit_key(self, instance):
+        if is_confirm_exit_enabled():
+            show_exit_confirm_popup(lambda: self._do_exit(instance))
+        else:
+            self._do_exit(instance)
+
+    def _do_exit(self, instance):
         self.reset_game()
         self.manager.current = 'play'
 
@@ -2950,7 +3197,7 @@ class TwoPlayerGameScreen(Screen):
         view.bind(on_touch_down=self_dismiss)
         
         if is_end_game:
-            view.bind(on_dismiss=lambda x: self.press_exit_key(None))
+            view.bind(on_dismiss=lambda x: self._do_exit(None))
             
         view.open()
 
@@ -3322,6 +3569,12 @@ class SeedCreateScreen(Screen):
         self.reposition_elements(None, None)
 
     def press_exit_key(self, instance):
+        if is_confirm_exit_enabled():
+            show_exit_confirm_popup(lambda: self._do_exit(instance))
+        else:
+            self._do_exit(instance)
+
+    def _do_exit(self, instance):
         self.reset_game()
         self.manager.current = 'seed_generation'
 
@@ -3595,6 +3848,12 @@ class SeedEnterScreen(Screen):
         self.manager.current = 'two_player_game'
 
     def press_exit_key(self, instance):
+        if is_confirm_exit_enabled():
+            show_exit_confirm_popup(lambda: self._do_exit(instance))
+        else:
+            self._do_exit(instance)
+
+    def _do_exit(self, instance):
         self.reset_game()
         self.manager.current = 'seed_generation'
 
