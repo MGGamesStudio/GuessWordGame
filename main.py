@@ -598,19 +598,19 @@ def show_exit_confirm_popup(on_confirm):
     мелкой подписью про сброс игры и двумя кнопками - "Отмена" (просто
     закрывает плашку) и "Выйти" (закрывает плашку и вызывает on_confirm).
     """
-    win_w = Window.width
-    win_h = Window.height
-
-    transparent_texture = Texture.create(size=(1, 1), colorfmt='rgba')
-    transparent_texture.blit_buffer(b'\x00\x00\x00\x00', colorfmt='rgba', bufferfmt='ubyte')
-
-    def _popup_size():
+    def _popup_width():
         # Ширина ограничена сверху фиксированным значением, чтобы на
         # широких/альбомных экранах кнопки не расходились слишком далеко.
-        return (min(Window.width * 0.82, dp(420)), Window.height * 0.38)
+        return min(Window.width * 0.82, dp(420))
 
-    popup_width, popup_height = _popup_size()
-    view = ModalView(size_hint=(None, None), size=(popup_width, popup_height), auto_dismiss=True)
+    popup_width = _popup_width()
+    # Высота плашки больше НЕ берётся долей от высоты окна - её вычисляет
+    # _layout_popup() ниже, по фактически измеренному содержимому (значок +
+    # заголовок + подпись + кнопки + отступы). Так гарантируется, что при
+    # любом размере шрифта и на любом экране ничего не наедет друг на
+    # друга - высоты просто неоткуда взяться "лишней" или "недостающей".
+    # Здесь - только временная заглушка на первый кадр до первого расчёта.
+    view = ModalView(size_hint=(None, None), size=(popup_width, dp(300)), auto_dismiss=True)
     view.background = ''
     view.background_color = (0, 0, 0, 0)
     view.overlay_color = (0, 0, 0, 0.5)
@@ -677,49 +677,52 @@ def show_exit_confirm_popup(on_confirm):
     for widget in (icon_badge, lbl_title, lbl_msg, btn_cancel, btn_exit):
         box.add_widget(widget)
 
-    def _layout_popup(*args):
-        # Всё считается от ЖИВЫХ box_w/box_h (а не от значений, вычисленных
-        # один раз при открытии) - поэтому при ресайзе окна/повороте экрана
-        # значок, шрифты и кнопки пересчитываются вместе с плашкой.
-        box_w = view.width if view.width > 1 else popup_width
-        box_h = view.height if view.height > 1 else popup_height
-        safe_side = min(box_w, box_h / 0.38)
+    # Флаг защиты от рекурсии: внутри _layout_popup мы сами меняем
+    # view.height, а на это событие подписан тот же _layout_popup (через
+    # view.bind(size=...)). Флаг гарантирует, что повторный вызов,
+    # вызванный этим изменением, ничего не делает и сразу выходит.
+    _updating = [False]
 
-        badge_side = box_h * 0.24
+    def _layout_popup(*args):
+        if _updating[0]:
+            return
+
+        # box_w - это ЕДИНСТВЕННЫЙ вход в расчёт: высота плашки ниже сама
+        # выводится из содержимого, а не наоборот. Раньше высота бралась
+        # фиксированной долей от высоты окна, и при увеличении шрифта
+        # текст переставал в неё помещаться - отсюда наезд подписи на
+        # кнопки. Теперь такое невозможно в принципе: сколько места
+        # реально заняли значок/заголовок/подпись/кнопки - столько плашка
+        # и получит, плюс отступы.
+        box_w = view.width if view.width > 1 else popup_width
+
+        # Значок круглый и от ширины плашки, с разумными пределами, чтобы
+        # не раздувался на планшетах и не сжимался в точку на мелких
+        # экранах.
+        badge_side = max(dp(60), min(box_w * 0.22, dp(88)))
         icon_badge.size = (badge_side, badge_side)
         icon_img.size = (badge_side * 0.52, badge_side * 0.52)
 
-        fit_font_size(lbl_title, box_w * 0.88, safe_side * 0.058)
+        fit_font_size(lbl_title, box_w * 0.9, min(box_w * 0.086, dp(30)))
         lbl_title.text_size = (box_w, None)
         lbl_title.texture_update()
-        title_h = max(lbl_title.texture_size[1] * 1.3, dp(22))
+        title_h = max(lbl_title.texture_size[1] * 1.25, dp(22))
         lbl_title.height = title_h
         lbl_title.text_size = (box_w, title_h)
 
         # Подпись - одна строка (fit_font_size, а не fit_font_size_wrapped):
         # при нехватке места шрифт уменьшается, а не переносится на строку.
-        fit_font_size(lbl_msg, box_w * 0.82, safe_side * 0.034)
+        fit_font_size(lbl_msg, box_w * 0.86, min(box_w * 0.05, dp(17)))
         lbl_msg.text_size = (box_w, None)
         lbl_msg.texture_update()
-        msg_h = max(lbl_msg.texture_size[1] * 1.3, dp(16))
+        msg_h = max(lbl_msg.texture_size[1] * 1.25, dp(16))
         lbl_msg.height = msg_h
         lbl_msg.text_size = (box_w, msg_h)
 
-        # Раскладка сверху вниз по РЕАЛЬНЫМ измеренным высотам - значок,
-        # заголовок и подпись больше не наезжают друг на друга при любой
-        # длине текста и любом размере экрана.
-        top_margin = box_h * 0.08
-        badge_top = box_h - top_margin
-        icon_badge.pos_hint = {'center_x': 0.5, 'top': badge_top / box_h}
-
-        title_top = badge_top - badge_side - box_h * 0.035
-        lbl_title.pos_hint = {'center_x': 0.5, 'top': title_top / box_h}
-
-        msg_top = title_top - title_h - box_h * 0.015
-        lbl_msg.pos_hint = {'center_x': 0.5, 'top': msg_top / box_h}
-
-        # Кнопки: высота своя доля от box_h, ширина/зазор - из фикс. dp.
-        btn_h = box_h * 0.19
+        # Кнопки: высота фиксирована в dp (с небольшим запасом от ширины
+        # плашки), а не долей от высоты - высоты у плашки на этом этапе
+        # ещё толком нет, она вычисляется ниже как раз из этих величин.
+        btn_h = max(dp(46), min(box_w * 0.145, dp(58)))
         margin_frac = btn_side_margin / box_w
         gap_frac = btn_gap / box_w
         btn_w_frac = max((1.0 - margin_frac * 2 - gap_frac) / 2.0, 0.05)
@@ -727,8 +730,6 @@ def show_exit_confirm_popup(on_confirm):
             btn.height = btn_h
         btn_cancel.size_hint = (btn_w_frac, None)
         btn_exit.size_hint = (btn_w_frac, None)
-        btn_cancel.pos_hint = {'x': margin_frac, 'y': 0.08}
-        btn_exit.pos_hint = {'right': 1.0 - margin_frac, 'y': 0.08}
 
         btn_w_px = btn_w_frac * box_w
         for btn in (btn_cancel, btn_exit):
@@ -736,14 +737,54 @@ def show_exit_confirm_popup(on_confirm):
             fit_font_size(btn, btn_w_px - dp(16), btn_h * 0.42)
             btn.text_size = (btn_w_px, btn_h)
 
+        # Отступы - фиксированные dp. pad_top и gap_badge_title специально
+        # РАВНЫ друг другу: именно из-за того, что раньше это были разные
+        # доли высоты плашки, значок визуально "плавал" не по центру между
+        # верхним краем и заголовком.
+        pad_top = dp(26)
+        gap_badge_title = dp(26)
+        gap_title_msg = dp(10)
+        gap_msg_btn = dp(24)
+        pad_bottom = dp(22)
+
+        # Высота плашки = сумма ровно того, что реально заняло содержимое.
+        # Совпадает с суммой отступов между элементами ниже, поэтому
+        # раскладка сходится без зазоров и без наложений - по построению,
+        # а не "обычно должно хватить места".
+        content_h = (pad_top + badge_side + gap_badge_title + title_h +
+                     gap_title_msg + msg_h + gap_msg_btn + btn_h + pad_bottom)
+        target_h = max(min(content_h, Window.height * 0.85), dp(240))
+
+        if abs(view.height - target_h) > 1:
+            _updating[0] = True
+            view.height = target_h
+            _updating[0] = False
+        box_h = view.height
+
+        # Раскладка сверху вниз по РЕАЛЬНЫМ измеренным высотам - значок,
+        # заголовок, подпись и кнопки больше не наезжают друг на друга при
+        # любой длине текста, любом размере шрифта и любом экране.
+        badge_top = box_h - pad_top
+        icon_badge.pos_hint = {'center_x': 0.5, 'top': badge_top / box_h}
+
+        title_top = badge_top - badge_side - gap_badge_title
+        lbl_title.pos_hint = {'center_x': 0.5, 'top': title_top / box_h}
+
+        msg_top = title_top - title_h - gap_title_msg
+        lbl_msg.pos_hint = {'center_x': 0.5, 'top': msg_top / box_h}
+
+        btn_y_frac = pad_bottom / box_h
+        btn_cancel.pos_hint = {'x': margin_frac, 'y': btn_y_frac}
+        btn_exit.pos_hint = {'right': 1.0 - margin_frac, 'y': btn_y_frac}
+
     view.bind(size=_layout_popup)
     _layout_popup()
 
-    # Плашка пересчитывает размер (а через биндинг выше - и всю
-    # раскладку) при изменении размера окна: поворот экрана, ресайз окна
-    # на десктопе и т.п.
+    # Плашка пересчитывает раскладку (включая свою высоту, см. выше) при
+    # изменении размера окна: поворот экрана, ресайз окна на десктопе и
+    # т.п. Меняем только ширину - высоту _layout_popup выставит сама.
     def _on_window_resize(*args):
-        view.size = _popup_size()
+        view.width = _popup_width()
     Window.bind(size=_on_window_resize)
     view.bind(on_dismiss=lambda *a: Window.unbind(size=_on_window_resize))
 
