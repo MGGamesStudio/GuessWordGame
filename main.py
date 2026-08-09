@@ -88,6 +88,7 @@ def font_path(font_name):
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, "guesswordgame-fonts", font_name)
 
+
 try:
     game_save_dir = user_data_dir("GuessWordGame", "MGGamesStudio")
     if not os.path.exists(game_save_dir):
@@ -409,6 +410,7 @@ _SCREEN_FACTORIES = {
     'play': lambda: PlayScreen(name='play'),
     'options': lambda: OptionsScreen(name='options'),
     'about': lambda: AboutScreen(name='about'),
+    'whats_new': lambda: TextDocumentScreen(name='whats_new', title_text="Что нового", back_target='options', source_file="WHATS-NEW.txt"),
     'license': lambda: TextDocumentScreen(name='license', title_text="Лицензия", back_target='about', source_file="LICENSE.txt"),
     'third_party': lambda: TextDocumentScreen(name='third_party', title_text="Сторонние компоненты", back_target='about', source_file="THIRD-PARTY NOTICES.txt"),
     'about_game': lambda: TextDocumentScreen(name='about_game', title_text="О игре", back_target='about', source_file="README.txt"),
@@ -598,35 +600,33 @@ def show_exit_confirm_popup(on_confirm):
     """
     win_w = Window.width
     win_h = Window.height
-    safe_screen_side = min(win_w, win_h)
-    popup_height = win_h * 0.38
-    # Ширина плашки ограничена сверху фиксированным значением, чтобы на
-    # широких/альбомных экранах она не растягивалась чрезмерно - иначе
-    # зазор между кнопками "Отмена" и "Выйти" становится слишком большим.
-    popup_width = min(win_w * 0.82, dp(420))
 
     transparent_texture = Texture.create(size=(1, 1), colorfmt='rgba')
     transparent_texture.blit_buffer(b'\x00\x00\x00\x00', colorfmt='rgba', bufferfmt='ubyte')
 
+    def _popup_size():
+        # Ширина ограничена сверху фиксированным значением, чтобы на
+        # широких/альбомных экранах кнопки не расходились слишком далеко.
+        return (min(Window.width * 0.82, dp(420)), Window.height * 0.38)
+
+    popup_width, popup_height = _popup_size()
     view = ModalView(size_hint=(None, None), size=(popup_width, popup_height), auto_dismiss=True)
-    view.background_image = transparent_texture
+    view.background = ''
+    view.background_color = (0, 0, 0, 0)
     view.overlay_color = (0, 0, 0, 0.5)
 
     box = FloatLayout()
     with box.canvas.before:
         Color(*color_bg)
-        popup_rect = RoundedRectangle(pos=view.pos, size=view.size, radius=[18])
+        popup_rect = RoundedRectangle(pos=view.pos, size=view.size, radius=[dp(18)])
 
     def update_popup_bg(inst, value):
         popup_rect.pos = view.pos
         popup_rect.size = view.size
+        popup_rect.radius = [min(dp(18), view.height * 0.08)]
     view.bind(pos=update_popup_bg, size=update_popup_bg)
 
-    # Значок опущен ниже (top=0.90 вместо 0.97), чтобы над ним появился
-    # заметный отступ до верхнего края плашки.
-    badge_side = popup_height * 0.24
-    icon_badge = FloatLayout(size_hint=(None, None), size=(badge_side, badge_side),
-                              pos_hint={'center_x': 0.5, 'top': 0.90})
+    icon_badge = FloatLayout(size_hint=(None, None))
     with icon_badge.canvas.before:
         Color(*EXIT_ALERT_BADGE_COLOR)
         badge_ellipse = Ellipse(pos=icon_badge.pos, size=icon_badge.size)
@@ -636,23 +636,19 @@ def show_exit_confirm_popup(on_confirm):
         badge_ellipse.size = icon_badge.size
     icon_badge.bind(pos=update_badge, size=update_badge)
 
-    icon_img = Image(size_hint=(None, None), size=(badge_side * 0.52, badge_side * 0.52),
-                      pos_hint={'center_x': 0.5, 'center_y': 0.5}, fit_mode="contain",
-                      color=EXIT_ALERT_ICON_COLOR)
+    icon_img = Image(size_hint=(None, None), pos_hint={'center_x': 0.5, 'center_y': 0.5},
+                      fit_mode="contain", color=EXIT_ALERT_ICON_COLOR)
     icon_img.texture = load_white_icon_texture(icon_path("alert-circle.png"))
     icon_badge.add_widget(icon_img)
 
     lbl_title = Label(text="Вы точно хотите выйти?", font_name=font_path("ClearSans-Bold.ttf"),
                       color=color_text, bold=True, halign='center', valign='middle',
-                      size_hint=(1, None), height=popup_height * 0.15,
-                      pos_hint={'center_x': 0.5, 'top': 0.62})
+                      size_hint=(1, None))
 
     lbl_msg = Label(text="При выходе игра сбрасывается.", font_name=font_path("ClearSans-Bold.ttf"),
                     color=color_not_in_word, bold=True, halign='center', valign='middle',
-                    size_hint=(1, None), height=popup_height * 0.12,
-                    pos_hint={'center_x': 0.5, 'top': 0.44})
+                    size_hint=(1, None))
 
-    btn_h = popup_height * 0.19
     # Зазор и боковые отступы кнопок заданы в фиксированных dp (а не в
     # долях ширины плашки), поэтому на широких экранах кнопки не
     # расходятся слишком далеко друг от друга.
@@ -661,13 +657,11 @@ def show_exit_confirm_popup(on_confirm):
     btn_cancel = ExitConfirmButton(text="Отмена",
                                     base_color=lerp_color(color_bg, color_key, 0.35),
                                     text_color=color_text,
-                                    size_hint=(None, None), height=btn_h,
-                                    pos_hint={'y': 0.08})
+                                    size_hint=(None, None), pos_hint={'y': 0.08})
     btn_exit = ExitConfirmButton(text="Выйти",
                                   base_color=EXIT_ALERT_ICON_COLOR,
                                   text_color=(1.0, 1.0, 1.0, 1.0),
-                                  size_hint=(None, None), height=btn_h,
-                                  pos_hint={'y': 0.08})
+                                  size_hint=(None, None), pos_hint={'y': 0.08})
 
     def _on_cancel(instance):
         view.dismiss()
@@ -684,54 +678,74 @@ def show_exit_confirm_popup(on_confirm):
         box.add_widget(widget)
 
     def _layout_popup(*args):
+        # Всё считается от ЖИВЫХ box_w/box_h (а не от значений, вычисленных
+        # один раз при открытии) - поэтому при ресайзе окна/повороте экрана
+        # значок, шрифты и кнопки пересчитываются вместе с плашкой.
         box_w = view.width if view.width > 1 else popup_width
+        box_h = view.height if view.height > 1 else popup_height
+        safe_side = min(box_w, box_h / 0.38)
 
-        # Заголовок и мелкая подпись: text_size выставляется РАВНЫМ
-        # реальному размеру виджета (а не только ширине под подбор
-        # шрифта) - без этого halign/valign игнорируются, и текст
-        # прижимается к левому краю вместо центра.
-        fit_font_size(lbl_title, box_w * 0.88, safe_screen_side * 0.058)
-        # ВАЖНО: используем box_w и lbl_title.height напрямую, а НЕ
-        # lbl_title.size. В момент этого вызова label ещё не привязан к
-        # родителю (box добавляется в view только в конце функции), поэтому
-        # его .width ещё не пересчитан Kivy-layout'ом и равен старому/
-        # дефолтному значению (обычно 100), а не реальной ширине плашки.
-        # Если поставить text_size из такого "size", получится крошечная
-        # ширина - и длинный текст переносится на кучу строк с обрезкой
-        # по высоте (это и была причина "ХОТ" вместо всего заголовка).
-        lbl_title.text_size = (box_w, lbl_title.height)
+        badge_side = box_h * 0.24
+        icon_badge.size = (badge_side, badge_side)
+        icon_img.size = (badge_side * 0.52, badge_side * 0.52)
 
-        # Подпись теперь тоже подбирается как одна строка (fit_font_size,
-        # а не fit_font_size_wrapped): при нехватке места шрифт
-        # уменьшается, а не переносится на вторую строку.
-        fit_font_size(lbl_msg, box_w * 0.82, safe_screen_side * 0.034)
-        # Та же причина, что и для заголовка - берём box_w и явную высоту,
-        # а не lbl_msg.size (см. комментарий выше).
-        lbl_msg.text_size = (box_w, lbl_msg.height)
+        fit_font_size(lbl_title, box_w * 0.88, safe_side * 0.058)
+        lbl_title.text_size = (box_w, None)
+        lbl_title.texture_update()
+        title_h = max(lbl_title.texture_size[1] * 1.3, dp(22))
+        lbl_title.height = title_h
+        lbl_title.text_size = (box_w, title_h)
 
-        # Ширина и положение кнопок пересчитываются из фиксированных dp,
-        # переведённых в доли текущей ширины плашки.
+        # Подпись - одна строка (fit_font_size, а не fit_font_size_wrapped):
+        # при нехватке места шрифт уменьшается, а не переносится на строку.
+        fit_font_size(lbl_msg, box_w * 0.82, safe_side * 0.034)
+        lbl_msg.text_size = (box_w, None)
+        lbl_msg.texture_update()
+        msg_h = max(lbl_msg.texture_size[1] * 1.3, dp(16))
+        lbl_msg.height = msg_h
+        lbl_msg.text_size = (box_w, msg_h)
+
+        # Раскладка сверху вниз по РЕАЛЬНЫМ измеренным высотам - значок,
+        # заголовок и подпись больше не наезжают друг на друга при любой
+        # длине текста и любом размере экрана.
+        top_margin = box_h * 0.08
+        badge_top = box_h - top_margin
+        icon_badge.pos_hint = {'center_x': 0.5, 'top': badge_top / box_h}
+
+        title_top = badge_top - badge_side - box_h * 0.035
+        lbl_title.pos_hint = {'center_x': 0.5, 'top': title_top / box_h}
+
+        msg_top = title_top - title_h - box_h * 0.015
+        lbl_msg.pos_hint = {'center_x': 0.5, 'top': msg_top / box_h}
+
+        # Кнопки: высота своя доля от box_h, ширина/зазор - из фикс. dp.
+        btn_h = box_h * 0.19
         margin_frac = btn_side_margin / box_w
         gap_frac = btn_gap / box_w
         btn_w_frac = max((1.0 - margin_frac * 2 - gap_frac) / 2.0, 0.05)
+        for btn in (btn_cancel, btn_exit):
+            btn.height = btn_h
         btn_cancel.size_hint = (btn_w_frac, None)
         btn_exit.size_hint = (btn_w_frac, None)
         btn_cancel.pos_hint = {'x': margin_frac, 'y': 0.08}
         btn_exit.pos_hint = {'right': 1.0 - margin_frac, 'y': 0.08}
 
-        # Текст на кнопках подбирается под их фактическую ширину и
-        # остаётся в одну строку вместо переноса.
         btn_w_px = btn_w_frac * box_w
         for btn in (btn_cancel, btn_exit):
             btn.text_size = (None, None)
             fit_font_size(btn, btn_w_px - dp(16), btn_h * 0.42)
-            # Аналогично: btn.size тут ещё не обновлён Kivy-layout'ом
-            # (мы только что поменяли size_hint, а не реальный размер),
-            # поэтому используем уже посчитанные btn_w_px/btn_h напрямую.
             btn.text_size = (btn_w_px, btn_h)
 
     view.bind(size=_layout_popup)
     _layout_popup()
+
+    # Плашка пересчитывает размер (а через биндинг выше - и всю
+    # раскладку) при изменении размера окна: поворот экрана, ресайз окна
+    # на десктопе и т.п.
+    def _on_window_resize(*args):
+        view.size = _popup_size()
+    Window.bind(size=_on_window_resize)
+    view.bind(on_dismiss=lambda *a: Window.unbind(size=_on_window_resize))
 
     view.add_widget(box)
     view.open()
@@ -1832,7 +1846,8 @@ class SettingInfoRow(FloatLayout):
 class OptionsScreen(Screen):
     settings_definitions = [
         {"type": "toggle", "key": "confirm_exit", "text": "Спрашивать о выходе из игры", "default": True},
-        {"type": "link", "text": "О программе", "target": "about"}
+        {"type": "link", "text": "О программе", "target": "about"},
+        {"type": "link", "text": "Что нового", "target": "whats_new"}
     ]
 
     def __init__(self, **kwargs):
@@ -2726,7 +2741,8 @@ class OnePlayerGameScreen(Screen):
         transparent_texture.blit_buffer(b'\x00\x00\x00\x00', colorfmt='rgba', bufferfmt='ubyte')
 
         view = ModalView(size_hint=(0.8, None), height=popup_height, auto_dismiss=True)
-        view.background_image = transparent_texture
+        view.background = ''
+        view.background_color = (0, 0, 0, 0)
         view.overlay_color = (0, 0, 0, 0.5)
 
         box = FloatLayout()
@@ -3152,7 +3168,8 @@ class TwoPlayerGameScreen(Screen):
         transparent_texture.blit_buffer(b'\x00\x00\x00\x00', colorfmt='rgba', bufferfmt='ubyte')
 
         view = ModalView(size_hint=(0.8, None), height=popup_height, auto_dismiss=True)
-        view.background_image = transparent_texture
+        view.background = ''
+        view.background_color = (0, 0, 0, 0)
         view.overlay_color = (0, 0, 0, 0.5)
 
         box = FloatLayout()
