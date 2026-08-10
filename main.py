@@ -90,6 +90,26 @@ def font_path(font_name):
     return os.path.join(base_path, "guesswordgame-fonts", font_name)
 
 
+class SharpScrollView(ScrollView):
+    """
+    Обычный ScrollView сдвигает своё содержимое через self.g_translate -
+    отдельный Translate в canvas, а не через смену pos у детей (в исходниках
+    Kivy это буквально `self.g_translate.xy = x, y`, БЕЗ округления). x и y -
+    это scroll_x/scroll_y * размер прокручиваемой области, то есть почти
+    всегда нецелые пиксели. GPU в итоге рисует уже готовый (целочисленно
+    отрисованный) текст со сдвигом на дробную долю пикселя - отсюда
+    размытие текста при прокрутке/перелистывании, даже если позиции самих
+    лейблов внутри уже округлены.
+    Здесь после стандартного пересчёта просто округляем сам сдвиг - тот же
+    приём, что и в других местах этого файла (round() на финальных
+    пиксельных координатах), только на уровне ScrollView, а не лейбла.
+    """
+    def update_from_scroll(self, *largs):
+        super().update_from_scroll(*largs)
+        x, y = self.g_translate.xy
+        self.g_translate.xy = (round(x), round(y))
+
+
 try:
     game_save_dir = user_data_dir("GuessWordGame", "MGGamesStudio")
     if not os.path.exists(game_save_dir):
@@ -4252,7 +4272,7 @@ class AchievementsScreen(Screen):
         self.layout.add_widget(self.lbl_main_title)
 
         # ----- горизонтально прокручиваемая строка статистики -----
-        self.stats_scroll = ScrollView(size_hint=(1, None), do_scroll_x=True, do_scroll_y=False, bar_width=0)
+        self.stats_scroll = SharpScrollView(size_hint=(1, None), do_scroll_x=True, do_scroll_y=False, bar_width=0)
         from kivy.effects.scroll import ScrollEffect
         self.stats_scroll.effect_cls = ScrollEffect
 
@@ -4308,7 +4328,7 @@ class AchievementsScreen(Screen):
         self.bind(size=self.reposition_elements)
 
         # ----- прокручиваемый список карточек достижений -----
-        self.scroll_view = ScrollView(size_hint=(1, None), do_scroll_x=False, do_scroll_y=True, bar_width=0)
+        self.scroll_view = SharpScrollView(size_hint=(1, None), do_scroll_x=False, do_scroll_y=True, bar_width=0)
         from kivy.effects.scroll import ScrollEffect
         self.scroll_view.effect_cls = ScrollEffect
 
@@ -4390,9 +4410,30 @@ class AchievementsScreen(Screen):
         # задан font_scale побольше, чем дефолтный 0.52 у RarityBadge -
         # раньше подписи "Обычное/Редкое/Эпическое" получались всего
         # 12-13px и читались плохо.
+        # На узком экране высота (а с ней шрифт/отступы/зазор между
+        # плашками) шаг за шагом уменьшается, пока строка целиком не
+        # впишется в ширину экрана - раньше высота считалась только от
+        # win_h, ширина не проверялась вовсе, и на узких экранах строка
+        # "Обычное • Редкое • Эпическое" не сужалась и вылезала за край.
+        legend_available_w = max(win_w - dp(30), dp(10))
         legend_h = min(max(win_h * 0.04, dp(24)), dp(32))
-        for type_key, _ in self.RARITY_LEGEND:
-            self._legend_dots[type_key].update_size(legend_h, font_scale=0.62)
+        legend_min_h = dp(15)
+        legend_gap = dp(18)
+
+        def _legend_layout(h, gap):
+            self.legend_row.spacing = gap
+            for type_key, _ in self.RARITY_LEGEND:
+                self._legend_dots[type_key].update_size(h, font_scale=0.62)
+            return sum(self._legend_dots[k].width for k, _ in self.RARITY_LEGEND) + gap * (len(self.RARITY_LEGEND) - 1)
+
+        legend_total_w = _legend_layout(legend_h, legend_gap)
+        shrink_steps = 0
+        while legend_total_w > legend_available_w and legend_h > legend_min_h and shrink_steps < 20:
+            legend_h = max(legend_min_h, legend_h - dp(1))
+            legend_gap = max(dp(8), legend_gap - dp(1))
+            legend_total_w = _legend_layout(legend_h, legend_gap)
+            shrink_steps += 1
+
         legend_top = self.tabs_row.y - dp(14)
         self.legend_row.height = legend_h
         self.legend_row.pos = (dp(15), legend_top - legend_h)
@@ -4478,34 +4519,53 @@ class AchievementsScreen(Screen):
         card.icon_ref = icon_img
         card.value_ref = lbl_val
         card.label_ref = lbl_lbl
+        card.bind(pos=self._layout_stat_card, size=self._layout_stat_card)
         return card
 
-    def _layout_stat_card(self, card, w, h):
-        # Позиции - через pos_hint (доли от размера card), а НЕ card.x/card.y
-        # напрямую: card - ребёнок BoxLayout, который пересчитывает его
-        # фактическую позицию с задержкой в 1 кадр. Чтение card.x сразу
-        # после смены размера могло вернуть ещё не обновлённое значение -
-        # отсюда "плавающие" при резком ресайзе иконки/подписи на
-        # скриншотах. pos_hint Kivy пересчитывает сам, непрерывно, поэтому
-        # он остаётся верным независимо от того, когда именно BoxLayout
-        # обновит card.pos.
-        icon_side = h * 0.24
+    def _layout_stat_card(self, card, *args):
+        # Раньше позиции считались через pos_hint (доли от размера card),
+        # т.к. card - ребёнок BoxLayout, который пересчитывает его
+        # фактическую позицию с задержкой в 1 кадр, а pos_hint Kivy
+        # пересчитывает сам и непрерывно. Но pos_hint даёт дробные
+        # (нецелые) пиксельные координаты текстуры лейбла, из-за чего
+        # текст выглядел размытым при горизонтальной прокрутке строки
+        # статистики. Чтобы сохранить и "самопересчёт", и чёткий текст,
+        # позиции теперь считаются вручную от card.x/card.y и округляются
+        # (round()) - как и в остальных местах экрана - а сам метод
+        # подписан на card.pos/card.size, поэтому пересчитывается заново,
+        # когда BoxLayout наконец обновит card.pos, но уже с округлением.
+        w, h = card.width, card.height
+        if w <= 0 or h <= 0:
+            return
+
+        icon_side = round(h * 0.24)
         card.icon_ref.size = (icon_side, icon_side)
-        card.icon_ref.pos_hint = {'center_x': 0.5, 'top': 0.86}
+        card.icon_ref.pos = (
+            round(card.x + (w - icon_side) / 2.0),
+            round(card.y + h * 0.86 - icon_side),
+        )
 
         val_h = h * 0.34
         card.value_ref.text_size = (None, None)
         fit_font_size(card.value_ref, w - dp(16), val_h * 0.9)
-        card.value_ref.size = (w - dp(8), val_h)
+        val_w = w - dp(8)
+        card.value_ref.size = (val_w, val_h)
         card.value_ref.text_size = card.value_ref.size
-        card.value_ref.pos_hint = {'center_x': 0.5, 'y': 0.28}
+        card.value_ref.pos = (
+            round(card.x + (w - val_w) / 2.0),
+            round(card.y + h * 0.28),
+        )
 
         lbl_h = h * 0.2
         card.label_ref.text_size = (None, None)
         fit_font_size(card.label_ref, w - dp(14), lbl_h * 0.85)
-        card.label_ref.size = (w - dp(8), lbl_h)
+        lbl_w = w - dp(8)
+        card.label_ref.size = (lbl_w, lbl_h)
         card.label_ref.text_size = card.label_ref.size
-        card.label_ref.pos_hint = {'center_x': 0.5, 'y': 0.06}
+        card.label_ref.pos = (
+            round(card.x + (w - lbl_w) / 2.0),
+            round(card.y + h * 0.06),
+        )
 
     # ------------------------------------------------------------------
     # ТАБЫ-ФИЛЬТРЫ
@@ -4689,32 +4749,41 @@ class AchievementsScreen(Screen):
             new_h = max(dp(96), total_h)
             row.height = new_h
 
-            # Ниже - только доли (pos_hint), пиксели Kivy посчитает сам от
-            # актуальных row.width/row.height в момент отрисовки.
-            name_top = 1.0 - PAD / new_h
-            name_lbl.pos_hint = {'x': PAD / w, 'top': name_top}
+            # Раньше здесь были доли (pos_hint): {'x': PAD / w, 'top': ...} -
+            # Kivy сам пересчитывал пиксели от row.width/row.height, но
+            # результат почти всегда получался дробным (нецелым), и текст
+            # карточки размывался - особенно заметно при прокрутке списка
+            # достижений. content - обычный FloatLayout (не RelativeLayout),
+            # поэтому координаты его детей - те же абсолютные координаты,
+            # что и у row; берём row.x/row.y напрямую и округляем (round())
+            # каждую позицию, как и в остальных местах экрана. row.bind
+            # ниже подписан и на pos, и на size - это сохраняет то же
+            # "пересчитывается само" поведение, что раньше давал pos_hint.
+            row_x, row_y = row.x, row.y
+            name_top_y = row_y + new_h - PAD
+            name_lbl.pos = (round(row_x + PAD), round(name_top_y - name_lbl.height))
 
-            desc_top = name_top - name_lbl.height / new_h - GAP_S / new_h
-            desc_lbl.pos_hint = {'x': PAD / w, 'top': desc_top}
+            desc_top_y = name_top_y - name_lbl.height - GAP_S
+            desc_lbl.pos = (round(row_x + PAD), round(desc_top_y - desc_lbl.height))
 
             status_icon.size = (ICON_SIZE, ICON_SIZE)
-            status_icon.pos_hint = {'right': 1.0 - PAD / w, 'top': name_top}
+            status_icon.pos = (round(row_x + w - PAD - ICON_SIZE), round(name_top_y - ICON_SIZE))
 
             if show_progress:
                 progress_row.size = (max(w - PAD * 2, dp(10)), PROG_H)
-                progress_top = desc_top - desc_lbl.height / new_h - GAP_M / new_h
-                progress_row.pos_hint = {'x': PAD / w, 'top': progress_top}
-                badge_top = progress_top - PROG_H / new_h - GAP_M / new_h
+                progress_top_y = desc_top_y - desc_lbl.height - GAP_M
+                progress_row.pos = (round(row_x + PAD), round(progress_top_y - PROG_H))
+                badge_top_y = progress_top_y - PROG_H - GAP_M
             else:
-                badge_top = desc_top - desc_lbl.height / new_h - GAP_M / new_h
+                badge_top_y = desc_top_y - desc_lbl.height - GAP_M
 
-            badge.pos_hint = {'x': PAD / w, 'top': badge_top}
-            badge_center_y = badge_top - (BADGE_H / 2) / new_h
-            lbl_status.pos_hint = {'right': 1.0 - PAD / w, 'center_y': badge_center_y}
+            badge.pos = (round(row_x + PAD), round(badge_top_y - BADGE_H))
+            status_y = round(badge_top_y - BADGE_H / 2 - lbl_status.height / 2)
+            lbl_status.pos = (round(row_x + w - PAD - lbl_status.width), status_y)
 
         name_lbl.bind(texture_size=relayout)
         desc_lbl.bind(texture_size=relayout)
-        row.bind(size=relayout)
+        row.bind(pos=relayout, size=relayout)
         relayout()
 
         return row
