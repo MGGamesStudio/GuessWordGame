@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import random
+import re
 from platformdirs import user_data_dir
 from kivy.app import App
 from kivy.core.window import Window
@@ -4082,7 +4083,145 @@ class HowToPlayScreen(Screen):
         for lbl in self.row_labels:
             lbl.text_size = (row_text_width, None)
 
+class RarityBadge(FloatLayout):
+    """
+    Плашка редкости (в карточке достижения) и элемент легенды (без заливки).
+    Сама плашка НЕ цветная - фон всегда color_key (или прозрачный для
+    легенды), цвет несёт только точка внутри. Ширина считается от
+    фактической ширины текста + отступов, поэтому плашка сама подстраивается
+    под любой размер шрифта на любом экране (никаких фиксированных px).
+    """
+    def __init__(self, dot_color, text, filled=True, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.filled = filled
+        self.dot_color = dot_color
+
+        with self.canvas.before:
+            self.bg_color_instr = Color(*(color_key if filled else (0, 0, 0, 0)))
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(8)])
+            self.dot_color_instr = Color(*dot_color)
+            self.dot_ellipse = Ellipse(pos=(0, 0), size=(0, 0))
+
+        self.label = Label(
+            text=text,
+            font_name=font_path("ClearSans-Bold.ttf"),
+            bold=True,
+            color=color_text,
+            size_hint=(None, None),
+            halign='left',
+            valign='middle'
+        )
+        self.add_widget(self.label)
+        self.bind(pos=self._sync_graphics, size=self._sync_graphics)
+
+    def update_size(self, height, font_scale=0.52):
+        """Пересчитывает плашку под заданную высоту: шрифт - доля от высоты
+        (увеличена, т.к. на маленькой высоте текст читался плохо), ширина -
+        по фактической ширине получившегося текста + отступы."""
+        self.height = height
+        self.label.font_size = f"{max(int(height * font_scale), 12)}px"
+        self.label.text_size = (None, None)
+        self.label.texture_update()
+        dot_d = height * 0.32
+        pad_x = height * (0.42 if self.filled else 0.0)
+        gap = dp(6)
+        text_w = self.label.texture_size[0]
+        self.width = pad_x * 2 + dot_d + gap + text_w
+        self.label.size = (text_w, height)
+        # ВАЖНО: без text_size, равного size, halign/valign лейбла не
+        # применяются вообще - текст рисуется по нижнему краю без выравнивания
+        # (отсюда была "неровная" точка редкости на скриншотах).
+        self.label.text_size = (text_w, height)
+        self._sync_graphics()
+
+    def _sync_graphics(self, *args):
+        pos = (round(self.x), round(self.y))
+        size = (round(self.width), round(self.height))
+        self.bg_rect.pos = pos
+        self.bg_rect.size = size
+        self.bg_rect.radius = [round(self.height / 2.0)] if self.filled else [0]
+        if self.height <= 0:
+            return
+        dot_d = round(self.height * 0.32)
+        pad_x = self.height * (0.42 if self.filled else 0.0)
+        gap = dp(6)
+        self.dot_ellipse.size = (dot_d, dot_d)
+        self.dot_ellipse.pos = (round(self.x + pad_x), round(self.y + (self.height - dot_d) / 2))
+        label_x = self.x + pad_x + dot_d + gap
+        self.label.pos = (round(label_x), pos[1])
+        self.label.size = (max(round(self.width - (label_x - self.x)), dp(4)), size[1])
+        self.label.text_size = self.label.size
+
+
+class FilterTabButton(ButtonBehavior, FloatLayout):
+    """
+    Таб-фильтр списка достижений ("ВСЕ" / "ОТКРЫТО" / "В ПРОЦЕССЕ").
+    Только два состояния окраски, обе из существующей палитры темы:
+    выбранный - заливка color_text с текстом color_bg (инверсия, как
+    активная кнопка), невыбранный - тем же светлым тоном, что и фон
+    карточек (lerp_color(color_bg, color_key, 0.20)), текст color_text.
+    """
+    def __init__(self, text="", on_select_callback=None, **kwargs):
+        super().__init__(**kwargs)
+        self.on_select_callback = on_select_callback
+        self.selected = False
+
+        with self.canvas.before:
+            self.bg_color_instr = Color(*lerp_color(color_bg, color_key, 0.20))
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(10)])
+
+        self.label = Label(
+            text=text,
+            font_name=font_path("ClearSans-Bold.ttf"),
+            bold=True,
+            color=color_text,
+            size_hint=(None, None),
+            halign='center',
+            valign='middle'
+        )
+        self.add_widget(self.label)
+        self.bind(pos=self._sync, size=self._sync)
+
+    def _sync(self, *args):
+        pos = (round(self.x), round(self.y))
+        size = (round(self.width), round(self.height))
+        self.bg_rect.pos = pos
+        self.bg_rect.size = size
+        self.bg_rect.radius = [min(round(self.height / 2.0), dp(12))]
+        self.label.text_size = (None, None)
+        fit_font_size(self.label, self.width - dp(14), self.height * 0.42)
+        self.label.size = size
+        self.label.text_size = size
+        self.label.pos = pos
+
+    def update_visual(self):
+        if self.selected:
+            self.bg_color_instr.rgba = color_text
+            self.label.color = color_bg
+        else:
+            self.bg_color_instr.rgba = lerp_color(color_bg, color_key, 0.20)
+            self.label.color = color_text
+
+    def on_release(self):
+        if self.on_select_callback:
+            self.on_select_callback(self)
+
+
 class AchievementsScreen(Screen):
+    # Табы-фильтры списка: (ключ фильтра, подпись на кнопке)
+    FILTER_TABS = [
+        ("all", "ВСЕ"),
+        ("unlocked", "ОТКРЫТО"),
+        ("inprogress", "В ПРОЦЕССЕ"),
+    ]
+    # Легенда редкости: (ключ типа, подпись)
+    RARITY_LEGEND = [
+        ("common", "Обычное"),
+        ("rare", "Редкое"),
+        ("epic", "Эпическое"),
+    ]
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -4093,19 +4232,18 @@ class AchievementsScreen(Screen):
         self.top_overlay = FloatLayout(size_hint=(1, None))
         with self.top_overlay.canvas.before:
             Color(*color_bg)
-            self.overlay_rect = RoundedRectangle(pos=(0, 0), size=(360, 200), radius=[12])
+            self.overlay_rect = RoundedRectangle(pos=(0, 0), size=(360, 200), radius=[0])
         self.layout.add_widget(self.top_overlay)
 
         if self.stub_layout.children:
-
             btn = [child for child in self.stub_layout.children if isinstance(child, MenuButton)][0]
             self.stub_layout.remove_widget(btn)
             self.layout.add_widget(btn)
 
         self.lbl_main_title = Label(
-            text="Достижения", 
-            font_name=font_path("ClearSans-Bold.ttf"), 
-            bold=True, 
+            text="Достижения",
+            font_name=font_path("ClearSans-Bold.ttf"),
+            bold=True,
             color=color_text,
             size_hint=(None, None),
             halign='left',
@@ -4113,40 +4251,85 @@ class AchievementsScreen(Screen):
         )
         self.layout.add_widget(self.lbl_main_title)
 
+        # ----- горизонтально прокручиваемая строка статистики -----
         self.stats_scroll = ScrollView(size_hint=(1, None), do_scroll_x=True, do_scroll_y=False, bar_width=0)
-
         from kivy.effects.scroll import ScrollEffect
         self.stats_scroll.effect_cls = ScrollEffect
-        
-        self.stats_container = BoxLayout(orientation='vertical', spacing=8, size_hint=(None, None))
-        self.stats_row1 = BoxLayout(orientation='horizontal', spacing=10, size_hint=(None, None))
-        self.stats_row2 = BoxLayout(orientation='horizontal', spacing=10, size_hint=(None, None))
-        
-        self.stats_container.add_widget(self.stats_row1)
-        self.stats_container.add_widget(self.stats_row2)
-        self.stats_scroll.add_widget(self.stats_container)
+
+        self.stats_row = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint=(None, None))
+        self.stats_row.bind(minimum_width=self.stats_row.setter('width'))
+        self.stats_scroll.add_widget(self.stats_row)
         self.layout.add_widget(self.stats_scroll)
-        
+
+        stat_defs = [
+            ("coins", "copyright.png", "Монеты"),
+            ("wins", "trophy.png", "Победы"),
+            ("losses", "trophy-off.png", "Поражения"),
+            ("streak", "flame.png", "Серия побед"),
+            ("ach_ratio", "award.png", "Достижения"),
+            ("quests", "clipboard-text.png", "Квесты"),
+        ]
+        self._stat_cards = {}
+        for key, icon_name, label_text in stat_defs:
+            card = self.create_stat_card(icon_name, label_text)
+            self.stats_row.add_widget(card)
+            self._stat_cards[key] = card
+
+        # ----- табы-фильтры -----
+        self.tabs_row = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint=(None, None))
+        self.layout.add_widget(self.tabs_row)
+
+        self.current_filter = "all"
+        self._tab_buttons = {}
+        for key, label_text in self.FILTER_TABS:
+            btn = FilterTabButton(
+                text=label_text,
+                size_hint=(1, 1),
+                on_select_callback=lambda inst, k=key: self._on_tab_selected(k)
+            )
+            btn.selected = (key == self.current_filter)
+            btn.update_visual()
+            self.tabs_row.add_widget(btn)
+            self._tab_buttons[key] = btn
+
+        # ----- строка-легенда редкости -----
+        self.legend_row = BoxLayout(orientation='horizontal', spacing=dp(18), size_hint=(None, None))
+        self.legend_row.bind(minimum_width=self.legend_row.setter('width'))
+        self.layout.add_widget(self.legend_row)
+
+        legend_colors = {"common": color_not_in_word, "rare": color_in_word, "epic": color_correct}
+        self._legend_dots = {}
+        for type_key, label_text in self.RARITY_LEGEND:
+            dot = RarityBadge(dot_color=legend_colors[type_key], text=label_text, filled=False)
+            self.legend_row.add_widget(dot)
+            self._legend_dots[type_key] = dot
+
         self.add_widget(self.layout)
         self.bind(size=self.reposition_elements)
 
+        # ----- прокручиваемый список карточек достижений -----
         self.scroll_view = ScrollView(size_hint=(1, None), do_scroll_x=False, do_scroll_y=True, bar_width=0)
-
         from kivy.effects.scroll import ScrollEffect
         self.scroll_view.effect_cls = ScrollEffect
 
-        self.ach_list_layout = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=[0, 0, 0, dp(20)])
+        # padding слева/справа = тот же отступ dp(15), что и у остальных
+        # элементов шапки (табы, легенда) - раньше его не было, и карточки
+        # доставали до самого края экрана. Небольшой верхний padding не даёт
+        # верхней обводке первой карточки упираться вплотную в подложку
+        # шапки (там был почти незаметный нахлёст, из-за которого обводка
+        # выглядела обрезанной на скриншотах).
+        self.ach_list_layout = GridLayout(cols=1, spacing=15, size_hint_y=None, padding=[dp(15), dp(6), dp(15), dp(20)])
         self.ach_list_layout.bind(minimum_height=self.ach_list_layout.setter('height'))
-
         self.scroll_view.add_widget(self.ach_list_layout)
-
         self.layout.add_widget(self.scroll_view)
 
         if hasattr(self, 'top_overlay'):
             self.layout.remove_widget(self.scroll_view)
             self.layout.add_widget(self.scroll_view, index=len(self.layout.children))
+
         self._ach_last_signature = None
         self._ach_build_event = None
+        self._ach_all_cards = []  # [(widget, got_bool), ...] - чтобы табы переключались мгновенно, без пересборки
 
         self.reposition_elements(None, None)
         Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
@@ -4154,16 +4337,14 @@ class AchievementsScreen(Screen):
     def on_enter(self):
         self.refresh_stats_and_achievements()
 
+    # ------------------------------------------------------------------
+    # РАЗМЕТКА ЭКРАНА
+    # ------------------------------------------------------------------
     def reposition_elements(self, instance, size):
         win_w = self.width
         win_h = self.height
-        overlay_height = min(win_h * 0.32, dp(230))
-
-        self.top_overlay.height = overlay_height
-        self.top_overlay.pos = (0, win_h - overlay_height)
-
-        self.overlay_rect.size = (win_w, overlay_height)
-        self.overlay_rect.pos = (0, win_h - overlay_height)
+        if win_w <= 0 or win_h <= 0:
+            return
 
         back_w, back_h = dp(48), dp(48)
         back_btn = None
@@ -4177,224 +4358,377 @@ class AchievementsScreen(Screen):
             fit_font_size(back_btn, back_w - dp(18), back_h * 0.42)
 
         title_h = min(win_h * 0.05, dp(34))
-        self.lbl_main_title.size = (win_w - back_w - dp(45), title_h)
         self.lbl_main_title.text_size = (None, None)
         fit_font_size(self.lbl_main_title, win_w - back_w - dp(45), title_h * 0.85)
+        self.lbl_main_title.size = (win_w - back_w - dp(45), title_h)
         self.lbl_main_title.text_size = self.lbl_main_title.size
         self.lbl_main_title.y = win_h - TOP_SAFE_MARGIN - back_h / 2 - title_h / 2 + dp(4)
         self.lbl_main_title.x = dp(15)
 
-        stats_h = dp(70) * 2 + dp(8)
-        self.stats_scroll.height = stats_h
-        self.stats_scroll.size_hint_x = 1
-        self.stats_scroll.do_scroll_x = False
+        header_bottom = (back_btn.y if back_btn is not None else win_h - TOP_SAFE_MARGIN - back_h) - dp(14)
 
-        header_bottom = (back_btn.y if back_btn is not None else win_h - TOP_SAFE_MARGIN - back_h) - dp(10)
+        # --- строка статистики ---
+        stats_h = min(max(win_h * 0.13, dp(88)), dp(112))
+        self.stats_scroll.size = (win_w, stats_h)
         self.stats_scroll.pos = (0, header_bottom - stats_h)
-        self.stats_container.size = (win_w, stats_h)
-        self.stats_container.padding = [dp(12), 0, dp(12), 0]
-        self.stats_container.spacing = dp(8)
 
-        row_w = win_w - dp(24)
-        self.stats_row1.size = (row_w, dp(70))
-        self.stats_row2.size = (row_w, dp(70))
-        self.stats_row1.spacing = dp(8)
-        self.stats_row2.spacing = dp(8)
+        card_w = min(max(win_w * 0.30, dp(96)), dp(150))
+        self.stats_row.height = stats_h
+        self.stats_row.padding = [dp(14), 0, dp(14), 0]
+        for card in self.stats_row.children:
+            card.size = (card_w, stats_h)
+            self._layout_stat_card(card, card_w, stats_h)
 
-        for row in (self.stats_row1, self.stats_row2):
-            for card in row.children:
-                if hasattr(card, 'label_ref'):
-                    fit_font_size(card.label_ref, row_w / 3 * 0.85, dp(15))
-                    fit_font_size(card.value_ref, row_w / 3 * 0.85, dp(22))
+        # --- табы-фильтры ---
+        tabs_h = min(max(win_h * 0.055, dp(40)), dp(50))
+        tabs_top = self.stats_scroll.y - dp(16)
+        self.tabs_row.size = (win_w - dp(30), tabs_h)
+        self.tabs_row.pos = (dp(15), tabs_top - tabs_h)
 
-        list_top = self.stats_scroll.y - dp(10)
-        self.scroll_view.size = (win_w, list_top - BOTTOM_SAFE_MARGIN)
+        # --- легенда редкости ---
+        # Высота увеличена (была 20-26dp), а для текста легенды отдельно
+        # задан font_scale побольше, чем дефолтный 0.52 у RarityBadge -
+        # раньше подписи "Обычное/Редкое/Эпическое" получались всего
+        # 12-13px и читались плохо.
+        legend_h = min(max(win_h * 0.04, dp(24)), dp(32))
+        for type_key, _ in self.RARITY_LEGEND:
+            self._legend_dots[type_key].update_size(legend_h, font_scale=0.62)
+        legend_top = self.tabs_row.y - dp(14)
+        self.legend_row.height = legend_h
+        self.legend_row.pos = (dp(15), legend_top - legend_h)
+
+        list_top = self.legend_row.y - dp(16)
+
+        # --- фоновая подложка шапки (чтобы список не наезжал на неё при скролле) ---
+        overlay_h = max(win_h - list_top, 0)
+        self.top_overlay.height = overlay_h
+        self.top_overlay.pos = (0, list_top)
+        self.overlay_rect.size = (win_w, overlay_h)
+        self.overlay_rect.pos = (0, list_top)
+
+        # --- список достижений ---
+        self.scroll_view.size = (win_w, max(list_top - BOTTOM_SAFE_MARGIN, dp(10)))
         self.scroll_view.pos = (0, BOTTOM_SAFE_MARGIN)
-
         self.ach_list_layout.width = win_w
 
-    def create_card(self, label_text, val_text, val_color):
-        card = FloatLayout(size_hint=(1, 1))
+    # ------------------------------------------------------------------
+    # КАРТОЧКА СТАТИСТИКИ (верхняя горизонтальная строка)
+    # ------------------------------------------------------------------
+    def create_stat_card(self, icon_name, label_text):
+        card = FloatLayout(size_hint=(None, None))
 
+        border_w = dp(1.2)
         with card.canvas.before:
+            Color(*lerp_color(color_bg, color_key, 0.20))
+            bg_rect = RoundedRectangle(pos=card.pos, size=card.size, radius=[dp(14)])
             Color(*color_blank)
-            r_rect = RoundedRectangle(pos=card.pos, size=card.size, radius=[12])
-        card.bind(pos=lambda inst, v: setattr(r_rect, 'pos', inst.pos), size=lambda inst, v: setattr(r_rect, 'size', inst.size))
-        
-        lbl_lbl = Label(
-            text=label_text, 
-            font_name=font_path("ClearSans-Bold.ttf"),
-            color=color_not_in_word,
-            size_hint=(1, 0.45),
-            pos_hint={'x': 0, 'y': 0.48},
-            halign='center', 
-            valign='middle'
-        )
-        card.add_widget(lbl_lbl)
-        
+            border_line = Line(width=border_w, rounded_rectangle=(card.x, card.y, card.width, card.height, dp(14), dp(14), dp(14), dp(14)))
+
+        def sync_bg(inst, val):
+            # round() убирает субпиксельное дрожание рамки (та же причина
+            # разной толщины обводки по разным сторонам карточки, что видна
+            # на скриншотах) - приём уже используется в SettingLinkRow.
+            pos = (round(inst.x), round(inst.y))
+            size = (round(inst.width), round(inst.height))
+            bg_rect.pos = pos
+            bg_rect.size = size
+            # Line рисуется ПО ЦЕНТРУ заданного пути, поэтому обводка шириной
+            # border_w всегда "вылезает" на border_w/2 за пределы pos/size.
+            # Карточка лежит в ScrollView, чья видимая область по высоте в
+            # точности равна высоте карточки (без запаса сверху/снизу, в
+            # отличие от горизонтали, где есть padding строки) - вылезающий
+            # за границы кусок обводки обрезался стенсилом скролла, из-за
+            # чего верхняя и нижняя линии казались вдвое тоньше боковых.
+            # Сдвигаем путь внутрь на половину толщины линии, чтобы вся
+            # обводка целиком помещалась внутри pos/size и никогда не обрезалась.
+            half_w = border_w / 2.0
+            border_line.rounded_rectangle = (
+                pos[0] + half_w, pos[1] + half_w,
+                max(size[0] - border_w, 0), max(size[1] - border_w, 0),
+                dp(14), dp(14), dp(14), dp(14)
+            )
+        card.bind(pos=sync_bg, size=sync_bg)
+
+        icon_img = Image(size_hint=(None, None), fit_mode="contain", color=color_text)
+        icon_img.texture = load_white_icon_texture(icon_path(icon_name))
+        card.add_widget(icon_img)
+
         lbl_val = Label(
-            text=val_text, 
+            text="0",
             font_name=font_path("ClearSans-Bold.ttf"),
-            color=val_color, 
-            bold=True, 
-            size_hint=(1, 0.5),
-            pos_hint={'x': 0, 'y': 0.02},
-            halign='center', 
+            color=color_text,
+            bold=True,
+            size_hint=(None, None),
+            halign='center',
             valign='middle'
         )
         card.add_widget(lbl_val)
 
-        card.label_ref = lbl_lbl
+        lbl_lbl = Label(
+            text=label_text,
+            font_name=font_path("ClearSans-Bold.ttf"),
+            color=color_not_in_word,
+            bold=True,
+            size_hint=(None, None),
+            halign='center',
+            valign='middle'
+        )
+        card.add_widget(lbl_lbl)
+
+        card.icon_ref = icon_img
         card.value_ref = lbl_val
+        card.label_ref = lbl_lbl
         return card
-    
-    def create_achievement_row(self, name, description, ach_data, got, date_str):
-        row = FloatLayout(size_hint_y=None, height=110)
 
-        def lerp_color(c1, c2, factor):
-            return (
-                c1[0] + (c2[0] - c1[0]) * factor,
-                c1[1] + (c2[1] - c1[1]) * factor,
-                c1[2] + (c2[2] - c1[2]) * factor,
-                1.0
-            )
+    def _layout_stat_card(self, card, w, h):
+        # Позиции - через pos_hint (доли от размера card), а НЕ card.x/card.y
+        # напрямую: card - ребёнок BoxLayout, который пересчитывает его
+        # фактическую позицию с задержкой в 1 кадр. Чтение card.x сразу
+        # после смены размера могло вернуть ещё не обновлённое значение -
+        # отсюда "плавающие" при резком ресайзе иконки/подписи на
+        # скриншотах. pos_hint Kivy пересчитывает сам, непрерывно, поэтому
+        # он остаётся верным независимо от того, когда именно BoxLayout
+        # обновит card.pos.
+        icon_side = h * 0.24
+        card.icon_ref.size = (icon_side, icon_side)
+        card.icon_ref.pos_hint = {'center_x': 0.5, 'top': 0.86}
 
+        val_h = h * 0.34
+        card.value_ref.text_size = (None, None)
+        fit_font_size(card.value_ref, w - dp(16), val_h * 0.9)
+        card.value_ref.size = (w - dp(8), val_h)
+        card.value_ref.text_size = card.value_ref.size
+        card.value_ref.pos_hint = {'center_x': 0.5, 'y': 0.28}
+
+        lbl_h = h * 0.2
+        card.label_ref.text_size = (None, None)
+        fit_font_size(card.label_ref, w - dp(14), lbl_h * 0.85)
+        card.label_ref.size = (w - dp(8), lbl_h)
+        card.label_ref.text_size = card.label_ref.size
+        card.label_ref.pos_hint = {'center_x': 0.5, 'y': 0.06}
+
+    # ------------------------------------------------------------------
+    # ТАБЫ-ФИЛЬТРЫ
+    # ------------------------------------------------------------------
+    def _on_tab_selected(self, key):
+        if key == self.current_filter:
+            return
+        self.current_filter = key
+        for k, btn in self._tab_buttons.items():
+            btn.selected = (k == key)
+            btn.update_visual()
+        self._apply_filter()
+
+    def _apply_filter(self):
+        self.ach_list_layout.clear_widgets()
+        for widget, got in self._ach_all_cards:
+            if self.current_filter == "unlocked" and not got:
+                continue
+            if self.current_filter == "inprogress" and got:
+                continue
+            self.ach_list_layout.add_widget(widget)
+
+    # ------------------------------------------------------------------
+    # РАЗБОР ЧИСЛОВЫХ ДОСТИЖЕНИЙ ("Выиграйте N раз." / "Проиграйте N раз.")
+    # ------------------------------------------------------------------
+    def _parse_ach_progress(self, description, stats):
+        match = re.search(r"(Выиграйте|Проиграйте)\s+(\d+)\s+раз", description or "", re.IGNORECASE)
+        if not match:
+            return False, 0, 0
+        target = int(match.group(2))
+        if target <= 0:
+            return False, 0, 0
+        verb = match.group(1).lower()
+        if verb.startswith("выиграйте"):
+            current = stats.get("total_wins", 0)
+        else:
+            current = stats.get("total_losses", 0)
+        return True, current, target
+
+    # ------------------------------------------------------------------
+    # КАРТОЧКА ДОСТИЖЕНИЯ
+    # ------------------------------------------------------------------
+    def create_achievement_card(self, name, description, ach_data, got, date_str, stats):
         r_type = "common"
         if isinstance(ach_data, dict):
             r_type = ach_data.get("type", "common").lower().strip()
 
         if r_type == "rare":
-            rare_color = lerp_color(color_text, color_in_word, 0.5)
+            dot_color = color_in_word
             type_text = "Редкое"
         elif r_type == "epic":
-            rare_color = lerp_color(color_text, color_correct, 0.6)
+            dot_color = color_correct
             type_text = "Эпическое"
         else:
-            rare_color = lerp_color(color_text, color_bg, 0.3)
+            dot_color = color_not_in_word
             type_text = "Обычное"
 
-        if got:
-            bg_color = color_blank
-            text_color = color_text
-            status_color = color_correct
+        is_numeric, current, target = self._parse_ach_progress(description, stats)
+        show_progress = is_numeric and not got
+
+        if got and date_str:
+            status_text = date_str
+        elif show_progress:
+            status_text = f"{min(current, target)} / {target}"
+        elif not got:
+            status_text = "ЗАБЛОКИРОВАНО"
         else:
-            bg_color = lerp_color(color_blank, color_bg, 0.5)
-            text_color = lerp_color(color_text, color_bg, 0.4)
-            rare_color = lerp_color(rare_color, color_bg, 0.3)
-            status_color = color_not_in_word
+            status_text = ""
+
+        row = FloatLayout(size_hint_y=None, height=dp(140))
 
         with row.canvas.before:
-            Color(*bg_color)
-            bg_rect = RoundedRectangle(pos=row.pos, size=row.size, radius=[12])
-            
-            Color(*rare_color)
-            ribbon_rect = RoundedRectangle(pos=row.pos, size=(10, 110), radius=[(12, 12), (0, 0), (0, 0), (12, 12)])
-            
-        def sync_graphics(instance, value):
-            bg_rect.pos = (instance.x + 15, instance.y)
-            bg_rect.size = (instance.width - 30, instance.height)
-            ribbon_rect.pos = (instance.x + 15, instance.y)
-            ribbon_rect.size = (10, instance.height)
-        row.bind(pos=sync_graphics, size=sync_graphics)
+            Color(*lerp_color(color_bg, color_key, 0.20))
+            bg_rect = RoundedRectangle(pos=row.pos, size=row.size, radius=[dp(14)])
+            Color(*color_blank)
+            border_line = Line(width=dp(1.2), rounded_rectangle=(row.x, row.y, row.width, row.height, dp(14), dp(14), dp(14), dp(14)))
 
-        return self.fill_achievement_widgets(row, name, description, got, date_str, type_text, rare_color, text_color, status_color, bg_rect, ribbon_rect)
+        def sync_bg(inst, val):
+            # round() убирает субпиксельное дрожание рамки при некруглых
+            # размерах окна (та же причина "обрезанной" обводки на скринах).
+            pos = (round(inst.x), round(inst.y))
+            size = (round(inst.width), round(inst.height))
+            bg_rect.pos = pos
+            bg_rect.size = size
+            border_line.rounded_rectangle = (pos[0], pos[1], size[0], size[1], dp(14), dp(14), dp(14), dp(14))
+        row.bind(pos=sync_bg, size=sync_bg)
 
-    def fill_achievement_widgets(self, row, name, description, got, date_str, type_text, rarity_color, text_color, status_color, bg_rect, ribbon_rect):
-        ach_font_path = font_path("ClearSans-Bold.ttf")
+        # Все дочерние элементы кладём не прямо в row, а в обёртку content:
+        # size_hint=(1,1) + pos_hint={'x':0,'y':0} заставляет Kivy держать её
+        # координаты синхронно с row САМ, без наших ручных перевызовов. Ниже
+        # позиции всех элементов внутри content задаются через pos_hint
+        # (доли от текущего размера row) - это ключевое отличие от прежней
+        # версии, где позиции присваивались один раз через .pos от row.x/
+        # row.width, прочитанных в момент относительно ненадёжного колбэка
+        # (GridLayout пересчитывает фактические x/width строки с задержкой
+        # в кадр, и наше чтение могло "поймать" ещё не обновлённое значение -
+        # отсюда нестабильность при резком ресайзе окна). pos_hint же Kivy
+        # пересчитывает сам и непрерывно, поэтому расхождений не возникает.
+        content = FloatLayout(size_hint=(1, 1), pos_hint={'x': 0, 'y': 0})
+        row.add_widget(content)
+
+        ach_font = font_path("ClearSans-Bold.ttf")
         name_lbl = Label(
-            text=name.upper(), font_name=ach_font_path,
-            font_size='18sp', color=text_color, bold=True,
-            size_hint=(None, None),
-            halign='left', valign='top'
+            text=name.upper(), font_name=ach_font, font_size='17sp', bold=True, color=color_text,
+            size_hint=(None, None), halign='left', valign='top'
         )
         desc_lbl = Label(
-            text=description, font_name=ach_font_path,
-            font_size='13sp', color=text_color,
-            size_hint=(None, None),
-            halign='left', valign='top'
+            text=description, font_name=ach_font, font_size='13sp', color=color_not_in_word,
+            size_hint=(None, None), halign='left', valign='top'
         )
-        info_h = dp(30)
-        info_line = FloatLayout(size_hint=(1, None), height=info_h)
-        lbl_rare = Label(
-            text=type_text, font_name=ach_font_path, color=rarity_color, bold=True,
-            size_hint=(None, None), height=info_h,
-            pos_hint={'x': 0.06, 'center_y': 0.5}, halign='left', valign='middle'
-        )
-        lbl_date = Label(
-            text=f"Дата: {date_str}" if (got and date_str) else "",
-            font_name=ach_font_path, color=color_not_in_word, bold=True,
-            size_hint=(None, None), height=info_h,
-            pos_hint={'center_x': 0.5, 'center_y': 0.5}, halign='center', valign='middle'
-        )
-        lbl_stat = Label(
-            text="ПОЛУЧЕНО" if got else "НЕ ПОЛУЧЕНО", font_name=ach_font_path, color=status_color, bold=True,
-            size_hint=(None, None), height=info_h,
-            pos_hint={'right': 0.97, 'center_y': 0.5}, halign='right', valign='middle'
+        status_icon = Image(size_hint=(None, None), fit_mode="contain", color=color_text)
+        status_icon.texture = load_white_icon_texture(icon_path("check.png" if got else "lock.png"))
+
+        badge = RarityBadge(dot_color=dot_color, text=type_text, filled=True)
+
+        lbl_status = Label(
+            text=status_text, font_name=ach_font, bold=True, color=color_not_in_word,
+            size_hint=(None, None), halign='right', valign='middle'
         )
 
-        info_line.add_widget(lbl_rare)
-        info_line.add_widget(lbl_date)
-        info_line.add_widget(lbl_stat)
+        for widget in (name_lbl, desc_lbl, status_icon, badge, lbl_status):
+            content.add_widget(widget)
 
-        text_group = FloatLayout(size_hint=(1, 1), pos_hint={'x': 0, 'y': 0})
-        text_group.add_widget(name_lbl)
-        text_group.add_widget(desc_lbl)
-        text_group.add_widget(info_line)
+        progress_row = None
+        prog_track = prog_fill = None
+        if show_progress:
+            progress_row = FloatLayout(size_hint=(None, None))
+            with progress_row.canvas:
+                Color(*color_blank)
+                prog_track = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(4)])
+                Color(*color_not_in_word)
+                prog_fill = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(4)])
 
-        def sync_row_height(*args):
-            name_lbl.height = name_lbl.texture_size[1]
-            desc_lbl.height = desc_lbl.texture_size[1]
-            total_h = 4 + name_lbl.height + 2 + desc_lbl.height + 8 + info_line.height + 4
+            def sync_progress(inst, val):
+                pos = (round(inst.x), round(inst.y))
+                size = (round(inst.width), round(inst.height))
+                prog_track.pos = pos
+                prog_track.size = size
+                ratio = max(0.0, min(1.0, (current / target) if target > 0 else 0.0))
+                prog_fill.pos = pos
+                prog_fill.size = (round(size[0] * ratio), size[1])
+            progress_row.bind(pos=sync_progress, size=sync_progress)
+            content.add_widget(progress_row)
 
-            row.height = max(75, total_h)
-            ribbon_rect.size = (10, row.height)
+        PAD = dp(16)
+        ICON_SIZE = dp(20)
+        BADGE_H = dp(28)
+        PROG_H = dp(8)
+        GAP_S = dp(4)
+        GAP_M = dp(10)
 
-            name_lbl.pos_hint = {'x': 0.06, 'top': 1.0 - (4 / row.height)}
-            desc_lbl.pos_hint = {'x': 0.06, 'top': name_lbl.pos_hint['top'] - (name_lbl.height / row.height) - (2 / row.height)}
-            info_line.pos_hint = {'x': 0, 'y': 4 / row.height}
+        def relayout(*args):
+            w = row.width
+            if w <= 0:
+                return
 
-        def update_widths(*args):
-            # Пересчитываем ширины текста от ТЕКУЩЕЙ ширины карточки (row.width),
-            # а не от ширины экрана в момент создания — иначе текст перестаёт
-            # быть динамичным и выходит за рамки плашки при изменении размера окна.
-            text_w = max(row.width - 45, dp(10))
-            name_lbl.width = text_w
-            name_lbl.text_size = (text_w, None)
+            name_w = max(w - PAD * 2 - ICON_SIZE - dp(8), dp(10))
+            name_lbl.text_size = (name_w, None)
+            name_lbl.width = name_w
             name_lbl.texture_update()
+            name_lbl.height = name_lbl.texture_size[1]
 
-            desc_lbl.width = text_w
-            desc_lbl.text_size = (text_w, None)
+            desc_w = max(w - PAD * 2, dp(10))
+            desc_lbl.text_size = (desc_w, None)
+            desc_lbl.width = desc_w
             desc_lbl.texture_update()
+            desc_lbl.height = desc_lbl.texture_size[1]
 
-            seg_w = max((row.width - dp(24)) / 3, dp(60))
-            lbl_rare.width = seg_w
-            fit_font_size(lbl_rare, seg_w - dp(8), dp(13))
-            lbl_rare.text_size = (seg_w, info_h)
+            badge.update_size(BADGE_H)
 
-            lbl_date.width = seg_w
-            fit_font_size(lbl_date, seg_w - dp(8), dp(12))
-            lbl_date.text_size = (seg_w, info_h)
+            lbl_status.text_size = (None, None)
+            fit_font_size(lbl_status, w * 0.55, dp(13))
+            lbl_status.texture_update()
+            lbl_status.size = lbl_status.texture_size
+            lbl_status.text_size = lbl_status.size
 
-            lbl_stat.width = seg_w
-            fit_font_size(lbl_stat, seg_w - dp(8), dp(13))
-            lbl_stat.text_size = (seg_w, info_h)
+            total_h = PAD + name_lbl.height + GAP_S + desc_lbl.height + GAP_M
+            if show_progress:
+                total_h += PROG_H + GAP_M
+            total_h += BADGE_H + PAD
+            new_h = max(dp(96), total_h)
+            row.height = new_h
 
-            sync_row_height()
+            # Ниже - только доли (pos_hint), пиксели Kivy посчитает сам от
+            # актуальных row.width/row.height в момент отрисовки.
+            name_top = 1.0 - PAD / new_h
+            name_lbl.pos_hint = {'x': PAD / w, 'top': name_top}
 
-        desc_lbl.bind(texture_size=sync_row_height)
-        name_lbl.bind(texture_size=sync_row_height)
-        row.bind(size=update_widths)
-        update_widths()
+            desc_top = name_top - name_lbl.height / new_h - GAP_S / new_h
+            desc_lbl.pos_hint = {'x': PAD / w, 'top': desc_top}
 
-        row.add_widget(text_group)
+            status_icon.size = (ICON_SIZE, ICON_SIZE)
+            status_icon.pos_hint = {'right': 1.0 - PAD / w, 'top': name_top}
+
+            if show_progress:
+                progress_row.size = (max(w - PAD * 2, dp(10)), PROG_H)
+                progress_top = desc_top - desc_lbl.height / new_h - GAP_M / new_h
+                progress_row.pos_hint = {'x': PAD / w, 'top': progress_top}
+                badge_top = progress_top - PROG_H / new_h - GAP_M / new_h
+            else:
+                badge_top = desc_top - desc_lbl.height / new_h - GAP_M / new_h
+
+            badge.pos_hint = {'x': PAD / w, 'top': badge_top}
+            badge_center_y = badge_top - (BADGE_H / 2) / new_h
+            lbl_status.pos_hint = {'right': 1.0 - PAD / w, 'center_y': badge_center_y}
+
+        name_lbl.bind(texture_size=relayout)
+        desc_lbl.bind(texture_size=relayout)
+        row.bind(size=relayout)
+        relayout()
+
         return row
-    
-    def build_achievements_list(self, launcher_achievements):
+
+    # ------------------------------------------------------------------
+    # ПОСТРОЕНИЕ СПИСКА (по частям, чтобы не подвешивать кадр)
+    # ------------------------------------------------------------------
+    def build_achievements_list(self, launcher_achievements, stats):
         if self._ach_build_event is not None:
             self._ach_build_event.cancel()
             self._ach_build_event = None
 
         self.ach_list_layout.clear_widgets()
+        self._ach_all_cards = []
 
         if not launcher_achievements:
             return
@@ -4417,25 +4751,30 @@ class AchievementsScreen(Screen):
                 got = ach_data.get("got", False)
                 date_str = ach_data.get("date", "")
 
-                row_widget = self.create_achievement_row(name, description, ach_data, got, date_str)
-                self.ach_list_layout.add_widget(row_widget)
+                row_widget = self.create_achievement_card(name, description, ach_data, got, date_str, stats)
+                self._ach_all_cards.append((row_widget, got))
+            self._apply_filter()
             return True
 
         if build_chunk(0):
             self._ach_build_event = Clock.schedule_interval(build_chunk, 0)
 
+    # ------------------------------------------------------------------
+    # ОБНОВЛЕНИЕ СТАТИСТИКИ И СПИСКА
+    # ------------------------------------------------------------------
     def refresh_stats_and_achievements(self):
         stats = MOBILE_PLAYER_STATS if ('MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS) else {}
         launcher_ach = MOBILE_ACHIVEMENTS if ('MOBILE_ACHIVEMENTS' in globals() and MOBILE_ACHIVEMENTS) else {}
-        
+
         coins = stats.get("player_coins", 0)
         wins = stats.get("total_wins", 0)
         losses = stats.get("total_losses", 0)
         streak = f"{stats.get('current_win_streak', 0)}/{stats.get('max_win_streak', 0)}"
         quests = stats.get("total_completed_quests", 0)
-        
+
         got_count = sum(1 for ach in launcher_ach.values() if ach.get("got", False))
         ach_ratio = f"{got_count}/{len(launcher_ach)}" if launcher_ach else "0/16"
+
         signature = (
             coins, wins, losses, streak, quests, ach_ratio,
             tuple(sorted((k, v.get("got", False), v.get("date", "")) for k, v in launcher_ach.items()))
@@ -4446,30 +4785,19 @@ class AchievementsScreen(Screen):
             return
         self._ach_last_signature = signature
 
-        self.stats_row1.clear_widgets()
-        self.stats_row2.clear_widgets()
-
-        row1_data = [
-            ("Монеты", str(coins), color_in_word),
-            ("Победы", str(wins), color_correct),
-            ("Поражения", str(losses), color_text)
-        ]
-        
-        row2_data = [
-            ("Серия побед", streak, color_text),
-            ("Достижения", ach_ratio, color_text),
-            ("Квесты", str(quests), color_text)
-        ]
-
-        for item in row1_data:
-            self.stats_row1.add_widget(self.create_card(*item))
-            
-        for item in row2_data:
-            self.stats_row2.add_widget(self.create_card(*item))
+        stat_values = {
+            "coins": str(coins),
+            "wins": str(wins),
+            "losses": str(losses),
+            "streak": streak,
+            "ach_ratio": ach_ratio,
+            "quests": str(quests),
+        }
+        for key, card in self._stat_cards.items():
+            card.value_ref.text = stat_values.get(key, "0")
 
         self.reposition_elements(None, None)
-
-        self.build_achievements_list(launcher_ach)
+        self.build_achievements_list(launcher_ach, stats)
 
 class CustomizationScreen(Screen):
     def __init__(self, **kwargs):
