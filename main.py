@@ -979,75 +979,198 @@ class MainMenuButton(ButtonBehavior, FloatLayout):
         self.bg_rect.pos = self.pos
         self.bg_rect.size = self.size
 
-class ModeButton(BoxLayout):
-    def __init__(self, title_text="", description_text="", description_color=None, on_release=None, **kwargs):
+class TagChip(FloatLayout):
+    """
+    Маленькая заполненная плашка-чип для коротких подписей ("ОФФЛАЙН",
+    "ОСНОВНОЙ РЕЖИМ"): фон color_key, текст color_text. Ширина сама
+    подстраивается под фактическую ширину текста + отступы (тот же приём,
+    что и в RarityBadge/FilterTabButton) - поэтому чип корректно выглядит
+    на любом экране без единого захардкоженного px.
+    """
+    def __init__(self, text="", **kwargs):
         super().__init__(**kwargs)
-        self.orientation = 'vertical'
-        self.padding = [15, 28, 15, 6]
-        self.spacing = 14
-        
-        self.on_release_func = on_release
-        
         self.size_hint = (None, None)
-        self.size = (350, 200)
-        
-        self.base_color = color_key
-        self.current_bg = list(self.base_color)
+
+        with self.canvas.before:
+            self.bg_color_instr = Color(*color_key)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(8)])
+
+        self.label = Label(
+            text=text,
+            font_name=font_path("ClearSans-Bold.ttf"),
+            bold=True,
+            color=color_text,
+            size_hint=(None, None),
+            halign='center',
+            valign='middle'
+        )
+        self.add_widget(self.label)
+        self.bind(pos=self._sync, size=self._sync)
+
+    def update_size(self, height, font_scale=0.5, pad_scale=0.6):
+        self.height = height
+        self.label.font_size = f"{max(int(height * font_scale), 10)}px"
+        self.label.text_size = (None, None)
+        self.label.texture_update()
+        pad_x = height * pad_scale
+        text_w = self.label.texture_size[0]
+        self.width = text_w + pad_x * 2
+        self.label.size = (text_w, height)
+        self.label.text_size = (text_w, height)
+        self._sync()
+
+    def _sync(self, *args):
+        pos = (round(self.x), round(self.y))
+        size = (round(self.width), round(self.height))
+        self.bg_rect.pos = pos
+        self.bg_rect.size = size
+        self.bg_rect.radius = [round(self.height / 2.0)]
+        self.label.pos = pos
+        self.label.size = size
+        self.label.text_size = size
+
+class ModeButton(ButtonBehavior, FloatLayout):
+    """
+    Карточка режима игры на экране выбора режима (PlayScreen).
+
+    variant="featured" -> крупная карточка основного режима: плашка
+                           (badge_text) прижата к верхнему левому углу и
+                           слегка выступает за верхний край карточки.
+    variant="compact"  -> компактная строка на всю ширину: иконка слева,
+                           название + короткая подпись, шеврон справа.
+
+    Фон карточки - lerp_color(color_bg, color_key, 0.20) (как в
+    MenuRowButton), рамка - color_blank, квадрат-подложка иконки -
+    color_key, весь текст/иконки - color_text, кроме описания
+    (color_not_in_word). Нажатие слегка затемняет фон (тот же множитель
+    0.94, что и в MenuRowButton/MainMenuButton).
+
+    Внутренняя раскладка (позиции иконки/текста/шеврона/плашки) считается
+    в layout_content() - PlayScreen лишь подбирает и проставляет размеры
+    шрифтов/текстур title_label и sub_label (как и раньше), а сам виджет
+    расставляет их по уже готовым размерам.
+    """
+
+    BORDER_W = dp(1.2)
+    CARD_RADIUS = dp(16)
+
+    def __init__(self, title_text="", description_text="", icon_name="",
+                 variant="compact", badge_text=None, chevron_name="c-right.png",
+                 on_release=None, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.variant = variant
+        self.on_release_func = on_release
+
+        self.base_color = lerp_color(color_bg, color_key, 0.20)
+
+        with self.canvas.before:
+            self.bg_color_instr = Color(*self.base_color)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[self.CARD_RADIUS])
+            self.border_color_instr = Color(*color_blank)
+            self.border_line = Line(width=self.BORDER_W)
+
+            self.chip_color_instr = Color(*color_key)
+            self.chip_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(10)])
+
+        self.icon_img = Image(size_hint=(None, None), fit_mode="contain", color=color_text)
+        if icon_name:
+            self.icon_img.texture = load_white_icon_texture(icon_path(icon_name))
+        self.add_widget(self.icon_img)
 
         self.title_label = Label(
             text=title_text,
             font_name=font_path("ClearSans-Bold.ttf"),
-            font_size='30sp',
             bold=True,
             color=color_text,
-            halign='center',
-            valign='bottom',
-            size_hint=(1, None)
+            halign='left',
+            valign='top',
+            size_hint=(None, None)
         )
-        self.title_label.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
-        
+        self.add_widget(self.title_label)
+
         self.sub_label = Label(
             text=description_text,
             font_name=font_path("ClearSans-Bold.ttf"),
-            font_size='14sp',
-            color=description_color if description_color else color_text,
-            halign='center',
+            color=color_not_in_word,
+            halign='left',
             valign='top',
-            size_hint=(1, None)
+            size_hint=(None, None)
         )
-        self.sub_label.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
-        
-        self.add_widget(self.title_label)
         self.add_widget(self.sub_label)
 
-        with self.canvas.before:
-            self.bg_color_instr = Color(*self.current_bg)
-            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[12])
+        self.chevron_img = Image(size_hint=(None, None), fit_mode="contain", color=color_text)
+        self.chevron_img.texture = load_white_icon_texture(icon_path(chevron_name))
+        self.add_widget(self.chevron_img)
 
-        self.bind(pos=self.update_canvas, size=self.update_canvas)
+        self.badge = None
+        if badge_text:
+            self.badge = TagChip(text=badge_text)
+            self.add_widget(self.badge)
 
-    def update_canvas(self, *args):
-        self.bg_color_instr.rgba = self.current_bg
-        self.bg_rect.pos = self.pos
-        self.bg_rect.size = self.size
+        self.bind(pos=self._sync_canvas, size=self._sync_canvas, state=self._update_bg)
 
-    def on_touch_down(self, touch):
-        if self.collide_point(*touch.pos):
-            self.current_bg = [c * 0.8 for c in self.base_color[:3]] + [1.0]
-            self.update_canvas()
-            touch.grab(self)
-            return True
-        return super().on_touch_down(touch)
+    def _update_bg(self, *args):
+        if self.state == 'normal':
+            self.bg_color_instr.rgba = self.base_color
+        else:
+            self.bg_color_instr.rgba = (
+                self.base_color[0] * 0.94, self.base_color[1] * 0.94,
+                self.base_color[2] * 0.94, self.base_color[3]
+            )
 
-    def on_touch_up(self, touch):
-        if touch.grab_current is self:
-            self.current_bg = list(self.base_color)
-            self.update_canvas()
-            touch.ungrab(self)
-            if self.collide_point(*touch.pos) and self.on_release_func:
-                self.on_release_func(self)
-            return True
-        return super().on_touch_up(touch)
+    def _sync_canvas(self, *args):
+        pos = (round(self.x), round(self.y))
+        size = (round(self.width), round(self.height))
+        self.bg_rect.pos = pos
+        self.bg_rect.size = size
+        # Line рисуется ПО ЦЕНТРУ заданного пути - сдвигаем путь внутрь на
+        # половину толщины линии, чтобы обводка целиком помещалась внутри
+        # pos/size (тот же приём, что и в create_stat_card/achievement card).
+        half_w = self.BORDER_W / 2.0
+        self.border_line.rounded_rectangle = (
+            pos[0] + half_w, pos[1] + half_w,
+            max(size[0] - self.BORDER_W, 0), max(size[1] - self.BORDER_W, 0),
+            self.CARD_RADIUS, self.CARD_RADIUS, self.CARD_RADIUS, self.CARD_RADIUS
+        )
+
+    def on_release(self):
+        if self.on_release_func:
+            self.on_release_func(self)
+
+    def layout_content(self, icon_side, chevron_side, pad_left, pad_right,
+                        pad_bottom, gap_icon_text, title_gap):
+        """
+        Расставляет иконку (в цветном квадрате), заголовок, описание,
+        шеврон и плашку (если есть) внутри уже выставленных self.pos/self.size.
+        title_label/sub_label должны быть заранее посчитаны и выставлены
+        (fit_font_size / fit_font_size_wrapped) снаружи, в PlayScreen.
+        """
+        text_block_h = self.title_label.height + title_gap + self.sub_label.height
+        content_h = max(text_block_h, icon_side)
+        content_center_y = self.y + pad_bottom + content_h / 2.0
+
+        icon_x = self.x + pad_left
+        icon_y = content_center_y - icon_side / 2.0
+        self.chip_rect.pos = (round(icon_x), round(icon_y))
+        self.chip_rect.size = (round(icon_side), round(icon_side))
+        icon_inner = icon_side * 0.52
+        self.icon_img.size = (icon_inner, icon_inner)
+        self.icon_img.center = (icon_x + icon_side / 2.0, icon_y + icon_side / 2.0)
+
+        chevron_x = self.x + self.width - pad_right - chevron_side
+        self.chevron_img.size = (chevron_side, chevron_side)
+        self.chevron_img.center = (chevron_x + chevron_side / 2.0, content_center_y)
+
+        text_x = icon_x + icon_side + gap_icon_text
+        text_top = content_center_y + text_block_h / 2.0
+        self.title_label.pos = (round(text_x), round(text_top - self.title_label.height))
+        self.sub_label.pos = (round(text_x), round(text_top - self.title_label.height - title_gap - self.sub_label.height))
+
+        if self.badge is not None:
+            badge_x = self.x + pad_left
+            badge_y = self.top - self.badge.height * 0.6
+            self.badge.pos = (round(badge_x), round(badge_y))
 
 class GameCell(Label):
     # Радиус скругления всегда = этой доле от меньшей стороны клетки.
@@ -2184,39 +2307,33 @@ class PlayScreen(Screen):
         )
         self.layout.add_widget(self.title_label)
 
-        self.category_label = Label(
-            text="Оффлайн",
-            font_name=font_path("ClearSans-Bold.ttf"),
-            bold=True,
-            color=color_text,
-            size_hint=(None, None),
-            halign='center',
-            valign='middle'
-        )
-        self.layout.add_widget(self.category_label)
-
-        self.mode_container = BoxLayout(
-            orientation='vertical',
-            size_hint=(None, None)
-        )
+        # маленький чип "ОФФЛАЙН" под заголовком (фон color_key, текст color_text)
+        self.category_chip = TagChip(text="ОФФЛАЙН")
+        self.layout.add_widget(self.category_chip)
 
         self.offline_modes = [
             {
                 "title": "Одиночная игра",
                 "description": "Одиночная оффлайн игра с монетами, достижениями и квестами.",
-                "description_color": color_correct,
+                "icon_name": "user.png",
+                "variant": "featured",
+                "badge_text": "ОСНОВНОЙ РЕЖИМ",
                 "target_screen": "one_player_game",
             },
             {
                 "title": "Игра вдвоём",
-                "description": "Игра вдвоём за одним устройством без монет, квестов и достижений.",
-                "description_color": color_correct,
+                "description": "Игра вдвоём за одним устройством.",
+                "icon_name": "users.png",
+                "variant": "compact",
+                "badge_text": None,
                 "target_screen": "two_player_game",
             },
             {
                 "title": "Генерация сида",
                 "description": "Введите сид или создайте сид, чтобы друг смог поиграть на другом устройстве.",
-                "description_color": color_correct,
+                "icon_name": "replace-user.png",
+                "variant": "compact",
+                "badge_text": None,
                 "target_screen": "seed_generation",
             },
         ]
@@ -2226,13 +2343,14 @@ class PlayScreen(Screen):
             card = ModeButton(
                 title_text=mode["title"],
                 description_text=mode["description"],
-                description_color=mode["description_color"],
+                icon_name=mode["icon_name"],
+                variant=mode["variant"],
+                badge_text=mode["badge_text"],
                 on_release=self._make_mode_opener(mode["target_screen"])
             )
             self.mode_buttons.append(card)
-            self.mode_container.add_widget(card)
+            self.layout.add_widget(card)
 
-        self.layout.add_widget(self.mode_container)
         self.footer_label = Label(
             text="Больше режимов нет.",
             font_name=font_path("ClearSans-Bold.ttf"),
@@ -2271,68 +2389,112 @@ class PlayScreen(Screen):
         fit_font_size(self.title_label, win_w * 0.9, header_line_h * 0.72)
         self.title_label.text_size = (win_w * 0.9, header_line_h)
 
-        category_gap = dp(10)
-        self.category_label.size = (win_w * 0.9, header_line_h)
-        self.category_label.center_x = win_w / 2
-        self.category_label.y = self.title_label.y - category_gap - header_line_h
-        fit_font_size(self.category_label, win_w * 0.9, header_line_h * 0.72)
-        self.category_label.text_size = (win_w * 0.9, header_line_h)
+        # "ОФФЛАЙН" - крупный, хорошо читаемый чип (только пропорции от
+        # win_h + потолок dp(), без нижнего порога - чтобы честно ужимался
+        # на маленьких окнах, а не оставался "статичным").
+        chip_gap = min(win_h * 0.013, dp(10))
+        chip_h = min(win_h * 0.034, dp(26))
+        self.category_chip.update_size(chip_h, font_scale=0.62, pad_scale=0.62)
+        self.category_chip.center_x = win_w / 2
+        self.category_chip.top = self.title_label.y - chip_gap
 
-        content_top = self.category_label.y - dp(12)
+        content_top = self.category_chip.y - min(win_h * 0.026, dp(20))
         bottom_limit = BOTTOM_SAFE_MARGIN
-        desc_font_start = min(win_h * 0.02, dp(40))
-        TITLE_TO_DESC_RATIO = 2
-        desc_h_cap = min(win_h * 0.16, dp(120))
-        footer_gap = dp(14)
-        footer_h_reserved = desc_font_start
+        footer_gap = min(win_h * 0.018, dp(14))
+        cards_spacing = min(win_h * 0.013, dp(10))
         count = len(self.mode_buttons)
         card_w = win_w * 0.93
-        card_pad_h = dp(13)
-        card_pad_top, card_pad_bottom = dp(15), dp(14)
-        card_inner_gap = dp(11)
-        cards_spacing = dp(8)
-        desc_max_w = card_w - card_pad_h * 2
-        title_max_w = card_w - card_pad_h * 2
+
+        # ----- ОДНИ и те же пропорции для всех трёх карточек: иконка-квадрат,
+        # шеврон и внутренние отступы везде одного размера ("все блоки
+        # одинакового размера"). Единственное отличие основной карточки -
+        # плашка в углу и чуть больший верхний отступ под неё. Все величины
+        # заданы как доля от card_w/win_h с потолком dp() и БЕЗ нижнего
+        # порога, поэтому при сильном уменьшении окна всё ужимается
+        # пропорционально и ничего не вылезает за карточку/экран.
+        icon_side = min(card_w * 0.145, dp(56))
+        chevron_side = min(card_w * 0.05, dp(18))
+        pad_left = min(card_w * 0.045, dp(16))
+        pad_right = min(card_w * 0.038, dp(14))
+        gap_icon_text = min(card_w * 0.038, dp(14))
+        extra_gap = min(card_w * 0.03, dp(10))
+        pad_bottom = min(card_w * 0.035, dp(14))
+        pad_top_base = min(card_w * 0.035, dp(14))
+        title_gap = min(card_w * 0.017, dp(6))
+
+        badge_h = min(win_h * 0.032, dp(26))
+        badge_extra_top = badge_h * 0.55
+
+        # Шрифты - тоже общие для всех карточек и заметно крупнее прежних,
+        # чтобы текст было хорошо видно.
+        desc_font_start = min(win_h * 0.024, dp(17))
+        title_ratio = 1.45
+        desc_h_cap = min(win_h * 0.11, dp(66))
+
+        text_max_w = max(
+            card_w - pad_left - icon_side - gap_icon_text - chevron_side - extra_gap - pad_right,
+            dp(10)
+        )
 
         def layout_cards(font_scale):
-            total_h = 0.0
+            heights = []
             for card in self.mode_buttons:
-                fit_font_size_wrapped(card.sub_label, desc_max_w, desc_h_cap, desc_font_start * font_scale)
+                fit_font_size_wrapped(card.sub_label, text_max_w, desc_h_cap, desc_font_start * font_scale)
                 desc_real_h = card.sub_label.texture_size[1]
+                card.sub_label.width = text_max_w
                 card.sub_label.height = desc_real_h
-                card.sub_label.text_size = (desc_max_w, desc_real_h)
-                title_target_font = card.sub_label.font_size * TITLE_TO_DESC_RATIO
-                fit_font_size(card.title_label, title_max_w, title_target_font)
+                card.sub_label.text_size = (text_max_w, desc_real_h)
+
+                title_target_font = card.sub_label.font_size * title_ratio
+                fit_font_size(card.title_label, text_max_w, title_target_font)
                 title_real_h = card.title_label.texture_size[1]
+                card.title_label.width = text_max_w
                 card.title_label.height = title_real_h
-                card.title_label.text_size = (title_max_w, title_real_h)
-                this_card_h = card_pad_top + title_real_h + card_inner_gap + desc_real_h + card_pad_bottom
-                card.padding = [card_pad_h, card_pad_top, card_pad_h, card_pad_bottom]
-                card.spacing = card_inner_gap
-                card.size = (card_w, this_card_h)
-                total_h += this_card_h
+                card.title_label.text_size = (text_max_w, title_real_h)
 
-            total_h += cards_spacing * max(count - 1, 0)
-            return total_h
+                text_block_h = title_real_h + title_gap + desc_real_h
+                content_h = max(text_block_h, icon_side)
+                pad_top = pad_top_base + (badge_extra_top if card.badge is not None else 0)
+                this_card_h = pad_top + content_h + pad_bottom
+                heights.append(this_card_h)
 
-        total_cards_h = layout_cards(1.0)
+            total_h = sum(heights) + cards_spacing * max(count - 1, 0)
+            return heights, total_h
 
+        heights, total_cards_h = layout_cards(1.0)
+
+        footer_h_reserved = min(win_h * 0.018, dp(13))
         available_for_cards = content_top - bottom_limit - footer_h_reserved - footer_gap
         if count > 0 and total_cards_h > 0 and total_cards_h > available_for_cards:
-            scale = max(available_for_cards / total_cards_h, 0.55)
-            total_cards_h = layout_cards(scale)
+            scale = max(available_for_cards / total_cards_h, 0.5)
+            heights, total_cards_h = layout_cards(scale)
 
-        self.mode_container.size = (card_w, max(total_cards_h, 0))
-        self.mode_container.spacing = cards_spacing
-        self.mode_container.center_x = win_w / 2
-        self.mode_container.top = content_top
+        y_cursor = content_top
+        for card, this_card_h in zip(self.mode_buttons, heights):
+            card.size = (card_w, this_card_h)
+            card.pos = (win_w / 2 - card_w / 2, y_cursor - this_card_h)
+            if card.badge is not None:
+                card.badge.update_size(badge_h, font_scale=0.55, pad_scale=0.6)
+            card.layout_content(
+                icon_side=icon_side,
+                chevron_side=chevron_side,
+                pad_left=pad_left,
+                pad_right=pad_right,
+                pad_bottom=pad_bottom,
+                gap_icon_text=gap_icon_text,
+                title_gap=title_gap,
+            )
+            y_cursor -= this_card_h + cards_spacing
 
-        desc_final_font_px = self.mode_buttons[0].sub_label.font_size if self.mode_buttons else desc_font_start
+        last_card_bottom = (y_cursor + cards_spacing) if count > 0 else content_top
+
+        desc_final_font_px = self.mode_buttons[-1].sub_label.font_size if self.mode_buttons else footer_h_reserved
         self.footer_label.text_size = (None, None)
         fit_font_size(self.footer_label, win_w * 0.85, desc_final_font_px)
         self.footer_label.size = self.footer_label.texture_size
         self.footer_label.center_x = win_w / 2
-        self.footer_label.top = self.mode_container.y - footer_gap
+        self.footer_label.top = last_card_bottom - footer_gap
+
 
 class OnePlayerGameScreen(Screen):
     def __init__(self, **kwargs):
