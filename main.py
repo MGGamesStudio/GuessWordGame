@@ -293,11 +293,14 @@ def load_white_icon_texture(path):
             return src_tex
 
         pixels = bytearray(src_tex.pixels)
-        for i in range(0, len(pixels), 4):
-            pixels[i] = 255      # R
-            pixels[i + 1] = 255  # G
-            pixels[i + 2] = 255  # B
-            # alpha (pixels[i + 3]) stays untouched - keeps the glyph's shape
+        # Раньше тут был питоновский цикл по каждому пикселю (на большой иконке
+        # это сотни тысяч итераций на старте). Срезы с шагом 4 делают то же в C.
+        _n = len(pixels) // 4
+        _white = b'\xff' * _n
+        pixels[0::4] = _white  # R
+        pixels[1::4] = _white  # G
+        pixels[2::4] = _white  # B
+        # alpha остаётся нетронутой - сохраняет форму глифа
 
         new_tex = Texture.create(size=src_tex.size, colorfmt='rgba')
         new_tex.blit_buffer(bytes(pixels), colorfmt='rgba', bufferfmt='ubyte')
@@ -337,7 +340,49 @@ color_in_word = color_themes["classic"]["color_in_word"]
 color_not_in_word = color_themes["classic"]["color_not_in_word"]
 color_key = color_themes["classic"]["color_key"]
 
+class BaseScreen(Screen):
+    """
+    Экран с НЕПРОЗРАЧНЫМ фоном (color_bg) под всем содержимым.
+
+    Причина бага "снизу остаётся старый экран": ScreenManager с NoTransition
+    убирает уходящий экран не мгновенно, а на СЛЕДУЮЩЕМ кадре. Пока кадр
+    тяжёлый (на телефоне), старый экран просвечивает сквозь новый, потому что
+    у большинства экранов не было собственного фона (фон давал только
+    Window.clearcolor). Теперь каждый экран сам закрашивает себя полностью.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        with self.canvas.before:
+            self._base_bg_color = Color(*color_bg)
+            self._base_bg_rect = Rectangle(pos=(0, 0), size=self.size)
+        self.bind(size=self._sync_base_bg)
+
+    def _sync_base_bg(self, *args):
+        self._base_bg_rect.pos = (0, 0)
+        self._base_bg_rect.size = self.size
+
+    def refresh_base_bg(self):
+        self._base_bg_color.rgba = color_bg
+
+
+# Кэш подбора размера шрифта: (текст, шрифт, ширина, старт) -> итоговый размер.
+# Без него каждый reposition заново по несколько раз рендерил текстуру в цикле.
+_FIT_CACHE = {}
+
 def fit_font_size(label, max_allowed_w, start_font_px):
+    key = (label.text, label.font_name, bool(label.bold), round(float(max_allowed_w), 1), int(start_font_px))
+    cached = _FIT_CACHE.get(key)
+    if cached is not None:
+        if (getattr(label, '_fit_done', None) == key
+                and label.text_size == [None, None]
+                and abs(label.font_size - cached) < 0.01):
+            return
+        label.text_size = (None, None)
+        label.font_size = f"{cached}px"
+        label.texture_update()
+        label._fit_done = key
+        return
+
     label.text_size = (None, None)
     current_font = max(int(start_font_px), 8)
     label.font_size = f"{current_font}px"
@@ -357,6 +402,11 @@ def fit_font_size(label, max_allowed_w, start_font_px):
         current_font -= 1
         label.font_size = f"{current_font}px"
         label.texture_update()
+
+    if len(_FIT_CACHE) > 3000:
+        _FIT_CACHE.clear()
+    _FIT_CACHE[key] = current_font
+    label._fit_done = key
 
 # ----- Центрирование глифа по реальным границам букв -----
 # Label рисует текстуру строки целиком, вместе с запасом под выносные элементы
@@ -432,7 +482,18 @@ def glyph_ink_center(label):
     return result
 
 
+_FIT_WRAP_CACHE = {}
+
 def fit_font_size_wrapped(label, max_allowed_w, max_allowed_h, start_font_px):
+    key = (label.text, label.font_name, bool(label.bold), round(float(max_allowed_w), 1),
+           round(float(max_allowed_h), 1), int(start_font_px))
+    cached = _FIT_WRAP_CACHE.get(key)
+    if cached is not None:
+        label.text_size = (max_allowed_w, None)
+        label.font_size = f"{cached}px"
+        label.texture_update()
+        return
+
     label.text_size = (max_allowed_w, None)
     current_font = max(int(start_font_px), 8)
     label.font_size = f"{current_font}px"
@@ -453,6 +514,10 @@ def fit_font_size_wrapped(label, max_allowed_w, max_allowed_h, start_font_px):
         current_font -= 1
         label.font_size = f"{current_font}px"
         label.texture_update()
+
+    if len(_FIT_WRAP_CACHE) > 3000:
+        _FIT_WRAP_CACHE.clear()
+    _FIT_WRAP_CACHE[key] = current_font
 
 def lerp_color(c1, c2, factor):
     """Плавная линейная интерполяция между двумя RGBA-цветами (0..1 каждый канал)."""
@@ -566,15 +631,79 @@ def _bg_rebuild_step(sm):
     if sm.current in _BUSY_SCREENS:
         _schedule_bg_rebuild(sm, 1.0)   # не мешаем игре, подождём
         return
-    refresh_screen_if_stale(sm, stale[0])
+    if refresh_screen_if_stale(sm, stale[0]):
+        # свежепересобранному экрану сразу готовим данные (списки), пока его никто не видит
+        scr = sm.get_screen(stale[0])
+        if hasattr(scr, 'prepare_in_background'):
+            scr.prepare_in_background()
     _schedule_bg_rebuild(sm)
 
 class ThemedScreenManager(ScreenManager):
-    """Если пользователь перешёл на экран, который ещё не успел
-    пересобраться в фоне, - пересобираем его прямо перед показом."""
+    """
+    1) Если пользователь перешёл на экран, который ещё не успел пересобраться
+       в фоне после смены темы - пересобираем его прямо перед показом.
+    2) Скрытые экраны сразу получают размер окна. Раньше экран, которого ещё
+       ни разу не показывали, имел размер по умолчанию (100x100), и ВСЯ его
+       раскладка (шрифты, карточки, текстуры) считалась в момент первого
+       перехода на него - отсюда задержки при открытии экранов. Теперь это
+       делается заранее (на загрузке или в фоне).
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.bind(size=self._presize_hidden_screens)
+
+    def add_widget(self, widget, *args, **kwargs):
+        super().add_widget(widget, *args, **kwargs)
+        self._presize(widget)
+
+    def _presize(self, scr):
+        if scr.parent is not None:      # показанный экран раскладывает сам ScreenManager
+            return
+        w, h = self.size
+        if w <= 1 or h <= 1:
+            return
+        if scr.width != w or scr.height != h:
+            scr.size = (w, h)
+
+    def _presize_hidden_screens(self, *args):
+        for scr in list(self.screens):
+            self._presize(scr)
+
     def on_current(self, instance, value):
         refresh_screen_if_stale(self, value)
         super().on_current(instance, value)
+
+
+# ----- обновление статистики Достижений/Квестов в фоне -----
+_stats_dirty_event = None
+
+def mark_stats_dirty():
+    """Вызывается при каждом сохранении прогресса: данные Достижений/Квестов
+    изменились, значит их экраны надо обновить заранее, в фоне."""
+    global _stats_dirty_event
+    if _stats_dirty_event is not None:
+        _stats_dirty_event.cancel()
+    _stats_dirty_event = Clock.schedule_once(_refresh_stats_screens, 0.6)
+
+def _refresh_stats_screens(dt):
+    global _stats_dirty_event
+    _stats_dirty_event = None
+    app = App.get_running_app()
+    if not app or not app.root:
+        return
+    sm = app.root
+    if sm.current in _BUSY_SCREENS:
+        # идёт игра - не отнимаем кадры, подождём
+        _stats_dirty_event = Clock.schedule_once(_refresh_stats_screens, 1.0)
+        return
+    for name in ('achievements', 'quests'):
+        if not sm.has_screen(name):
+            continue
+        scr = sm.get_screen(name)
+        if scr is sm.current_screen or is_screen_stale(scr):
+            continue
+        if hasattr(scr, 'prepare_in_background'):
+            scr.prepare_in_background()
 
 def redraw_all_screens():
     global _THEME_VERSION
@@ -603,6 +732,8 @@ def redraw_all_screens():
         return
 
     cur.apply_theme_instant()            # мгновенно, на месте
+    if hasattr(cur, 'refresh_base_bg'):
+        cur.refresh_base_bg()
     cur._theme_version = _THEME_VERSION  # этот экран уже актуален
     _schedule_bg_rebuild(sm, 0.6)        # остальные - потом, по одному
 
@@ -1106,6 +1237,10 @@ class TagChip(FloatLayout):
         self.bind(pos=self._sync, size=self._sync)
 
     def update_size(self, height, font_scale=0.5, pad_scale=0.6):
+        _k = (round(height, 2), font_scale, pad_scale, self.label.text)
+        if _k == getattr(self, '_size_key', None):
+            return
+        self._size_key = _k
         self.height = height
         self.label.font_size = f"{max(int(height * font_scale), 10)}px"
         self.label.text_size = (None, None)
@@ -1478,48 +1613,55 @@ class ThemeCard(ButtonBehavior, FloatLayout):
     def update_graphics(self, instance, value):
         self.bg_rect.pos = self.pos
         self.bg_rect.size = self.size
-        
-        self.lbl_name.size = (self.width, dp(28))
-        self.lbl_name.pos = (self.x, self.y + 5)
-        self.lbl_name.text_size = (None, None)
-        fit_font_size(self.lbl_name, self.width - dp(20), dp(18))
-        self.lbl_name.size = self.lbl_name.texture_size
-        self.lbl_name.center_x = self.x + self.width / 2
-        self.lbl_name.y = self.y + 5
 
         spacing = dp(8)
         tile_size_by_h = self.height * 0.33
         tile_size_by_w = (self.width - dp(20) - spacing * 4) / 5
         tile_size = max(min(tile_size_by_h, tile_size_by_w), dp(16))
+
+        # Подбор шрифтов (дорогие текстуры) - только когда реально изменился
+        # размер карточки, а не при каждом сдвиге позиции.
+        font_key = (round(self.width), round(self.height))
+        refit = getattr(self, '_font_key', None) != font_key
+        if refit:
+            self._font_key = font_key
+            self.lbl_name.size = (self.width, dp(28))
+            self.lbl_name.text_size = (None, None)
+            fit_font_size(self.lbl_name, self.width - dp(20), dp(18))
+            self.lbl_name.size = self.lbl_name.texture_size
+        self.lbl_name.center_x = self.x + self.width / 2
+        self.lbl_name.y = self.y + 5
+
         total_grid_w = (tile_size * 5) + (spacing * 4)
         start_x = self.x + (self.width - total_grid_w) / 2
         tile_y = self.y + self.height - tile_size - dp(10)
-        
+
         for i, lbl_a in enumerate(self.tiles):
             current_x = start_x + i * (tile_size + spacing)
-            lbl_a.size = (tile_size, tile_size)
+            if refit:
+                lbl_a.size = (tile_size, tile_size)
+                lbl_a.text_size = (tile_size, tile_size)
+                fit_font_size(lbl_a, tile_size * 0.8, tile_size * 0.7)
+                lbl_a.text_size = (tile_size, tile_size)
             lbl_a.pos = (current_x, tile_y + tile_size * 0.04)
-            lbl_a.text_size = (tile_size, tile_size)
-            fit_font_size(lbl_a, tile_size * 0.8, tile_size * 0.7)
-            lbl_a.text_size = (tile_size, tile_size)
-            
+
             self.tile_colors[i].rgba = self.block_colors[i]
             self.tile_rects[i].pos = (current_x, tile_y)
             self.tile_rects[i].size = (tile_size, tile_size)
 
-        kb_size = tile_size * 0.38  
+        kb_size = tile_size * 0.38
         kb_spacing_x = dp(4)
         kb_spacing_y = dp(4)
         total_kb_w = (kb_size * 10) + (kb_spacing_x * 9)
         start_kb_x = self.x + (self.width - total_kb_w) / 2
         start_kb_y = tile_y - (kb_size * 2 + kb_spacing_y) - dp(8)
-        
+
         for index in range(20):
-            row = index // 10  
-            col = index % 10   
+            row = index // 10
+            col = index % 10
             kx = start_kb_x + col * (kb_size + kb_spacing_x)
             ky = start_kb_y + (1 - row) * (kb_size + kb_spacing_y)
-            
+
             self.kb_colors[index].rgba = self.c_key
             self.kb_rects[index].pos = (kx, ky)
             self.kb_rects[index].size = (kb_size, kb_size)
@@ -1639,7 +1781,7 @@ class LogoWordTiles(FloatLayout):
                 lbl.size = (tile_size, tile_size)
                 lbl.text_size = (tile_size, tile_size)
 
-class MainScreen(Screen):
+class MainScreen(BaseScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -1856,7 +1998,7 @@ class MenuRowButton(ButtonBehavior, FloatLayout):
         self.bg_rect.pos = self.pos
         self.bg_rect.size = self.size
 
-class MenuScreen(Screen):
+class MenuScreen(BaseScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -2140,7 +2282,7 @@ class SettingInfoRow(FloatLayout):
         self.label.pos = (round(self.x), round(self.y + self.height - self.v_pad - self.label.height))
         self.value_label.pos = (round(self.x + self.width - self.value_label.width), round(self.y + self.height - self.v_pad - self.value_label.height))
 
-class OptionsScreen(Screen):
+class OptionsScreen(BaseScreen):
     settings_definitions = [
         {"type": "toggle", "key": "confirm_exit", "text": "Спрашивать о выходе из игры", "default": True},
         {"type": "link", "text": "О программе", "target": "about"},
@@ -2235,7 +2377,7 @@ class OptionsScreen(Screen):
         self.settings_scroll.size = (scroll_w, scroll_h)
         self.settings_list_layout.width = scroll_w
 
-class AboutScreen(Screen):
+class AboutScreen(BaseScreen):
     about_definitions = [
         {"type": "info", "text": "Версия игры", "value": "v.1.2.0"},
         {"type": "info", "text": "Автор", "value": "MGGamesStudio"},
@@ -2317,7 +2459,7 @@ class AboutScreen(Screen):
         self.about_scroll.size = (scroll_w, scroll_h)
         self.about_list_layout.width = scroll_w
 
-class TextDocumentScreen(Screen):
+class TextDocumentScreen(BaseScreen):
     def __init__(self, title_text="", back_target="about", source_file=None, **kwargs):
         super().__init__(**kwargs)
         self.back_target = back_target
@@ -2397,7 +2539,7 @@ class TextDocumentScreen(Screen):
         self.content_box.width = scroll_w
         self.text_label.text_size = (scroll_w, None)
 
-class PlayScreen(Screen):
+class PlayScreen(BaseScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -2608,7 +2750,7 @@ class PlayScreen(Screen):
         self.footer_label.top = last_card_bottom - footer_gap
 
 
-class OnePlayerGameScreen(Screen):
+class OnePlayerGameScreen(BaseScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -3127,7 +3269,7 @@ class OnePlayerGameScreen(Screen):
             
         view.open()
 
-class TwoPlayerGameScreen(Screen):
+class TwoPlayerGameScreen(BaseScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -3554,7 +3696,7 @@ class TwoPlayerGameScreen(Screen):
             
         view.open()
 
-class SeedGenerationScreen(Screen):
+class SeedGenerationScreen(BaseScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -3660,7 +3802,7 @@ class SeedGenerationScreen(Screen):
         self.lbl_stub.center_x = win_w / 2
         self.lbl_stub.center_y = (self.title_label.y + self.buttons_container.top) / 2
 
-class SeedCreateScreen(Screen):
+class SeedCreateScreen(BaseScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -3957,7 +4099,7 @@ class SeedCreateScreen(Screen):
 
         self.reposition_elements(None, None)
 
-class SeedEnterScreen(Screen):
+class SeedEnterScreen(BaseScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -4233,7 +4375,7 @@ class SeedEnterScreen(Screen):
 
         self.reposition_elements(None, None)
 
-class HowToPlayScreen(Screen):
+class HowToPlayScreen(BaseScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -4410,6 +4552,10 @@ class RarityBadge(FloatLayout):
         self.bind(pos=self._sync_graphics, size=self._sync_graphics)
 
     def update_size(self, height, font_scale=0.52):
+        _k = (round(height, 2), font_scale, self.label.text)
+        if _k == getattr(self, '_size_key', None):
+            return
+        self._size_key = _k
         """Пересчитывает плашку под заданную высоту: шрифт - доля от высоты
         (увеличена, т.к. на маленькой высоте текст читался плохо), ширина -
         по фактической ширине получившегося текста + отступы."""
@@ -4607,17 +4753,8 @@ class StatCardsMixin:
         return card
 
     def _layout_stat_card(self, card, *args):
-        # Раньше позиции считались через pos_hint (доли от размера card),
-        # т.к. card - ребёнок BoxLayout, который пересчитывает его
-        # фактическую позицию с задержкой в 1 кадр, а pos_hint Kivy
-        # пересчитывает сам и непрерывно. Но pos_hint даёт дробные
-        # (нецелые) пиксельные координаты текстуры лейбла, из-за чего
-        # текст выглядел размытым при горизонтальной прокрутке строки
-        # статистики. Чтобы сохранить и "самопересчёт", и чёткий текст,
-        # позиции теперь считаются вручную от card.x/card.y и округляются
-        # (round()) - как и в остальных местах экрана - а сам метод
-        # подписан на card.pos/card.size, поэтому пересчитывается заново,
-        # когда BoxLayout наконец обновит card.pos, но уже с округлением.
+        # Позиции считаются вручную и округляются (чёткий текст при прокрутке),
+        # а дорогой подбор шрифта - только если изменились размер или текст.
         w, h = card.width, card.height
         if w <= 0 or h <= 0:
             return
@@ -4630,29 +4767,33 @@ class StatCardsMixin:
         )
 
         val_h = h * 0.34
-        card.value_ref.text_size = (None, None)
-        fit_font_size(card.value_ref, w - dp(16), val_h * 0.9)
+        lbl_h = h * 0.2
         val_w = w - dp(8)
-        card.value_ref.size = (val_w, val_h)
-        card.value_ref.text_size = card.value_ref.size
+        lbl_w = w - dp(8)
+
+        fit_key = (round(w), round(h), card.value_ref.text, card.label_ref.text)
+        if getattr(card, '_fit_key', None) != fit_key:
+            card._fit_key = fit_key
+            card.value_ref.text_size = (None, None)
+            fit_font_size(card.value_ref, w - dp(16), val_h * 0.9)
+            card.value_ref.size = (val_w, val_h)
+            card.value_ref.text_size = card.value_ref.size
+
+            card.label_ref.text_size = (None, None)
+            fit_font_size(card.label_ref, w - dp(14), lbl_h * 0.85)
+            card.label_ref.size = (lbl_w, lbl_h)
+            card.label_ref.text_size = card.label_ref.size
+
         card.value_ref.pos = (
             round(card.x + (w - val_w) / 2.0),
             round(card.y + h * 0.28),
         )
-
-        lbl_h = h * 0.2
-        card.label_ref.text_size = (None, None)
-        fit_font_size(card.label_ref, w - dp(14), lbl_h * 0.85)
-        lbl_w = w - dp(8)
-        card.label_ref.size = (lbl_w, lbl_h)
-        card.label_ref.text_size = card.label_ref.size
         card.label_ref.pos = (
             round(card.x + (w - lbl_w) / 2.0),
             round(card.y + h * 0.06),
         )
 
-
-class AchievementsScreen(StatCardsMixin, Screen):
+class AchievementsScreen(StatCardsMixin, BaseScreen):
     # Табы-фильтры списка: (ключ фильтра, подпись на кнопке)
     FILTER_TABS = [
         ("all", "ВСЕ"),
@@ -4778,8 +4919,14 @@ class AchievementsScreen(StatCardsMixin, Screen):
         self.reposition_elements(None, None)
         Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
 
-    def on_enter(self):
+    def on_pre_enter(self, *args):
+        # Данные обновляются ДО показа экрана - статистика видна сразу.
+        # Обычно всё уже подготовлено в фоне и тут срабатывает ранний выход.
         self.refresh_stats_and_achievements()
+        self._speed_up_build()
+
+    def prepare_in_background(self):
+        self.refresh_stats_and_achievements(background=True)
 
     # ------------------------------------------------------------------
     # РАЗМЕТКА ЭКРАНА
@@ -5022,25 +5169,27 @@ class AchievementsScreen(StatCardsMixin, Screen):
             if w <= 0:
                 return
 
-            name_w = max(w - PAD * 2 - ICON_SIZE - dp(8), dp(10))
-            name_lbl.text_size = (name_w, None)
-            name_lbl.width = name_w
-            name_lbl.texture_update()
-            name_lbl.height = name_lbl.texture_size[1]
+            if getattr(relayout, '_w', None) != round(w):
+                relayout._w = round(w)
+                name_w = max(w - PAD * 2 - ICON_SIZE - dp(8), dp(10))
+                name_lbl.text_size = (name_w, None)
+                name_lbl.width = name_w
+                name_lbl.texture_update()
+                name_lbl.height = name_lbl.texture_size[1]
 
-            desc_w = max(w - PAD * 2, dp(10))
-            desc_lbl.text_size = (desc_w, None)
-            desc_lbl.width = desc_w
-            desc_lbl.texture_update()
-            desc_lbl.height = desc_lbl.texture_size[1]
+                desc_w = max(w - PAD * 2, dp(10))
+                desc_lbl.text_size = (desc_w, None)
+                desc_lbl.width = desc_w
+                desc_lbl.texture_update()
+                desc_lbl.height = desc_lbl.texture_size[1]
 
-            badge.update_size(BADGE_H)
+                badge.update_size(BADGE_H)
 
-            lbl_status.text_size = (None, None)
-            fit_font_size(lbl_status, w * 0.55, dp(13))
-            lbl_status.texture_update()
-            lbl_status.size = lbl_status.texture_size
-            lbl_status.text_size = lbl_status.size
+                lbl_status.text_size = (None, None)
+                fit_font_size(lbl_status, w * 0.55, dp(13))
+                lbl_status.texture_update()
+                lbl_status.size = lbl_status.texture_size
+                lbl_status.text_size = lbl_status.size
 
             total_h = PAD + name_lbl.height + GAP_S + desc_lbl.height + GAP_M
             if show_progress:
@@ -5091,47 +5240,72 @@ class AchievementsScreen(StatCardsMixin, Screen):
     # ------------------------------------------------------------------
     # ПОСТРОЕНИЕ СПИСКА (по частям, чтобы не подвешивать кадр)
     # ------------------------------------------------------------------
-    def build_achievements_list(self, launcher_achievements, stats):
+    def _card_visible(self, got):
+        if self.current_filter == "unlocked" and not got:
+            return False
+        if self.current_filter == "inprogress" and got:
+            return False
+        return True
+
+    def build_achievements_list(self, launcher_achievements, stats, background=False):
         if self._ach_build_event is not None:
             self._ach_build_event.cancel()
             self._ach_build_event = None
 
         self.ach_list_layout.clear_widgets()
         self._ach_all_cards = []
+        self._ach_remaining = []
+        self._ach_stats = stats
 
         if not launcher_achievements:
             return
 
-        all_keys = list(launcher_achievements.keys())
-        sorted_keys = sorted(all_keys, key=lambda k: launcher_achievements[k].get("got", False), reverse=True)
-        remaining = list(sorted_keys)
+        sorted_keys = sorted(launcher_achievements.keys(),
+                             key=lambda k: launcher_achievements[k].get("got", False), reverse=True)
+        self._ach_remaining = [(k, launcher_achievements[k]) for k in sorted_keys]
 
-        def build_chunk(dt):
-            ROWS_PER_FRAME = 4
-            for _ in range(ROWS_PER_FRAME):
-                if not remaining:
-                    self._ach_build_event = None
-                    return False
-                ach_key = remaining.pop(0)
-                ach_data = launcher_achievements[ach_key]
+        if background:
+            # экран не виден: строим по одной карточке, не мешая остальному
+            self._ach_rows_per_tick = 1
+            self._ach_build_event = Clock.schedule_interval(self._ach_build_tick, 0.03)
+        else:
+            # экран сейчас откроется: первые карточки сразу, остальное по кадрам
+            self._ach_rows_per_tick = 4
+            self._ach_build_tick(0)
+            if self._ach_remaining:
+                self._ach_build_event = Clock.schedule_interval(self._ach_build_tick, 0)
 
-                name = ach_data.get("name", "Секретное достижение")
-                description = ach_data.get("description", "")
-                got = ach_data.get("got", False)
-                date_str = ach_data.get("date", "")
+    def _ach_build_tick(self, dt):
+        for _ in range(self._ach_rows_per_tick):
+            if not self._ach_remaining:
+                self._ach_build_event = None
+                return False
+            _key, ach_data = self._ach_remaining.pop(0)
+            got = ach_data.get("got", False)
+            card = self.create_achievement_card(
+                ach_data.get("name", "Секретное достижение"),
+                ach_data.get("description", ""),
+                ach_data, got, ach_data.get("date", ""), self._ach_stats)
+            self._ach_all_cards.append((card, got))
+            # карточка добавляется в список один раз, а не пересобирается весь список каждый кадр
+            if self._card_visible(got):
+                self.ach_list_layout.add_widget(card)
+        return True
 
-                row_widget = self.create_achievement_card(name, description, ach_data, got, date_str, stats)
-                self._ach_all_cards.append((row_widget, got))
-            self._apply_filter()
-            return True
-
-        if build_chunk(0):
-            self._ach_build_event = Clock.schedule_interval(build_chunk, 0)
+    def _speed_up_build(self):
+        """Если экран открыли, пока фоновая сборка ещё идёт - ускоряем её."""
+        if self._ach_build_event is not None and self._ach_rows_per_tick < 4:
+            self._ach_build_event.cancel()
+            self._ach_build_event = None
+            self._ach_rows_per_tick = 4
+            self._ach_build_tick(0)
+            if self._ach_remaining:
+                self._ach_build_event = Clock.schedule_interval(self._ach_build_tick, 0)
 
     # ------------------------------------------------------------------
     # ОБНОВЛЕНИЕ СТАТИСТИКИ И СПИСКА
     # ------------------------------------------------------------------
-    def refresh_stats_and_achievements(self):
+    def refresh_stats_and_achievements(self, background=False):
         stats = MOBILE_PLAYER_STATS if ('MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS) else {}
         launcher_ach = MOBILE_ACHIVEMENTS if ('MOBILE_ACHIVEMENTS' in globals() and MOBILE_ACHIVEMENTS) else {}
 
@@ -5148,9 +5322,7 @@ class AchievementsScreen(StatCardsMixin, Screen):
             coins, wins, losses, streak, quests, ach_ratio,
             tuple(sorted((k, v.get("got", False), v.get("date", "")) for k, v in launcher_ach.items()))
         )
-        if (signature == self._ach_last_signature
-                and self.ach_list_layout.children
-                and self._ach_build_event is None):
+        if signature == self._ach_last_signature:
             return
         self._ach_last_signature = signature
 
@@ -5166,9 +5338,9 @@ class AchievementsScreen(StatCardsMixin, Screen):
             card.value_ref.text = stat_values.get(key, "0")
 
         self.reposition_elements(None, None)
-        self.build_achievements_list(launcher_ach, stats)
+        self.build_achievements_list(launcher_ach, stats, background=background)
 
-class CustomizationScreen(Screen):
+class CustomizationScreen(BaseScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.layout = FloatLayout()
@@ -5297,7 +5469,7 @@ class CustomizationScreen(Screen):
         self.reposition_elements(None, None)
         Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
 
-    def on_enter(self):
+    def on_pre_enter(self, *args):
         self.refresh_coins_display()
 
     def apply_theme_instant(self):
@@ -5575,6 +5747,10 @@ class RewardBadge(FloatLayout):
         self.bind(pos=self._sync_graphics, size=self._sync_graphics)
 
     def update_size(self, height, font_scale=0.52):
+        _k = (round(height, 2), font_scale, self.label.text)
+        if _k == getattr(self, '_size_key', None):
+            return
+        self._size_key = _k
         self.height = height
         self.label.font_size = f"{max(int(height * font_scale), 12)}px"
         self.label.text_size = (None, None)
@@ -5607,7 +5783,7 @@ class RewardBadge(FloatLayout):
         self.label.text_size = self.label.size
 
 
-class QuestsScreen(StatCardsMixin, Screen):
+class QuestsScreen(StatCardsMixin, BaseScreen):
     # Табы-фильтры списка: (ключ фильтра, подпись на кнопке)
     FILTER_TABS = [
         ("all", "ВСЕ"),
@@ -5728,8 +5904,12 @@ class QuestsScreen(StatCardsMixin, Screen):
         self.reposition_elements(None, None)
         Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
 
-    def on_enter(self):
+    def on_pre_enter(self, *args):
         self.refresh_quests_data()
+        self._speed_up_build()
+
+    def prepare_in_background(self):
+        self.refresh_quests_data(background=True)
 
     # ------------------------------------------------------------------
     # РАЗМЕТКА ЭКРАНА
@@ -5936,29 +6116,31 @@ class QuestsScreen(StatCardsMixin, Screen):
             if w <= 0:
                 return
 
-            name_w = max(w - PAD * 2 - ICON_SIZE - dp(8), dp(10))
-            name_lbl.text_size = (name_w, None)
-            name_lbl.width = name_w
-            name_lbl.texture_update()
-            name_lbl.height = name_lbl.texture_size[1]
+            if getattr(relayout, '_w', None) != round(w):
+                relayout._w = round(w)
+                name_w = max(w - PAD * 2 - ICON_SIZE - dp(8), dp(10))
+                name_lbl.text_size = (name_w, None)
+                name_lbl.width = name_w
+                name_lbl.texture_update()
+                name_lbl.height = name_lbl.texture_size[1]
 
-            desc_w = max(w - PAD * 2, dp(10))
-            desc_lbl.text_size = (desc_w, None)
-            desc_lbl.width = desc_w
-            desc_lbl.texture_update()
-            desc_lbl.height = desc_lbl.texture_size[1]
+                desc_w = max(w - PAD * 2, dp(10))
+                desc_lbl.text_size = (desc_w, None)
+                desc_lbl.width = desc_w
+                desc_lbl.texture_update()
+                desc_lbl.height = desc_lbl.texture_size[1]
 
-            badge.update_size(BADGE_H)
-            reward_badge.update_size(BADGE_H)
+                badge.update_size(BADGE_H)
+                reward_badge.update_size(BADGE_H)
 
-            # статус ("2 / 3" / "ВЫПОЛНЕНО") занимает остаток нижней строки
-            # справа от обеих плашек и сжимается, если места мало
-            status_max_w = max(w - PAD * 2 - badge.width - reward_badge.width - GAP_BADGES * 2, dp(40))
-            lbl_status.text_size = (None, None)
-            fit_font_size(lbl_status, status_max_w, dp(13))
-            lbl_status.texture_update()
-            lbl_status.size = lbl_status.texture_size
-            lbl_status.text_size = lbl_status.size
+                # статус ("2 / 3" / "ВЫПОЛНЕНО") занимает остаток нижней строки
+                # справа от обеих плашек и сжимается, если места мало
+                status_max_w = max(w - PAD * 2 - badge.width - reward_badge.width - GAP_BADGES * 2, dp(40))
+                lbl_status.text_size = (None, None)
+                fit_font_size(lbl_status, status_max_w, dp(13))
+                lbl_status.texture_update()
+                lbl_status.size = lbl_status.texture_size
+                lbl_status.text_size = lbl_status.size
 
             total_h = PAD + name_lbl.height + GAP_S + desc_lbl.height + GAP_M
             if show_progress:
@@ -6000,51 +6182,72 @@ class QuestsScreen(StatCardsMixin, Screen):
     # ------------------------------------------------------------------
     # ПОСТРОЕНИЕ СПИСКА (по частям, чтобы не подвешивать кадр)
     # ------------------------------------------------------------------
-    def build_quests_list(self, launcher_quests):
+    def _quest_visible(self, done):
+        if self.current_filter == "active" and done:
+            return False
+        if self.current_filter == "done" and not done:
+            return False
+        return True
+
+    def build_quests_list(self, launcher_quests, background=False):
         if self._quests_build_event is not None:
             self._quests_build_event.cancel()
             self._quests_build_event = None
 
         self.quests_list_layout.clear_widgets()
         self._quest_cards = []
+        self._quests_remaining = []
 
         if not launcher_quests:
             return
 
-        all_keys = list(launcher_quests.keys())
         # невыполненные - сверху, выполненные - внизу
-        sorted_keys = sorted(all_keys, key=lambda k: launcher_quests[k].get("done", False), reverse=False)
-        remaining = list(sorted_keys)
+        sorted_keys = sorted(launcher_quests.keys(), key=lambda k: launcher_quests[k].get("done", False), reverse=False)
+        self._quests_remaining = [(k, launcher_quests[k]) for k in sorted_keys]
 
-        def build_chunk(dt):
-            ROWS_PER_FRAME = 4
-            for _ in range(ROWS_PER_FRAME):
-                if not remaining:
-                    self._quests_build_event = None
-                    return False
-                q_key = remaining.pop(0)
-                q_data = launcher_quests[q_key]
-                done = q_data.get("done", False)
-                card = self.create_quest_card(
-                    q_data.get("name", "Секретное задание"),
-                    q_data.get("description", ""),
-                    q_data,
-                    q_data.get("progress", 0),
-                    q_data.get("goal", 1),
-                    q_data.get("reward", 50),
-                    done,
-                )
-                self._quest_cards.append((card, done))
-            self._apply_filter()
-            return True
+        if background:
+            self._quests_rows_per_tick = 1
+            self._quests_build_event = Clock.schedule_interval(self._quests_build_tick, 0.03)
+        else:
+            self._quests_rows_per_tick = 4
+            self._quests_build_tick(0)
+            if self._quests_remaining:
+                self._quests_build_event = Clock.schedule_interval(self._quests_build_tick, 0)
 
-        if build_chunk(0):
-            self._quests_build_event = Clock.schedule_interval(build_chunk, 0)
+    def _quests_build_tick(self, dt):
+        for _ in range(self._quests_rows_per_tick):
+            if not self._quests_remaining:
+                self._quests_build_event = None
+                return False
+            _key, q_data = self._quests_remaining.pop(0)
+            done = q_data.get("done", False)
+            card = self.create_quest_card(
+                q_data.get("name", "Секретное задание"),
+                q_data.get("description", ""),
+                q_data,
+                q_data.get("progress", 0),
+                q_data.get("goal", 1),
+                q_data.get("reward", 50),
+                done,
+            )
+            self._quest_cards.append((card, done))
+            if self._quest_visible(done):
+                self.quests_list_layout.add_widget(card)
+        return True
+
+    def _speed_up_build(self):
+        if self._quests_build_event is not None and self._quests_rows_per_tick < 4:
+            self._quests_build_event.cancel()
+            self._quests_build_event = None
+            self._quests_rows_per_tick = 4
+            self._quests_build_tick(0)
+            if self._quests_remaining:
+                self._quests_build_event = Clock.schedule_interval(self._quests_build_tick, 0)
 
     # ------------------------------------------------------------------
     # ОБНОВЛЕНИЕ СТАТИСТИКИ И СПИСКА
     # ------------------------------------------------------------------
-    def refresh_quests_data(self):
+    def refresh_quests_data(self, background=False):
         stats = MOBILE_PLAYER_STATS if ('MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS) else {}
         launcher_quests = MOBILE_QUESTS if ('MOBILE_QUESTS' in globals() and MOBILE_QUESTS) else {}
 
@@ -6059,9 +6262,7 @@ class QuestsScreen(StatCardsMixin, Screen):
             coins, wins, losses, streak, quests_ratio,
             tuple(sorted((k, v.get("done", False), v.get("progress", 0)) for k, v in launcher_quests.items()))
         )
-        if (signature == self._quests_last_signature
-                and self.quests_list_layout.children
-                and self._quests_build_event is None):
+        if signature == self._quests_last_signature:
             return
         self._quests_last_signature = signature
 
@@ -6076,7 +6277,7 @@ class QuestsScreen(StatCardsMixin, Screen):
             card.value_ref.text = stat_values.get(key, "0")
 
         self.reposition_elements(None, None)
-        self.build_quests_list(launcher_quests)
+        self.build_quests_list(launcher_quests, background=background)
 
     def update_daily_quests_mobile(self):
         global MOBILE_PLAYER_STATS, MOBILE_QUESTS
@@ -6279,6 +6480,15 @@ class MobileApp(App):
 
         return sm
 
+    def _warm_up_screens(self, dt):
+        # Когда всё построено, заранее готовим тяжёлые списки (в фоне, по одной карточке)
+        sm = self._sm_ref
+        for name in ('achievements', 'quests'):
+            if sm.has_screen(name):
+                scr = sm.get_screen(name)
+                if scr is not sm.current_screen and hasattr(scr, 'prepare_in_background'):
+                    scr.prepare_in_background()
+
     def _build_next_screens(self, dt):
         chunk_size = 2
         for _ in range(chunk_size):
@@ -6295,12 +6505,17 @@ class MobileApp(App):
         else:
             self._sm_ref.current = 'main'
             Clock.schedule_once(lambda dt: self._sm_ref.remove_widget(self.loading_screen), 0)
+            Clock.schedule_once(self._warm_up_screens, 0.6)
 
 def start_mobile_game(words_list, player_stats, save_function):
     global MOBILE_ALL_WORDS, MOBILE_PLAYER_STATS, MOBILE_SAVE_FUNC, MOBILE_ACHIVEMENTS, MOBILE_QUESTS
     MOBILE_ALL_WORDS = words_list
     MOBILE_PLAYER_STATS = player_stats
-    MOBILE_SAVE_FUNC = save_function
+    def _save_and_mark(stats):
+        save_function(stats)
+        mark_stats_dirty()   # Достижения/Квесты обновятся в фоне, до того как их откроют
+
+    MOBILE_SAVE_FUNC = _save_and_mark
 
     if "achivements_dict" in player_stats and player_stats["achivements_dict"]:
         MOBILE_ACHIVEMENTS = player_stats["achivements_dict"]
