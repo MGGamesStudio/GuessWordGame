@@ -482,6 +482,35 @@ def glyph_ink_center(label):
     return result
 
 
+_CAP_OFFSET_CACHE = {}
+
+
+def cap_ink_offset_y(font_px):
+    """Насколько центр ЗАГЛАВНОЙ буквы выше центра строки лейбла (px).
+    Заглавные буквы и цифры стоят на базовой линии без выносных элементов, поэтому
+    при valign='middle' они выглядят смещёнными вниз. Меряем по эталону "Н" того же
+    шрифта и размера - так все надписи (ПРОДАТЬ, КУПИТЬ, +900 ...) стоят на одной
+    высоте, независимо от того, есть ли в слове буквы с хвостиками (Д, Р, у)."""
+    key = round(float(font_px), 1)
+    cached = _CAP_OFFSET_CACHE.get(key)
+    if cached is not None:
+        return cached
+    off = 0.0
+    try:
+        probe = Label(text="Н", font_name=font_path("ClearSans-Bold.ttf"),
+                      font_size=f"{key}px", bold=True)
+        probe.texture_update()
+        center = glyph_ink_center(probe)
+        if center is not None:
+            off = center[1] - probe.texture_size[1] / 2.0
+    except Exception:
+        off = 0.0
+    if len(_CAP_OFFSET_CACHE) > 200:
+        _CAP_OFFSET_CACHE.clear()
+    _CAP_OFFSET_CACHE[key] = off
+    return off
+
+
 _FIT_WRAP_CACHE = {}
 
 def fit_font_size_wrapped(label, max_allowed_w, max_allowed_h, start_font_px):
@@ -1523,179 +1552,374 @@ class IconKeyButton(KeyButton):
         self.icon.color = self.color
 
 class ThemeCard(ButtonBehavior, FloatLayout):
-    def __init__(self, theme_id="classic", theme_name="Классика", theme_data=None, on_click_callback=None, **kwargs):
-        self.is_active = False 
+    """
+    Карточка темы в сетке 2 в ряд: фон/рамка в стиле остальных экранов
+    (lerp(color_bg, color_key, 0.20) + рамка color_blank), внутри -
+    «окошко» с палитрой самой темы (5 плиток + 2 ряда мини-клавиш),
+    ниже название и чип статуса: "ПРИМЕНЕНО" / "ОТКРЫТО" / монета + цена.
+    Выбранная карточка - рамка color_text потолще.
+    Все размеры считаются от ширины карточки (metrics), без фиксированных px.
+    """
+    CARD_RADIUS = dp(16)
+
+    @staticmethod
+    def metrics(w):
+        pad = min(w * 0.05, dp(10))
+        inner_w = w - 2 * pad
+        ppad = inner_w * 0.055
+        tgap = inner_w * 0.03
+        tile = max((inner_w - 2 * ppad - 4 * tgap) / 5.0, 1.0)
+        kgap = max(dp(2), inner_w * 0.012)
+        key = max((inner_w - 2 * ppad - 9 * kgap) / 10.0, 1.0)
+        prev_h = ppad * 1.2 + tile + ppad * 0.8 + key + kgap + key + ppad
+        gap_a = pad * 1.1
+        name_h = max(w * 0.10, dp(14))
+        chip_h = min(max(w * 0.14, dp(22)), dp(26))
+        gap_b = pad * 0.6
+        h = pad + prev_h + gap_a + name_h + gap_b + chip_h + pad * 1.4
+        return dict(pad=pad, inner_w=inner_w, ppad=ppad, tgap=tgap, tile=tile,
+                    kgap=kgap, key=key, prev_h=prev_h, gap_a=gap_a,
+                    name_h=name_h, chip_h=chip_h, gap_b=gap_b, h=h)
+
+    def __init__(self, theme_id="classic", theme_data=None, on_click_callback=None, **kwargs):
         super().__init__(**kwargs)
         self.size_hint = (None, None)
         self.theme_id = theme_id
+        self.theme_data = theme_data or color_themes[theme_id]
         self.on_click_callback = on_click_callback
-        
-        if theme_data:
-            self.c_bg = theme_data.get('color_bg', color_bg)
-            self.c_text = theme_data.get('color_text', color_text)
-            self.c_correct = theme_data.get('color_correct', color_correct)
-            self.c_in_word = theme_data.get('color_in_word', color_in_word)
-            self.c_not_in_word = theme_data.get('color_not_in_word', color_not_in_word)
-            self.c_blank = theme_data.get('color_blank', color_blank)
-            self.c_key = theme_data.get('color_key', color_key)
-        else:
-            self.c_bg, self.c_text = color_bg, color_text
-            self.c_correct, self.c_in_word = color_correct, color_in_word
-            self.c_not_in_word, self.c_blank = color_not_in_word, color_blank
-            self.c_key = color_key
+        self.is_selected = False
+        self.is_active = False
+        self.is_owned = True
+        self.chip = None
+        self._tile_ink = (0, 0)
 
-        self.block_colors = [self.c_blank, self.c_correct, self.c_in_word, self.c_not_in_word, self.c_blank]
-        self.text_colors  = [self.c_text, (1, 1, 1, 1), (0, 0, 0, 1), (1, 1, 1, 1), self.c_text]
-
-        super().__init__(**kwargs)
-        self.size_hint = (None, None)
+        d = self.theme_data
+        self.base_color = lerp_color(color_bg, color_key, 0.20)
+        tile_colors = [d['color_blank'], d['color_correct'], d['color_in_word'],
+                       d['color_not_in_word'], d['color_blank']]
+        tile_text = [d['color_text'], (1, 1, 1, 1), (0, 0, 0, 1), (1, 1, 1, 1), d['color_text']]
 
         with self.canvas.before:
-            Color(*self.c_bg)
-            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[12])
-            
-            self.active_circle_color = Color(*self.c_correct)
-            self.active_circle = Ellipse(pos=(0, 0), size=(0, 0))
+            self.bg_color_instr = Color(*self.base_color)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[self.CARD_RADIUS])
 
-        self.lbl_name = Label(
-            text=theme_name,
-            font_name=font_path("ClearSans-Bold.ttf"),
-            font_size='18sp',
-            color=self.c_text,
-            bold=True,
-            size_hint=(None, None),
-            halign='center',
-            valign='middle'
-        )
-        self.lbl_name.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
-        self.add_widget(self.lbl_name)
-
-        self.tiles = []
-        self.tile_rects = []
-        self.tile_colors = []
-
-        for i in range(5):
-            lbl_a = Label(
-                text="A",
-                font_name=font_path("ClearSans-Bold.ttf"),
-                font_size='22sp',
-                color=self.text_colors[i],
-                bold=True,
-                size_hint=(None, None),
-                halign='center',
-                valign='middle'
-            )
-            with self.canvas:
-                c_inst = Color(*self.block_colors[i])
-                rect = RoundedRectangle(pos=(0,0), size=(0,0), radius=[6])
-                self.tile_colors.append(c_inst)
-                self.tile_rects.append(rect)
-                
-            self.tiles.append(lbl_a)
-            self.add_widget(lbl_a)
-
-        self.kb_rects = []
-        self.kb_colors = []
         with self.canvas:
-            for _ in range(20):
-                c_inst = Color(*self.c_key)
-                rect = RoundedRectangle(pos=(0,0), size=(0,0), radius=[3])
-                self.kb_colors.append(c_inst)
-                self.kb_rects.append(rect)
-            
-        self.bind(pos=self.update_graphics, size=self.update_graphics)
-        self.is_selected = False
+            Color(*d['color_bg'])
+            self.preview_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(10)])
+            self.tile_rects = []
+            for col in tile_colors:
+                Color(*col)
+                self.tile_rects.append(RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(4)]))
+            Color(*d['color_key'])
+            self.key_rects = [RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(2)]) for _ in range(20)]
 
         with self.canvas.after:
-            self.select_line_color = Color(*color_in_word)
-            self.select_line = Line(width=2)
+            self.border_color_instr = Color(*color_blank)
+            self.border_line = Line(width=dp(1.2))
 
-    def update_graphics(self, instance, value):
-        self.bg_rect.pos = self.pos
-        self.bg_rect.size = self.size
+        self.tile_labels = []
+        for i in range(5):
+            lbl = Label(text="А", font_name=font_path("ClearSans-Bold.ttf"), bold=True,
+                        color=tile_text[i], size_hint=(None, None), halign='center', valign='middle')
+            self.tile_labels.append(lbl)
+            self.add_widget(lbl)
 
-        spacing = dp(8)
-        tile_size_by_h = self.height * 0.33
-        tile_size_by_w = (self.width - dp(20) - spacing * 4) / 5
-        tile_size = max(min(tile_size_by_h, tile_size_by_w), dp(16))
+        self.name_label = Label(text=d.get("color_name", theme_id), font_name=font_path("ClearSans-Bold.ttf"),
+                                bold=True, color=color_text, size_hint=(None, None),
+                                halign='left', valign='middle')
+        self.add_widget(self.name_label)
 
-        # Подбор шрифтов (дорогие текстуры) - только когда реально изменился
-        # размер карточки, а не при каждом сдвиге позиции.
-        font_key = (round(self.width), round(self.height))
-        refit = getattr(self, '_font_key', None) != font_key
-        if refit:
-            self._font_key = font_key
-            self.lbl_name.size = (self.width, dp(28))
-            self.lbl_name.text_size = (None, None)
-            fit_font_size(self.lbl_name, self.width - dp(20), dp(18))
-            self.lbl_name.size = self.lbl_name.texture_size
-        self.lbl_name.center_x = self.x + self.width / 2
-        self.lbl_name.y = self.y + 5
+        self.lock_icon = Image(size_hint=(None, None), fit_mode="contain", color=color_not_in_word)
+        self.lock_icon.texture = load_white_icon_texture(icon_path("lock.png"))
+        self.add_widget(self.lock_icon)
 
-        total_grid_w = (tile_size * 5) + (spacing * 4)
-        start_x = self.x + (self.width - total_grid_w) / 2
-        tile_y = self.y + self.height - tile_size - dp(10)
+        self._rebuild_chip()
+        self.bind(pos=self._relayout, size=self._relayout, state=self._update_bg)
 
-        for i, lbl_a in enumerate(self.tiles):
-            current_x = start_x + i * (tile_size + spacing)
-            if refit:
-                lbl_a.size = (tile_size, tile_size)
-                lbl_a.text_size = (tile_size, tile_size)
-                fit_font_size(lbl_a, tile_size * 0.8, tile_size * 0.7)
-                lbl_a.text_size = (tile_size, tile_size)
-            lbl_a.pos = (current_x, tile_y + tile_size * 0.04)
-
-            self.tile_colors[i].rgba = self.block_colors[i]
-            self.tile_rects[i].pos = (current_x, tile_y)
-            self.tile_rects[i].size = (tile_size, tile_size)
-
-        kb_size = tile_size * 0.38
-        kb_spacing_x = dp(4)
-        kb_spacing_y = dp(4)
-        total_kb_w = (kb_size * 10) + (kb_spacing_x * 9)
-        start_kb_x = self.x + (self.width - total_kb_w) / 2
-        start_kb_y = tile_y - (kb_size * 2 + kb_spacing_y) - dp(8)
-
-        for index in range(20):
-            row = index // 10
-            col = index % 10
-            kx = start_kb_x + col * (kb_size + kb_spacing_x)
-            ky = start_kb_y + (1 - row) * (kb_size + kb_spacing_y)
-
-            self.kb_colors[index].rgba = self.c_key
-            self.kb_rects[index].pos = (kx, ky)
-            self.kb_rects[index].size = (kb_size, kb_size)
-
+    # ----- состояние -----
+    def set_state(self, owned, active):
+        changed = (owned != self.is_owned) or (active != self.is_active) or self.chip is None
+        self.is_owned = owned
+        self.is_active = active
+        if changed:
+            self._rebuild_chip()
+        self.lock_icon.opacity = 0 if owned else 1
         self.update_indicators()
+        self._relayout()
 
-    def update_indicators(self, *args):
-        if self.is_active:
-            circle_size = 16
-            cx = self.x + self.width - circle_size - 15
-            cy = self.y + self.height - circle_size - 15
-
-            self.active_circle_color.rgba = self.c_correct
-            self.active_circle.pos = (cx, cy)
-            self.active_circle.size = (circle_size, circle_size)
+    def _rebuild_chip(self):
+        if self.chip is not None:
+            self.remove_widget(self.chip)
+        if not self.is_owned:
+            price = self.theme_data.get("price", 1000)
+            self.chip = RewardBadge(text=str(price))
+        elif self.is_active:
+            self.chip = RarityBadge(dot_color=color_correct, text="ПРИМЕНЕНО", filled=True)
         else:
-            self.active_circle.size = (0, 0)
-            self.active_circle_color.rgba = (0, 0, 0, 0)
+            self.chip = RarityBadge(dot_color=color_not_in_word, text="ОТКРЫТО", filled=True)
+        self.add_widget(self.chip)
 
+    def update_indicators(self):
         if self.is_selected:
-            self.select_line_color.rgba = color_in_word
-            self.select_line.rounded_rectangle = (self.x, self.y, self.width, self.height, 12, 12, 12, 12)
+            self.border_color_instr.rgba = color_text
+            self.border_line.width = dp(2)
         else:
-            self.select_line.rounded_rectangle = (0, 0, 0, 0, 0)
+            self.border_color_instr.rgba = color_blank
+            self.border_line.width = dp(1.2)
+        self._sync_border()
 
-    def on_touch_down(self, touch):
-        if self.collide_point(*touch.pos):
-            if not touch.is_mouse_scrolling:
-                if self.on_click_callback:
-                    self.on_click_callback(self.theme_id)
-                return True
-        return super().on_touch_down(touch)
+    def _sync_border(self):
+        x0, y0 = round(self.x), round(self.y)
+        w, h = round(self.width), round(self.height)
+        half = self.border_line.width / 2.0
+        r = self.CARD_RADIUS
+        self.border_line.rounded_rectangle = (x0 + half, y0 + half, max(w - half * 2, 0),
+                                              max(h - half * 2, 0), r, r, r, r)
 
-# ----- ИГРА ----
+    def _update_bg(self, *args):
+        if self.state == 'normal':
+            self.bg_color_instr.rgba = self.base_color
+        else:
+            c = self.base_color
+            self.bg_color_instr.rgba = (c[0] * 0.94, c[1] * 0.94, c[2] * 0.94, c[3])
+
+    def on_release(self):
+        if self.on_click_callback:
+            self.on_click_callback(self.theme_id)
+
+    # ----- раскладка -----
+    def _refit_fonts(self, m):
+        """Тяжёлая часть (шрифты и измерение букв) - только при смене размера карточки."""
+        tile = m['tile']
+        for lbl in self.tile_labels:
+            lbl.text_size = (None, None)
+            lbl.font_size = f"{tile * 0.62}px"
+            lbl.texture_update()
+            lbl.size = lbl.texture_size
+        first = self.tile_labels[0]
+        center = glyph_ink_center(first) if first.texture is not None else None
+        tw, th = first.texture_size
+        # центр самой БУКВЫ (а не строки с запасом под выносные) - в центр плитки
+        self._tile_ink = center if center is not None else (tw / 2.0, th / 2.0)
+
+        name_h = m['name_h']
+        lock_side = name_h * 0.9
+        name_w = max(m['inner_w'] - lock_side - dp(6), dp(10))
+        fit_font_size(self.name_label, name_w, name_h * 0.95)
+        self.name_label.size = (name_w, name_h)
+        self.name_label.text_size = (name_w, name_h)
+
+    def _relayout(self, *args):
+        w, h = self.width, self.height
+        if w <= 1 or h <= 1:
+            return
+        m = self.metrics(w)
+        x0, y0 = round(self.x), round(self.y)
+
+        self.bg_rect.pos = (x0, y0)
+        self.bg_rect.size = (round(w), round(h))
+        self._sync_border()
+
+        fkey = (round(w), round(h))
+        if fkey != getattr(self, '_font_key', None):
+            self._font_key = fkey
+            self._refit_fonts(m)
+
+        top = y0 + h - m['pad']
+        prev_x = x0 + m['pad']
+        prev_y = top - m['prev_h']
+        self.preview_rect.pos = (round(prev_x), round(prev_y))
+        self.preview_rect.size = (round(m['inner_w']), round(m['prev_h']))
+
+        tile = m['tile']
+        tile_y = top - m['ppad'] * 1.2 - tile
+        ink_x, ink_y = self._tile_ink
+        for i in range(5):
+            tx = prev_x + m['ppad'] + i * (tile + m['tgap'])
+            self.tile_rects[i].pos = (round(tx), round(tile_y))
+            self.tile_rects[i].size = (round(tile), round(tile))
+            self.tile_rects[i].radius = [tile * 0.2]
+            self.tile_labels[i].pos = (round(tx + tile / 2.0 - ink_x),
+                                       round(tile_y + tile / 2.0 - ink_y))
+
+        key = m['key']
+        row1_y = tile_y - m['ppad'] * 0.8 - key
+        row2_y = row1_y - m['kgap'] - key
+        for idx in range(20):
+            row, col = divmod(idx, 10)
+            kx = prev_x + m['ppad'] + col * (key + m['kgap'])
+            ky = row1_y if row == 0 else row2_y
+            self.key_rects[idx].pos = (round(kx), round(ky))
+            self.key_rects[idx].size = (round(key), round(key))
+
+        name_h = m['name_h']
+        name_y = prev_y - m['gap_a'] - name_h
+        lock_side = name_h * 0.9
+        self.name_label.pos = (round(prev_x + dp(2)), round(name_y))
+        self.lock_icon.size = (lock_side, lock_side)
+        self.lock_icon.pos = (round(prev_x + m['inner_w'] - lock_side - dp(2)),
+                              round(name_y + (name_h - lock_side) / 2.0))
+
+        if self.chip is not None:
+            self.chip.update_size(m['chip_h'], font_scale=0.5)
+            chip_y = name_y - m['gap_b'] - m['chip_h']
+            self.chip.pos = (round(prev_x + dp(2)), round(chip_y))
+
+
+class ThemeActionButton(ButtonBehavior, FloatLayout):
+    """
+    Нижняя кнопка действия. Стили:
+      primary   - заливка color_correct, белый текст (ПРИМЕНИТЬ / КУПИТЬ)
+      secondary - карточка lerp(color_bg, color_key, 0.20), текст color_text (ПРОДАТЬ)
+      done      - как secondary, но неактивна и с зелёной галочкой (ПРИМЕНЕНО)
+      disabled  - как secondary, но приглушена (нельзя продать / не хватает монет)
+    Справа от текста может стоять плашка с монетой и суммой (RewardBadge).
+    Тень - тот же BoxShadow, что у MainMenuButton.
+    """
+    SHADOW_COLOR = (0, 0, 0, 0.22)
+    SHADOW_BLUR_RADIUS = dp(12)
+    SHADOW_SPREAD_RADIUS = (-dp(1), -dp(1))
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.on_release_func = None
+        self._enabled = False
+        self.icon_name = None
+        self.pill = None
+        self._bg_color = lerp_color(color_bg, color_key, 0.20)
+
+        radius = dp(18)
+        with self.canvas.before:
+            self.shadow = None
+            if _BOX_SHADOW_AVAILABLE:
+                self.shadow_color_instr = Color(*self.SHADOW_COLOR)
+                self.shadow = BoxShadow(pos=self.pos, size=self.size, offset=(0, 0),
+                                        blur_radius=self.SHADOW_BLUR_RADIUS,
+                                        spread_radius=self.SHADOW_SPREAD_RADIUS,
+                                        border_radius=(radius,) * 4)
+            self.bg_color_instr = Color(*self._bg_color)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[radius])
+
+        self.icon_img = Image(size_hint=(None, None), fit_mode="contain", color=color_text)
+        self.add_widget(self.icon_img)
+        self.label = Label(text="", font_name=font_path("ClearSans-Bold.ttf"), bold=True,
+                           color=color_text, size_hint=(None, None), halign='left', valign='middle')
+        self.add_widget(self.label)
+
+        self.bind(pos=self._reposition, size=self._reposition, state=self._update_canvas)
+
+    def set_content(self, text, style, icon_name=None, pill_text=None, on_release=None):
+        # Все цвета - только из текущей темы, никаких фиксированных значений и opacity:
+        #   primary   - заливка color_correct, текст/иконка/плашка color_bg
+        #   secondary - карточка (color_bg + color_key), текст color_text
+        #   done      - как secondary, зелёная галочка color_correct
+        #   disabled  - как secondary, но текст/иконка/монета color_not_in_word
+        self.opacity = 1.0
+        if style == "primary":
+            self._bg_color = color_correct
+            content = color_bg
+            icon_color = content
+        else:
+            self._bg_color = lerp_color(color_bg, color_key, 0.20)
+            content = color_not_in_word if style == "disabled" else color_text
+            icon_color = color_correct if style == "done" else content
+
+        self.on_release_func = on_release
+        # ВАЖНО: НЕ используем Widget.disabled - Kivy выставляет его всем дочерним
+        # Label, и они рисуются цветом disabled_color (белый, alpha 0.3) -> текст
+        # "пропадает". Вместо этого свой флаг.
+        self._enabled = (style in ("primary", "secondary")) and on_release is not None
+        self.label.text = text
+        self.label.color = content
+
+        self.icon_name = icon_name
+        if icon_name:
+            self.icon_img.texture = load_white_icon_texture(icon_path(icon_name))
+            self.icon_img.color = icon_color
+            self.icon_img.opacity = 1
+        else:
+            self.icon_img.opacity = 0
+
+        if self.pill is not None:
+            self.remove_widget(self.pill)
+            self.pill = None
+        if pill_text:
+            self.pill = RewardBadge(text=pill_text)
+            if style == "primary":
+                # на зелёной кнопке плашка полупрозрачная белая, как в макете
+                self.pill.bg_color_instr.rgba = (color_bg[0], color_bg[1], color_bg[2], 0.24)
+                self.pill.label.color = color_bg
+                self.pill.icon.color = color_bg
+            elif style == "disabled":
+                self.pill.label.color = color_not_in_word
+                self.pill.icon.color = color_not_in_word
+            self.add_widget(self.pill)
+
+        self._update_canvas()
+        self._reposition()
+
+    def on_release(self):
+        if self._enabled and self.on_release_func:
+            self.on_release_func(self)
+
+    def _update_canvas(self, *args):
+        c = self._bg_color
+        k = 0.9 if (self.state == 'down' and self._enabled) else 1.0
+        self.bg_color_instr.rgba = (c[0] * k, c[1] * k, c[2] * k, c[3])
+
+    def _reposition(self, *args):
+        w, h = self.width, self.height
+        if w <= 1 or h <= 1:
+            return
+        pos = (round(self.x), round(self.y))
+        size = (round(w), round(h))
+        radius = min(dp(18), h / 2.0)
+        if self.shadow is not None:
+            self.shadow.pos = pos
+            self.shadow.size = size
+            self.shadow.border_radius = (radius,) * 4
+        self.bg_rect.pos = pos
+        self.bg_rect.size = size
+        self.bg_rect.radius = [radius]
+
+        pad = h * 0.20
+        gap = h * 0.14
+        icon_side = h * 0.34 if self.icon_name else 0
+        pill_w = 0
+        if self.pill is not None:
+            self.pill.update_size(h * 0.42, font_scale=0.5)
+            pill_w = self.pill.width
+        max_label_w = w - pad * 2
+        if icon_side:
+            max_label_w -= icon_side + gap
+        if pill_w:
+            max_label_w -= pill_w + gap
+        fit_font_size(self.label, max(max_label_w, dp(10)), h * 0.30)
+        lw, lh = self.label.texture_size
+        self.label.size = (lw, lh)
+        self.label.text_size = (lw, lh)
+
+        total = lw
+        if icon_side:
+            total += icon_side + gap
+        if pill_w:
+            total += pill_w + gap
+        x = self.x + (w - total) / 2.0
+        cy = self.y + h / 2.0
+
+        if icon_side:
+            self.icon_img.size = (icon_side, icon_side)
+            self.icon_img.pos = (round(x), round(cy - icon_side / 2.0))
+            x += icon_side + gap
+        # центр ЗАГЛАВНОЙ буквы (а не строки с запасом под выносные) - на середину кнопки
+        dy = cap_ink_offset_y(self.label.font_size)
+        self.label.pos = (round(x), round(cy - lh / 2.0 - dy))
+        x += lw + gap
+        if self.pill is not None:
+            self.pill.pos = (round(x), round(cy - self.pill.height / 2.0))
+
+
 class LogoWordTiles(FloatLayout):
     """
     Ряд из 5 плиток логотипа "СЛОВО", раскрашенных так же, как игровые тайлы
@@ -4561,6 +4785,7 @@ class RarityBadge(FloatLayout):
         по фактической ширине получившегося текста + отступы."""
         self.height = height
         self.label.font_size = f"{max(int(height * font_scale), 12)}px"
+        self._cap_dy = cap_ink_offset_y(max(int(height * font_scale), 12))
         self.label.text_size = (None, None)
         self.label.texture_update()
         dot_d = height * 0.32
@@ -4589,7 +4814,7 @@ class RarityBadge(FloatLayout):
         self.dot_ellipse.size = (dot_d, dot_d)
         self.dot_ellipse.pos = (round(self.x + pad_x), round(self.y + (self.height - dot_d) / 2))
         label_x = self.x + pad_x + dot_d + gap
-        self.label.pos = (round(label_x), pos[1])
+        self.label.pos = (round(label_x), round(pos[1] - getattr(self, '_cap_dy', 0.0)))
         self.label.size = (max(round(self.width - (label_x - self.x)), dp(4)), size[1])
         self.label.text_size = self.label.size
 
@@ -5340,380 +5565,329 @@ class AchievementsScreen(StatCardsMixin, BaseScreen):
         self.reposition_elements(None, None)
         self.build_achievements_list(launcher_ach, stats, background=background)
 
-class CustomizationScreen(BaseScreen):
+class CustomizationScreen(StatCardsMixin, BaseScreen):
+    FILTER_TABS = [
+        ("all", "ВСЕ"),
+        ("owned", "ОТКРЫТО"),
+        ("shop", "МАГАЗИН"),
+    ]
+    FREE_THEMES = ('classic', 'night')
+    SELL_PRICE = 900
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.current_filter = "all"
+        self.theme_cards = {}
+        self.layout = None
+        self.active_theme_id = self._read_active_theme()
+        self.selected_theme_id = self.active_theme_id
+
+        self._build_ui()
+        self.bind(size=self.reposition_elements)
+        self.reposition_elements(None, None)
+        Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
+
+    # ------------------------------------------------------------------
+    # ДАННЫЕ
+    # ------------------------------------------------------------------
+    def _stats(self):
+        if 'MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS is not None:
+            return MOBILE_PLAYER_STATS
+        return {}
+
+    def _read_active_theme(self):
+        name = self._stats().get("active_theme_name", "classic")
+        return name if name in color_themes else "classic"
+
+    def _is_unlocked(self, theme_id):
+        data = color_themes[theme_id]
+        if theme_id in self.FREE_THEMES or data.get("price", 0) == 0:
+            return True
+        return bool(self._stats().get("unlocked_themes", {"classic": True}).get(theme_id, False))
+
+    # ------------------------------------------------------------------
+    # СБОРКА ИНТЕРФЕЙСА (вызывается заново при смене темы - всё перекрашивается)
+    # ------------------------------------------------------------------
+    def _build_ui(self):
         self.layout = FloatLayout()
-
-        with self.canvas.before:
-            self.bg_color_instr = Color(*color_bg)
-            self.bg_rect = RoundedRectangle(pos=(0, 0), size=(360, 640))
-
-            self.pad_color_instr = Color(*color_bg)
-            self.top_pad_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[0])
-            self.bottom_pad_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[0])
-
-            self.top_coins_color = Color(*color_key)
-            self.block_coins_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[12])
-            
-            self.top_theme_color = Color(*color_key)
-            self.block_theme_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[12])
-            
-            self.top_status_color = Color(*color_key)
-            self.block_status_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[12])
 
         self.btn_back = IconMenuButton(size_hint=(None, None), size=(dp(48), dp(48)))
         self.btn_back.font_size = '20sp'
         self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'menu'))
-        
-        self.lbl_title = Label(
-            text="Кастомизация", 
-            font_name=font_path("ClearSans-Bold.ttf"),
-            font_size='32sp', 
-            color=color_text, 
-            bold=True, 
-            size_hint=(None, None),
-            halign='left',
-            valign='middle'
-        )
-
-        self.lbl_coins_title = Label(text="Монеты:", font_name=font_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
-        self.lbl_theme_title = Label(text="Тема:", font_name=font_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
-        self.lbl_status_title = Label(text="Статус:", font_name=font_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
-        self.lbl_coins_val = Label(text="0",font_name=font_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_in_word,size_hint=(None, None), halign='center', valign='middle')
-        self.lbl_theme_val = Label(text="Классика", font_name=font_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
-        self.lbl_status_val = Label(text="Применено", font_name=font_path("ClearSans-Bold.ttf"), font_size='16sp', color=color_text, size_hint=(None, None), halign='center', valign='middle')
-
-        for lbl in [self.lbl_coins_title, self.lbl_theme_title, self.lbl_status_title, self.lbl_coins_val, self.lbl_theme_val, self.lbl_status_val]:
-            lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
-
-        self.btn_action = MenuButton(text="КУПИТЬ", size_hint=(None, None))
-        self.btn_action.background_normal = 'atlas://data/images/defaulttheme/button_pressed'
-        self.btn_action.background_color = (0, 0, 0, 0)
-        self.btn_action.color = color_text
-        self.btn_action.font_size = '18sp'
-        self.btn_action.disabled_color = color_text 
-
-        with self.btn_action.canvas.before:
-            self.btn_action_color = Color(*color_key)
-            self.rect_action = RoundedRectangle(pos=self.btn_action.pos, size=self.btn_action.size, radius=[12])
-
-        self.btn_sell = MenuButton(text="ПРОДАТЬ ЗА 900", size_hint=(None, None))
-        self.btn_sell.background_normal = 'atlas://data/images/defaulttheme/button_pressed'
-        self.btn_sell.background_color = (0, 0, 0, 0)
-        self.btn_sell.color = color_text
-        self.btn_sell.font_size = '18sp'
-        self.btn_sell.disabled_color = color_not_in_word
-
-        with self.btn_sell.canvas.before:
-            self.btn_sell_color = Color(*color_key)
-            self.rect_sell = RoundedRectangle(pos=self.btn_sell.pos, size=self.btn_sell.size, radius=[12])
-
-        self.layout.add_widget(self.btn_action)
-        self.layout.add_widget(self.btn_sell)
-
-        self.btn_action.bind(on_release=self.process_theme_action)
-        self.btn_sell.bind(on_release=self.process_theme_sell)
-
-        self.layout.add_widget(self.lbl_title)
         self.layout.add_widget(self.btn_back)
-        
-        self.layout.add_widget(self.lbl_coins_title)
-        self.layout.add_widget(self.lbl_theme_title)
-        self.layout.add_widget(self.lbl_status_title)
-        self.layout.add_widget(self.lbl_coins_val)
-        self.layout.add_widget(self.lbl_theme_val)
-        self.layout.add_widget(self.lbl_status_val)
-        
-        self.add_widget(self.layout)
-        self.bind(size=self.reposition_elements)
 
-        self.scroll_view = ScrollView(
-            size_hint=(None, None), 
-            do_scroll_x=False, 
-            do_scroll_y=True, 
-            bar_width=0,
-            effect_cls=ScrollEffect
-        )
+        self.title_label = Label(text="Кастомизация", font_name=font_path("ClearSans-Bold.ttf"),
+                                 bold=True, color=color_text, size_hint=(None, None),
+                                 halign='left', valign='middle')
+        self.layout.add_widget(self.title_label)
 
-        self.scroll_content = BoxLayout(orientation='vertical', size_hint_y=None, spacing=15, padding=(15, 10))
-        self.scroll_content.bind(minimum_height=self.scroll_content.setter('height'))
-        
-        self.scroll_view.add_widget(self.scroll_content)
+        # --- 3 карточки статистики (без прокрутки - всегда помещаются) ---
+        self.stats_row = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint=(None, None))
+        self._stat_cards = {}
+        for key, icon_name, label_text in [("coins", "copyright.png", "Монеты"),
+                                           ("theme", "palette.png", "Тема"),
+                                           ("status", "circle-check.png", "Статус")]:
+            card = self.create_stat_card(icon_name, label_text)
+            self.stats_row.add_widget(card)
+            self._stat_cards[key] = card
+        self.layout.add_widget(self.stats_row)
+
+        # --- табы-фильтры ---
+        self.tabs_row = BoxLayout(orientation='horizontal', spacing=dp(10), size_hint=(None, None))
+        self._tab_buttons = {}
+        for key, label_text in self.FILTER_TABS:
+            btn = FilterTabButton(text=label_text, size_hint=(1, 1),
+                                  on_select_callback=lambda inst, k=key: self._on_tab_selected(k))
+            btn.selected = (key == self.current_filter)
+            btn.update_visual()
+            self.tabs_row.add_widget(btn)
+            self._tab_buttons[key] = btn
+        self.layout.add_widget(self.tabs_row)
+
+        # --- сетка карточек тем ---
+        self.scroll_view = SharpScrollView(size_hint=(1, None), do_scroll_x=False,
+                                           do_scroll_y=True, bar_width=0)
+        self.scroll_view.effect_cls = ScrollEffect
+        self.grid = GridLayout(cols=2, spacing=dp(12), size_hint_y=None,
+                               padding=[dp(15), dp(4), dp(15), dp(24)])
+        self.grid.bind(minimum_height=self.grid.setter('height'))
+        self.scroll_view.add_widget(self.grid)
         self.layout.add_widget(self.scroll_view)
 
-        global MOBILE_PLAYER_STATS
-        self.theme_cards = {} 
-        
-        active_theme_id = MOBILE_PLAYER_STATS.get("active_theme_name", "classic")
-        self.selected_theme_id = active_theme_id 
-        
+        self.theme_cards = {}
         for t_id, t_data in color_themes.items():
-            t_title = t_data.get("color_name", t_id.capitalize())
+            self.theme_cards[t_id] = ThemeCard(theme_id=t_id, theme_data=t_data,
+                                               on_click_callback=self.select_theme)
 
-            card = ThemeCard(
-                theme_id=t_id, 
-                theme_name=t_title, 
-                theme_data=t_data, 
-                on_click_callback=self.select_theme
-            )
-            
-            if t_id == active_theme_id:
-                card.is_active = True
-                card.update_graphics(card, card.size)
-                
-            self.theme_cards[t_id] = card
-            self.scroll_content.add_widget(card)
+        # --- нижняя панель с кнопками ---
+        self.bottom_bar = FloatLayout(size_hint=(None, None))
+        with self.bottom_bar.canvas.before:
+            self._bar_bg_color = Color(*color_bg)
+            self._bar_bg = Rectangle(pos=(0, 0), size=(0, 0))
+            self._bar_line_color = Color(*color_blank)
+            self._bar_line = Rectangle(pos=(0, 0), size=(0, 0))
+        self.btn_action = ThemeActionButton()
+        self.btn_sell = ThemeActionButton()
+        self.bottom_bar.add_widget(self.btn_action)
+        self.bottom_bar.add_widget(self.btn_sell)
+        self.layout.add_widget(self.bottom_bar)
 
-        self.select_theme(self.selected_theme_id)
-        self.reposition_elements(None, None)
-        Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
+        self.add_widget(self.layout)
 
-    def on_pre_enter(self, *args):
-        self.refresh_coins_display()
+        self._apply_filter()
+        self._refresh_cards_state()
+        self._refresh_panels()
 
     def apply_theme_instant(self):
-        self.bg_color_instr.rgba = color_bg
-        self.pad_color_instr.rgba = color_bg
-        self.top_coins_color.rgba = color_key
-        self.top_theme_color.rgba = color_key
-        self.top_status_color.rgba = color_key
+        """Вызывается из redraw_all_screens: пересобираем экран под новые цвета."""
+        self.active_theme_id = self._read_active_theme()
+        sy = self.scroll_view.scroll_y if getattr(self, 'scroll_view', None) else 1.0
+        if self.layout is not None:
+            self.remove_widget(self.layout)
+        self._build_ui()
+        self.reposition_elements(None, None)
+        self.scroll_view.scroll_y = sy
 
-        self.lbl_title.color = color_text
-        self.lbl_coins_title.color = color_text
-        self.lbl_theme_title.color = color_text
-        self.lbl_status_title.color = color_text
-        self.lbl_coins_val.color = color_in_word
-        self.lbl_theme_val.color = color_text
+    def on_pre_enter(self, *args):
+        self.active_theme_id = self._read_active_theme()
+        self._apply_filter()
+        self._refresh_cards_state()
+        self._refresh_panels()
 
-        self.btn_back.base_color = color_key
-        self.btn_back.color = color_text
-        self.btn_back.update_canvas()
-
-        self.btn_action.base_color = color_key
-        self.btn_action.color = color_text
-        self.btn_action.disabled_color = color_text
-        self.btn_action.update_canvas()
-        self.btn_action_color.rgba = color_key
-
-        self.btn_sell.base_color = color_key
-        self.btn_sell.color = color_text
-        self.btn_sell.disabled_color = color_not_in_word
-        self.btn_sell.update_canvas()
-        self.btn_sell_color.rgba = color_key
-
-        for card in self.theme_cards.values():
-            card.update_indicators()
-        self.select_theme(self.selected_theme_id)
-
-    def refresh_coins_display(self):
-        global MOBILE_PLAYER_STATS
-        if 'MOBILE_PLAYER_STATS' in globals() and isinstance(MOBILE_PLAYER_STATS, dict) and 'player_coins' in MOBILE_PLAYER_STATS:
-            self.lbl_coins_val.text = str(MOBILE_PLAYER_STATS['player_coins'])
-        else:
-            self.lbl_coins_val.text = "0"
-
+    # ------------------------------------------------------------------
+    # РАЗМЕТКА
+    # ------------------------------------------------------------------
     def reposition_elements(self, instance, size):
-        self.refresh_coins_display()
-        win_w = self.width
-        win_h = self.height
-        
-        self.bg_rect.size = (win_w, win_h)
+        win_w, win_h = self.width, self.height
+        if win_w <= 0 or win_h <= 0:
+            return
 
-        back_w, back_h = dp(48), dp(48)
-        self.btn_back.size = (back_w, back_h)
-        self.btn_back.pos = (win_w - back_w - dp(14), win_h - TOP_SAFE_MARGIN - back_h)
-        fit_font_size(self.btn_back, back_w - dp(18), back_h * 0.42)
+        content_top = position_header(self.title_label, self.btn_back, win_w, win_h)
+        side = dp(15)
+        gap = dp(10)
 
-        title_h = min(win_h * 0.05, dp(34))
-        fit_font_size(self.lbl_title, win_w - back_w - dp(45), title_h * 0.85)
-        self.lbl_title.size = (win_w - back_w - dp(45), title_h)
-        self.lbl_title.text_size = self.lbl_title.size
-        self.lbl_title.pos = (dp(15), win_h - TOP_SAFE_MARGIN - back_h / 2 - title_h / 2 + dp(4))
-        
-        top_pad_h = win_h * 0.12
-        header_bottom = self.btn_back.y - dp(10)
-        top_pad_y = header_bottom - top_pad_h
-        self.top_pad_rect.size = (win_w, top_pad_h)
-        self.top_pad_rect.pos = (0, top_pad_y)
-        
-        bottom_pad_h = win_h * 0.12
-        self.bottom_pad_rect.size = (win_w, bottom_pad_h)
-        self.bottom_pad_rect.pos = (0, BOTTOM_SAFE_MARGIN)
-        
-        block_w = (win_w - 40) / 3
-        block_h = top_pad_h - 20
-        block_y = top_pad_y + 10
-        
-        x_coins = 10
-        x_theme = 10 + block_w + 10
-        x_status = 10 + block_w + 10 + block_w + 10
-        
-        self.block_coins_rect.size = (block_w, block_h)
-        self.block_coins_rect.pos = (x_coins, block_y)
-        
-        self.block_theme_rect.size = (block_w, block_h)
-        self.block_theme_rect.pos = (x_theme, block_y)
-        
-        self.block_status_rect.size = (block_w, block_h)
-        self.block_status_rect.pos = (x_status, block_y)
-        
-        row_h = block_h / 2
-        lbl_size = (block_w, row_h)
-        
-        y_titles = block_y + row_h
-        self.lbl_coins_title.size = lbl_size
-        self.lbl_coins_title.pos = (x_coins, y_titles)
-        self.lbl_theme_title.size = lbl_size
-        self.lbl_theme_title.pos = (x_theme, y_titles)
-        self.lbl_status_title.size = lbl_size
-        self.lbl_status_title.pos = (x_status, y_titles)
-        
-        y_vals = block_y
-        self.lbl_coins_val.size = lbl_size
-        self.lbl_coins_val.pos = (x_coins, y_vals)
-        self.lbl_theme_val.size = lbl_size
-        self.lbl_theme_val.pos = (x_theme, y_vals)
-        self.lbl_status_val.size = lbl_size
-        self.lbl_status_val.pos = (x_status, y_vals)
+        # статистика
+        stats_h = min(max(win_h * 0.13, dp(88)), dp(112))
+        card_w = (win_w - side * 2 - gap * 2) / 3.0
+        self.stats_row.spacing = gap
+        self.stats_row.size = (win_w - side * 2, stats_h)
+        self.stats_row.pos = (side, content_top - stats_h)
+        for card in self.stats_row.children:
+            card.size = (card_w, stats_h)
+            self._layout_stat_card(card)
 
-        btn_w = (win_w - 30) / 2
-        btn_h = bottom_pad_h - 20
-        btn_y = BOTTOM_SAFE_MARGIN + dp(10)
+        # табы
+        tabs_h = min(max(win_h * 0.055, dp(40)), dp(50))
+        self.tabs_row.size = (win_w - side * 2, tabs_h)
+        self.tabs_row.pos = (side, self.stats_row.y - dp(16) - tabs_h)
+        list_top = self.tabs_row.y - dp(14)
 
-        self.btn_action.size = (btn_w, btn_h)
-        self.btn_action.pos = (10, btn_y)
-        fit_font_size(self.btn_action, btn_w - dp(20), btn_h * 0.36)
+        # нижняя панель
+        btn_h = min(max(win_h * 0.075, dp(54)), dp(66))
+        bar_h = dp(12) + btn_h + BOTTOM_SAFE_MARGIN
+        line_h = max(dp(1.2), 1)
+        self.bottom_bar.size = (win_w, bar_h)
+        self.bottom_bar.pos = (0, 0)
+        self._bar_bg.pos = (0, 0)
+        self._bar_bg.size = (win_w, bar_h)
+        self._bar_line.pos = (0, bar_h - line_h)
+        self._bar_line.size = (win_w, line_h)
+        btn_w = (win_w - side * 2 - gap) / 2.0
+        for i, btn in enumerate((self.btn_action, self.btn_sell)):
+            btn.size = (btn_w, btn_h)
+            btn.pos = (round(side + i * (btn_w + gap)), round(BOTTOM_SAFE_MARGIN))
 
-        self.btn_sell.size = (btn_w, btn_h)
-        self.btn_sell.pos = (10 + btn_w + 10, btn_y)
-        fit_font_size(self.btn_sell, btn_w - dp(20), btn_h * 0.36)
+        # список
+        self.scroll_view.pos = (0, bar_h)
+        self.scroll_view.size = (win_w, max(list_top - bar_h, dp(10)))
+        self.grid.width = win_w
+        self._size_cards()
 
-        self.rect_action.pos = self.btn_action.pos
-        self.rect_action.size = self.btn_action.size
+    def _size_cards(self):
+        scroll_w = self.scroll_view.width
+        if scroll_w <= dp(100):
+            return
+        card_w = int((scroll_w - dp(15) * 2 - dp(12)) // 2)
+        card_h = round(ThemeCard.metrics(card_w)['h'])
+        for card in self.theme_cards.values():
+            card.size = (card_w, card_h)
 
-        self.rect_sell.pos = self.btn_sell.pos
-        self.rect_sell.size = self.btn_sell.size
+    # ------------------------------------------------------------------
+    # ТАБЫ
+    # ------------------------------------------------------------------
+    def _on_tab_selected(self, key):
+        if key == self.current_filter:
+            return
+        self.current_filter = key
+        for k, btn in self._tab_buttons.items():
+            btn.selected = (k == key)
+            btn.update_visual()
+        self._apply_filter()
 
-        scroll_top = top_pad_y - 15
-        scroll_bottom = bottom_pad_h + BOTTOM_SAFE_MARGIN + dp(15)
-        scroll_h = scroll_top - scroll_bottom
-        self.scroll_view.size = (win_w, scroll_h)
-        self.scroll_view.pos = (0, scroll_bottom)
+    def _apply_filter(self):
+        self.grid.clear_widgets()
+        for t_id, card in self.theme_cards.items():
+            owned = self._is_unlocked(t_id)
+            if self.current_filter == "owned" and not owned:
+                continue
+            if self.current_filter == "shop" and owned:
+                continue
+            self.grid.add_widget(card)
+        self._size_cards()
 
-        for card in self.scroll_content.children:
-            card.size = (win_w - 30, min(win_w * 0.42, dp(150)))
+    # ------------------------------------------------------------------
+    # СОСТОЯНИЕ
+    # ------------------------------------------------------------------
+    def _refresh_cards_state(self):
+        for t_id, card in self.theme_cards.items():
+            card.is_selected = (t_id == self.selected_theme_id)
+            card.set_state(self._is_unlocked(t_id), t_id == self.active_theme_id)
+
+    def _set_stat(self, card, value, value_color, icon_name, icon_color):
+        card.value_ref.text = value
+        card.value_ref.color = value_color
+        card.icon_ref.texture = load_white_icon_texture(icon_path(icon_name))
+        card.icon_ref.color = icon_color
+        self._layout_stat_card(card)
+
+    def _refresh_panels(self):
+        stats = self._stats()
+        coins = stats.get('player_coins', 0)
+        theme_id = self.selected_theme_id
+        data = color_themes[theme_id]
+        owned = self._is_unlocked(theme_id)
+        is_active = (theme_id == self.active_theme_id)
+        price = data.get('price', 1000)
+
+        # --- карточки статистики ---
+        self._set_stat(self._stat_cards['coins'], str(coins), color_text, "copyright.png", color_in_word)
+        self._set_stat(self._stat_cards['theme'], data.get("color_name", theme_id.capitalize()),
+                       color_text, "palette.png", color_text)
+        if owned and is_active:
+            self._set_stat(self._stat_cards['status'], "Применено", color_correct, "circle-check.png", color_correct)
+        elif owned:
+            self._set_stat(self._stat_cards['status'], "Открыто", color_text, "circle-check.png", color_not_in_word)
+        else:
+            self._set_stat(self._stat_cards['status'], "Закрыто", color_text, "lock.png", color_not_in_word)
+
+        # --- главная кнопка ---
+        if owned and is_active:
+            self.btn_action.set_content("ПРИМЕНЕНО", "done", icon_name="circle-check.png")
+        elif owned:
+            self.btn_action.set_content("ПРИМЕНИТЬ", "primary", on_release=self.process_theme_action)
+        elif coins >= price:
+            self.btn_action.set_content("КУПИТЬ", "primary", pill_text=str(price),
+                                        on_release=self.process_theme_action)
+        else:
+            self.btn_action.set_content("КУПИТЬ", "disabled", pill_text=str(price))
+
+        # --- кнопка продажи ---
+        if owned and theme_id not in self.FREE_THEMES and price > 0:
+            self.btn_sell.set_content("ПРОДАТЬ", "secondary", pill_text=f"+{self.SELL_PRICE}",
+                                      on_release=self.process_theme_sell)
+        else:
+            self.btn_sell.set_content("ПРОДАТЬ", "disabled", pill_text=f"+{self.SELL_PRICE}")
 
     def select_theme(self, theme_id):
-        global MOBILE_PLAYER_STATS
         self.selected_theme_id = theme_id
-
         for t_id, card in self.theme_cards.items():
             new_selected = (t_id == theme_id)
             if card.is_selected != new_selected:
                 card.is_selected = new_selected
                 card.update_indicators()
+        self._refresh_panels()
 
-        theme_data = color_themes[theme_id]
-        self.lbl_theme_val.text = theme_data.get("color_name", theme_id.capitalize())
-
-        unlocked_themes = MOBILE_PLAYER_STATS.get("unlocked_themes", {"classic": True})
-        is_unlocked = unlocked_themes.get(theme_id, False)
-
-        if theme_id in ['classic', 'night'] or theme_data.get("price", 0) == 0:
-            is_unlocked = True
-
-        if is_unlocked:
-            if self.theme_cards[theme_id].is_active:
-                self.lbl_status_val.text = "Применено"
-                self.lbl_status_val.color = color_correct
-            else:
-                self.lbl_status_val.text = "Куплено"
-                self.lbl_status_val.color = color_text
-        else:
-            price = theme_data.get('price', 1000)
-            self.lbl_status_val.text = f"{price} мон."
-            self.lbl_status_val.color = color_in_word
-
-        if is_unlocked:
-            if self.theme_cards[theme_id].is_active:
-                self.btn_action.text = "ПРИМЕНЕНО"
-                self.btn_action.disabled = True
-            else:
-                self.btn_action.text = "ПРИМЕНИТЬ"
-                self.btn_action.disabled = False
-        else:
-            self.btn_action.text = "КУПИТЬ"
-            self.btn_action.disabled = False
-
-        if theme_id in ['classic', 'night']:
-            self.btn_sell.disabled = True
-        else:
-            self.btn_sell.disabled = not is_unlocked
-
-    def _apply_theme_fast(self, theme_id):
-        for card in self.theme_cards.values():
-            if card.is_active:
-                card.is_active = False
-                card.update_indicators()
-        self.theme_cards[theme_id].is_active = True
-        self.theme_cards[theme_id].update_indicators()
-        # выставляет глобальные цвета, сохраняет прогресс (один раз),
-        # перекрашивает ЭТОТ экран и планирует фоновую пересборку остальных
-        choose_theme(theme_id)
-
-    def process_theme_action(self, instance):
-        global MOBILE_PLAYER_STATS
-
+    # ------------------------------------------------------------------
+    # ДЕЙСТВИЯ
+    # ------------------------------------------------------------------
+    def process_theme_action(self, instance=None):
+        stats = self._stats()
         theme_id = self.selected_theme_id
-        theme_data = color_themes[theme_id]
+        data = color_themes[theme_id]
 
-        unlocked_themes = MOBILE_PLAYER_STATS.get("unlocked_themes", {"classic": True})
-        is_unlocked = unlocked_themes.get(theme_id, False)
-        if theme_id in ['classic', 'night'] or theme_data.get("price", 0) == 0:
-            is_unlocked = True
-
-        if is_unlocked:
-            if self.theme_cards[theme_id].is_active:
+        if self._is_unlocked(theme_id):
+            if theme_id == self.active_theme_id:
                 return
-            self._apply_theme_fast(theme_id)
-            print(f"[MGGamesStudio] Тема {theme_id} успешно применена!")
         else:
-            price = theme_data.get('price', 1000)
-            coins = MOBILE_PLAYER_STATS.get('player_coins', 0)
+            price = data.get('price', 1000)
+            coins = stats.get('player_coins', 0)
             if coins < price:
                 return
-            MOBILE_PLAYER_STATS['player_coins'] = coins - price
-            MOBILE_PLAYER_STATS['unlocked_themes'][theme_id] = True
-            self.lbl_coins_val.text = str(MOBILE_PLAYER_STATS['player_coins'])
-            self._apply_theme_fast(theme_id)
-            print(f"[MGGamesStudio] Тема {theme_id} успешно куплена, применена и сохранена!")
+            stats['player_coins'] = coins - price
+            stats.setdefault('unlocked_themes', {"classic": True})[theme_id] = True
 
-    def process_theme_sell(self, instance):
-        global MOBILE_PLAYER_STATS, MOBILE_SAVE_FUNC
+        self.active_theme_id = theme_id
+        self._refresh_cards_state()
+        self._refresh_panels()
+        # choose_theme сохраняет прогресс и перекрашивает экран (apply_theme_instant);
+        # вызываем на следующем кадре, чтобы не пересобирать кнопку прямо в её же обработчике
+        Clock.schedule_once(lambda dt: choose_theme(theme_id), 0)
+        print(f"[MGGamesStudio] Тема {theme_id} применена!")
 
+    def process_theme_sell(self, instance=None):
+        stats = self._stats()
         theme_id = self.selected_theme_id
-
-        if theme_id in ['classic', 'night']:
+        if theme_id in self.FREE_THEMES or not self._is_unlocked(theme_id):
             return
 
-        current_coins = MOBILE_PLAYER_STATS.get('player_coins', 0)
-        MOBILE_PLAYER_STATS['player_coins'] = current_coins + 900
-        MOBILE_PLAYER_STATS['unlocked_themes'][theme_id] = False
-        self.lbl_coins_val.text = str(MOBILE_PLAYER_STATS['player_coins'])
+        stats['player_coins'] = stats.get('player_coins', 0) + self.SELL_PRICE
+        stats.setdefault('unlocked_themes', {"classic": True})[theme_id] = False
 
-        if self.theme_cards[theme_id].is_active:
-            self.theme_cards[theme_id].is_active = False
-            self.theme_cards[theme_id].update_indicators()
-            self.theme_cards['classic'].is_active = True
-            self.theme_cards['classic'].update_indicators()
-            choose_theme('classic')
+        was_active = (theme_id == self.active_theme_id)
+        if was_active:
+            self.active_theme_id = 'classic'
 
         if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
-            MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
+            MOBILE_SAVE_FUNC(stats)
 
-        self.select_theme(theme_id)
-        print(f"[MGGamesStudio] Тема {theme_id} успешно продана за 900 монет и заблокирована!")
+        self._apply_filter()
+        self._refresh_cards_state()
+        self._refresh_panels()
+        if was_active:
+            Clock.schedule_once(lambda dt: choose_theme('classic'), 0)
+        print(f"[MGGamesStudio] Тема {theme_id} продана за {self.SELL_PRICE} монет!")
+
+
 
 class RewardBadge(FloatLayout):
     """
@@ -5753,6 +5927,7 @@ class RewardBadge(FloatLayout):
         self._size_key = _k
         self.height = height
         self.label.font_size = f"{max(int(height * font_scale), 12)}px"
+        self._cap_dy = cap_ink_offset_y(max(int(height * font_scale), 12))
         self.label.text_size = (None, None)
         self.label.texture_update()
         icon_d = height * 0.5
@@ -5778,7 +5953,7 @@ class RewardBadge(FloatLayout):
         self.icon.size = (icon_d, icon_d)
         self.icon.pos = (round(self.x + pad_x), round(self.y + (self.height - icon_d) / 2))
         label_x = self.x + pad_x + icon_d + gap
-        self.label.pos = (round(label_x), pos[1])
+        self.label.pos = (round(label_x), round(pos[1] - getattr(self, '_cap_dy', 0.0)))
         self.label.size = (max(round(self.width - (label_x - self.x)), dp(4)), size[1])
         self.label.text_size = self.label.size
 
