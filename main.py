@@ -340,6 +340,94 @@ color_in_word = color_themes["classic"]["color_in_word"]
 color_not_in_word = color_themes["classic"]["color_not_in_word"]
 color_key = color_themes["classic"]["color_key"]
 
+# ======================================================================
+# СВОЯ ТЕМА: данные
+# Тема "custom" - обычная запись в color_themes, поэтому choose_theme,
+# сохранение active_theme_name и перекраска экранов работают без изменений.
+# Владение хранится там же, где у остальных тем: unlocked_themes["custom"].
+# Цвета и название игрока: MOBILE_PLAYER_STATS["custom_theme"] =
+#   {"name": "...", "colors": {"color_bg": "#RRGGBB", ...}}
+# ======================================================================
+CUSTOM_THEME_ID = "custom"
+CUSTOM_THEME_PRICE = 10000
+CUSTOM_NAME_MAX = 16
+CUSTOM_DEFAULT_NAME = "Моя тема"
+CUSTOM_SLOTS = [
+    ("color_bg", "Фон"),
+    ("color_text", "Текст"),
+    ("color_blank", "Пустая клетка"),
+    ("color_correct", "Верная буква"),
+    ("color_in_word", "Не на месте"),
+    ("color_not_in_word", "Нет в слове"),
+    ("color_key", "Клавиши"),
+]
+CUSTOM_DEFAULT_HEX = {
+    "color_bg": "#F5F3FF",
+    "color_text": "#2E1065",
+    "color_blank": "#DDD6FE",
+    "color_correct": "#7C3AED",
+    "color_in_word": "#F59E0B",
+    "color_not_in_word": "#94A3B8",
+    "color_key": "#C4B5FD",
+}
+
+
+def hex_to_rgba(value):
+    value = value.lstrip('#')
+    return (int(value[0:2], 16) / 255.0, int(value[2:4], 16) / 255.0, int(value[4:6], 16) / 255.0, 1.0)
+
+
+def rgba_to_hex(color):
+    return "#{:02X}{:02X}{:02X}".format(*(max(0, min(255, int(round(c * 255)))) for c in color[:3]))
+
+
+def _valid_hex(value):
+    if not (isinstance(value, str) and len(value) == 7 and value[0] == '#'):
+        return False
+    try:
+        int(value[1:], 16)
+        return True
+    except ValueError:
+        return False
+
+
+def get_custom_theme_data():
+    """(название, {ключ: '#RRGGBB'}) из сохранения; недостающее/битое - значения по умолчанию."""
+    stats = globals().get('MOBILE_PLAYER_STATS') or {}
+    saved = stats.get("custom_theme") or {}
+    saved_colors = saved.get("colors") or {}
+    colors = {}
+    for key, default in CUSTOM_DEFAULT_HEX.items():
+        value = saved_colors.get(key)
+        colors[key] = value.upper() if _valid_hex(value) else default
+    name = saved.get("name")
+    if not isinstance(name, str) or not name.strip():
+        name = CUSTOM_DEFAULT_NAME
+    return name.strip()[:CUSTOM_NAME_MAX], colors
+
+
+def sync_custom_theme():
+    """Пересобирает color_themes["custom"] из сохранения."""
+    name, colors = get_custom_theme_data()
+    entry = {"color_name": name, "price": CUSTOM_THEME_PRICE, "unlocked": False}
+    for key, value in colors.items():
+        entry[key] = hex_to_rgba(value)
+    color_themes[CUSTOM_THEME_ID] = entry
+
+
+def _rel_luminance(color):
+    def lin(x):
+        return x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4
+    return 0.2126 * lin(color[0]) + 0.7152 * lin(color[1]) + 0.0722 * lin(color[2])
+
+
+def contrast_ratio(c1, c2):
+    l1, l2 = _rel_luminance(c1), _rel_luminance(c2)
+    return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
+
+
+sync_custom_theme()
+
 class BaseScreen(Screen):
     """
     Экран с НЕПРОЗРАЧНЫМ фоном (color_bg) под всем содержимым.
@@ -607,6 +695,7 @@ _SCREEN_FACTORIES = {
     'how_to_play': lambda: HowToPlayScreen(name='how_to_play'),
     'achievements': lambda: AchievementsScreen(name='achievements'),
     'customization': lambda: CustomizationScreen(name='customization'),
+    'theme_editor': lambda: ThemeEditorScreen(name='theme_editor'),
     'quests': lambda: QuestsScreen(name='quests'),
     'one_player_game': lambda: OnePlayerGameScreen(name='one_player_game'),
     'two_player_game': lambda: TwoPlayerGameScreen(name='two_player_game'),
@@ -1662,7 +1751,7 @@ class ThemeCard(ButtonBehavior, FloatLayout):
     def update_indicators(self):
         if self.is_selected:
             self.border_color_instr.rgba = color_text
-            self.border_line.width = dp(2)
+            self.border_line.width = dp(1.2)
         else:
             self.border_color_instr.rgba = color_blank
             self.border_line.width = dp(1.2)
@@ -5565,6 +5654,978 @@ class AchievementsScreen(StatCardsMixin, BaseScreen):
         self.reposition_elements(None, None)
         self.build_achievements_list(launcher_ach, stats, background=background)
 
+import colorsys
+from kivy.uix.textinput import TextInput
+
+
+# ======================================================================
+# СВОЯ ТЕМА: вспомогательное
+# ======================================================================
+def _hsv_to_rgba(h, s, v):
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    return (r, g, b, 1.0)
+
+
+def _rgba_to_hsv(color):
+    return colorsys.rgb_to_hsv(color[0], color[1], color[2])
+
+
+def _prep_caps_label(label):
+    """Готовит лейбл (размер = текстура) и возвращает (w, h, dy). Чтобы центр ЗАГЛАВНЫХ
+    букв встал в точку (cx, cy): label.pos = (cx - w/2, cy - h/2 - dy). Тяжёлое (рендер
+    текста) делается тут один раз, а при прокрутке/сдвиге только меняется pos."""
+    label.text_size = (None, None)
+    label.texture_update()
+    tw, th = label.texture_size
+    label.size = (tw, th)
+    return tw, th, cap_ink_offset_y(label.font_size)
+
+
+class CustomThemeCard(ButtonBehavior, FloatLayout):
+    """
+    Широкая карточка "Своя тема" в самом верху списка тем: полоска из 7 цветов
+    темы игрока, название, подпись и чип (цена 10000 / ОТКРЫТО / ПРИМЕНЕНО).
+    Интерфейс тот же, что у ThemeCard (is_selected, set_state, update_indicators).
+    """
+    CARD_RADIUS = dp(16)
+
+    @staticmethod
+    def metrics(w):
+        pad = dp(10)
+        panel_pad = dp(12)
+        sgap = dp(6)
+        sw = max((w - 2 * pad - 2 * panel_pad - 6 * sgap) / 7.0, 1.0)
+        panel_h = sw + 2 * panel_pad
+        name_h, sub_h, chip_h = dp(26), dp(18), dp(26)
+        h = pad + panel_h + dp(12) + name_h + dp(2) + sub_h + dp(10) + chip_h + pad * 1.4
+        return dict(pad=pad, panel_pad=panel_pad, sgap=sgap, sw=sw, panel_h=panel_h,
+                    name_h=name_h, sub_h=sub_h, chip_h=chip_h, h=h)
+
+    def __init__(self, theme_id=CUSTOM_THEME_ID, theme_data=None, on_click_callback=None, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.theme_id = theme_id
+        self.on_click_callback = on_click_callback
+        self.is_selected = False
+        self.is_active = False
+        self.is_owned = False
+        self.chip = None
+        self.base_color = lerp_color(color_bg, color_key, 0.20)
+
+        with self.canvas.before:
+            self.bg_color_instr = Color(*self.base_color)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[self.CARD_RADIUS])
+            Color(*color_bg)
+            self.panel_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(12)])
+
+        slot_colors = color_themes[CUSTOM_THEME_ID]
+        with self.canvas:
+            self.sw_colors, self.sw_rects, self.sw_outer = [], [], []
+            for key, _name in CUSTOM_SLOTS:
+                Color(*color_blank)
+                self.sw_outer.append(RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(6)]))
+                self.sw_colors.append(Color(*slot_colors[key]))
+                self.sw_rects.append(RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(6)]))
+
+        with self.canvas.after:
+            self.border_color_instr = Color(*color_blank)
+            self.border_line = Line(width=dp(1.2))
+
+        self.name_label = Label(text="Своя тема", font_name=font_path("ClearSans-Bold.ttf"), bold=True,
+                                color=color_text, size_hint=(None, None), halign='left', valign='middle')
+        self.add_widget(self.name_label)
+        self.sub_label = Label(text="Настройте цвет каждого элемента", font_name=font_path("ClearSans-Bold.ttf"),
+                               bold=True, color=color_not_in_word, size_hint=(None, None),
+                               halign='left', valign='middle')
+        self.add_widget(self.sub_label)
+        self.lock_icon = Image(size_hint=(None, None), fit_mode="contain", color=color_not_in_word)
+        self.lock_icon.texture = load_white_icon_texture(icon_path("lock.png"))
+        self.add_widget(self.lock_icon)
+
+        self._rebuild_chip()
+        self.bind(pos=self._relayout, size=self._relayout, state=self._update_bg)
+
+    # ----- состояние -----
+    def set_state(self, owned, active):
+        changed = (owned != self.is_owned) or (active != self.is_active) or self.chip is None
+        self.is_owned = owned
+        self.is_active = active
+        if changed:
+            self._rebuild_chip()
+        self.lock_icon.opacity = 0 if owned else 1
+        self.update_indicators()
+        self._relayout()
+
+    def _rebuild_chip(self):
+        if self.chip is not None:
+            self.remove_widget(self.chip)
+        if not self.is_owned:
+            self.chip = RewardBadge(text=str(CUSTOM_THEME_PRICE))
+        elif self.is_active:
+            self.chip = RarityBadge(dot_color=color_correct, text="ПРИМЕНЕНО", filled=True)
+        else:
+            self.chip = RarityBadge(dot_color=color_not_in_word, text="ОТКРЫТО", filled=True)
+        self.add_widget(self.chip)
+
+    def update_indicators(self):
+        if self.is_selected:
+            self.border_color_instr.rgba = color_text
+            self.border_line.width = dp(1.2)
+        else:
+            self.border_color_instr.rgba = color_blank
+            self.border_line.width = dp(1.2)
+        self._sync_border()
+
+    def _sync_border(self):
+        x0, y0 = round(self.x), round(self.y)
+        w, h = round(self.width), round(self.height)
+        half = self.border_line.width / 2.0
+        r = self.CARD_RADIUS
+        self.border_line.rounded_rectangle = (x0 + half, y0 + half, max(w - half * 2, 0),
+                                              max(h - half * 2, 0), r, r, r, r)
+
+    def _update_bg(self, *args):
+        if self.state == 'normal':
+            self.bg_color_instr.rgba = self.base_color
+        else:
+            c = self.base_color
+            self.bg_color_instr.rgba = (c[0] * 0.94, c[1] * 0.94, c[2] * 0.94, c[3])
+
+    def on_release(self):
+        if self.on_click_callback:
+            self.on_click_callback(self.theme_id)
+
+    # ----- раскладка -----
+    def _relayout(self, *args):
+        w, h = self.width, self.height
+        if w <= 1 or h <= 1:
+            return
+        m = self.metrics(w)
+        x0, y0 = round(self.x), round(self.y)
+        self.bg_rect.pos = (x0, y0)
+        self.bg_rect.size = (round(w), round(h))
+        self._sync_border()
+
+        lock_side = m['name_h'] * 0.8
+        fkey = (round(w), round(h))
+        if fkey != getattr(self, '_font_key', None):
+            self._font_key = fkey
+            name_w = max(w - 2 * m['pad'] - lock_side - dp(8), dp(10))
+            fit_font_size(self.name_label, name_w, m['name_h'] * 0.85)
+            self.name_label.size = (name_w, m['name_h'])
+            self.name_label.text_size = self.name_label.size
+            sub_w = max(w - 2 * m['pad'] - dp(8), dp(10))
+            fit_font_size(self.sub_label, sub_w, m['sub_h'] * 0.8)
+            self.sub_label.size = (sub_w, m['sub_h'])
+            self.sub_label.text_size = self.sub_label.size
+
+        left = x0 + m['pad']
+        top = y0 + h - m['pad']
+        panel_y = top - m['panel_h']
+        self.panel_rect.pos = (round(left), round(panel_y))
+        self.panel_rect.size = (round(w - 2 * m['pad']), round(m['panel_h']))
+
+        # целые размеры и равные промежутки: квадраты ровные, контур совпадает с заливкой
+        sw = int(m['sw'])
+        gap = int(round(m['sgap']))
+        bw = max(int(round(dp(1.2))), 1)
+        n = len(CUSTOM_SLOTS)
+        total = n * sw + (n - 1) * gap
+        start = round(left + (w - 2 * m['pad'] - total) / 2.0)
+        sy = round(panel_y + (m['panel_h'] - sw) / 2.0)
+        r = sw * 0.22
+        for i in range(n):
+            sx = start + i * (sw + gap)
+            self.sw_outer[i].pos = (sx, sy)
+            self.sw_outer[i].size = (sw, sw)
+            self.sw_outer[i].radius = [r]
+            self.sw_rects[i].pos = (sx + bw, sy + bw)
+            self.sw_rects[i].size = (sw - 2 * bw, sw - 2 * bw)
+            self.sw_rects[i].radius = [max(r - bw, 0)]
+
+        name_y = panel_y - dp(12) - m['name_h']
+        self.name_label.pos = (round(left + dp(2)), round(name_y))
+        self.lock_icon.size = (lock_side, lock_side)
+        self.lock_icon.pos = (round(x0 + w - m['pad'] - lock_side - dp(2)),
+                              round(name_y + (m['name_h'] - lock_side) / 2.0))
+        sub_y = name_y - dp(2) - m['sub_h']
+        self.sub_label.pos = (round(left + dp(2)), round(sub_y))
+        if self.chip is not None:
+            self.chip.update_size(m['chip_h'], font_scale=0.5)
+            self.chip.pos = (round(left + dp(2)), round(sub_y - dp(10) - m['chip_h']))
+
+
+class ColorSlider(FloatLayout):
+    """Ползунок с градиентной дорожкой (значение 0..1). Градиент - маленькая текстура."""
+    SAMPLES = 96
+
+    def __init__(self, on_change=None, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.value = 0.0
+        self.on_change = on_change
+        self._tex = Texture.create(size=(self.SAMPLES, 1), colorfmt='rgba')
+        self._tex.mag_filter = 'linear'
+        self._tex.min_filter = 'linear'
+        self.set_gradient([(0, 0, 0, 1), (1, 1, 1, 1)])
+        with self.canvas:
+            Color(1, 1, 1, 1)
+            self._track = RoundedRectangle(texture=self._tex, pos=self.pos, size=self.size, radius=[dp(8)])
+            Color(*color_blank)
+            self._border = Line(width=dp(1.2))
+            Color(*color_text)
+            self._ring = Ellipse(pos=(0, 0), size=(0, 0))
+            Color(*color_bg)
+            self._core = Ellipse(pos=(0, 0), size=(0, 0))
+        self.bind(pos=self._redraw, size=self._redraw)
+
+    def set_gradient(self, stops):
+        n = self.SAMPLES
+        last = len(stops) - 1
+        buf = bytearray()
+        for i in range(n):
+            t = i / float(n - 1) * last
+            a = min(int(t), last - 1)
+            f = t - a
+            c0, c1 = stops[a], stops[a + 1]
+            for j in range(3):
+                buf.append(int(round(255 * (c0[j] + (c1[j] - c0[j]) * f))))
+            buf.append(255)
+        self._tex.blit_buffer(bytes(buf), colorfmt='rgba', bufferfmt='ubyte')
+        self.canvas.ask_update()
+
+    def set_value(self, value, notify=False):
+        self.value = max(0.0, min(1.0, value))
+        self._redraw()
+        if notify and self.on_change:
+            self.on_change(self.value)
+
+    def _thumb_d(self):
+        return self.height * 0.78
+
+    def _redraw(self, *args):
+        if self.width <= 1 or self.height <= 1:
+            return
+        th = self.height * 0.40
+        ty = self.y + (self.height - th) / 2.0
+        self._track.pos = (round(self.x), round(ty))
+        self._track.size = (round(self.width), round(th))
+        self._track.radius = [th / 2.0]
+        half = dp(1.2) / 2.0
+        self._border.rounded_rectangle = (round(self.x) + half, round(ty) + half,
+                                          max(round(self.width) - 2 * half, 0), max(round(th) - 2 * half, 0),
+                                          th / 2.0, th / 2.0, th / 2.0, th / 2.0)
+        d = self._thumb_d()
+        r = d / 2.0
+        cx = self.x + r + self.value * max(self.width - d, 1)
+        cy = self.y + self.height / 2.0
+        # целые размеры одной чётности: внутренний кружок ровно по центру внешнего
+        big = int(round(d))
+        inset = max(int(round(dp(3.5))), 1)
+        small = max(big - 2 * inset, 1)
+        ring_x = int(round(cx - big / 2.0))
+        ring_y = int(round(cy - big / 2.0))
+        self._ring.pos = (ring_x, ring_y)
+        self._ring.size = (big, big)
+        self._core.pos = (ring_x + inset, ring_y + inset)
+        self._core.size = (small, small)
+
+    def _value_from_x(self, x):
+        d = self._thumb_d()
+        return (x - (self.x + d / 2.0)) / max(self.width - d, 1)
+
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos):
+            touch.grab(self)
+            self.set_value(self._value_from_x(touch.x), notify=True)
+            return True
+        return super().on_touch_down(touch)
+
+    def on_touch_move(self, touch):
+        if touch.grab_current is self:
+            self.set_value(self._value_from_x(touch.x), notify=True)
+            return True
+        return super().on_touch_move(touch)
+
+    def on_touch_up(self, touch):
+        if touch.grab_current is self:
+            touch.ungrab(self)
+            return True
+        return super().on_touch_up(touch)
+
+
+class SlotChip(ButtonBehavior, FloatLayout):
+    """Чип выбора редактируемого цвета: образец цвета + название."""
+    def __init__(self, text, rgba, on_press_callback=None, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.on_press_callback = on_press_callback
+        self.selected = False
+        self._lbl = (0, 0, 0)
+
+        with self.canvas.before:
+            self.bg_color_instr = Color(*lerp_color(color_bg, color_key, 0.20))
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(14)])
+        with self.canvas:
+            self.sw_color = Color(*rgba)
+            self.sw_rect = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(8)])
+            Color(*color_not_in_word)
+            self.sw_border = Line(width=dp(1.2))
+        with self.canvas.after:
+            self.border_color_instr = Color(*color_blank)
+            self.border_line = Line(width=dp(1.2))
+
+        self.label = Label(text=text, font_name=font_path("ClearSans-Bold.ttf"), bold=True,
+                           color=color_text, size_hint=(None, None))
+        self.add_widget(self.label)
+        self.bind(pos=self._relayout, size=self._relayout)
+
+    def set_rgba(self, rgba):
+        self.sw_color.rgba = rgba
+
+    def set_selected(self, value):
+        self.selected = value
+        self.border_color_instr.rgba = color_text if value else color_blank
+        self.border_line.width = dp(1.2)
+        self._sync_border()
+
+    def fit_to_height(self, h):
+        key = round(h, 1)
+        if key == getattr(self, '_fit_h', None):
+            return
+        self._fit_h = key
+        self.label.font_size = f"{max(int(h * 0.30), 10)}px"
+        tw, th, dy = _prep_caps_label(self.label)
+        self._lbl = (tw, th, dy)
+        sw = h * 0.62
+        self.size = (h * 0.17 + sw + h * 0.17 + tw + h * 0.32, h)
+        self._relayout()
+
+    def _sync_border(self):
+        x0, y0 = round(self.x), round(self.y)
+        w, h = round(self.width), round(self.height)
+        half = self.border_line.width / 2.0
+        r = min(dp(14), h / 2.0)
+        self.border_line.rounded_rectangle = (x0 + half, y0 + half, max(w - half * 2, 0),
+                                              max(h - half * 2, 0), r, r, r, r)
+
+    def _relayout(self, *args):
+        w, h = self.width, self.height
+        if w <= 1 or h <= 1:
+            return
+        x0, y0 = round(self.x), round(self.y)
+        self.bg_rect.pos = (x0, y0)
+        self.bg_rect.size = (round(w), round(h))
+        self.bg_rect.radius = [min(dp(14), h / 2.0)]
+        self._sync_border()
+        sw = h * 0.62
+        sx, sy = x0 + h * 0.17, y0 + (h - sw) / 2.0
+        self.sw_rect.pos = (round(sx), round(sy))
+        self.sw_rect.size = (round(sw), round(sw))
+        self.sw_rect.radius = [sw * 0.26]
+        half = dp(1.2) / 2.0
+        r = sw * 0.26
+        self.sw_border.rounded_rectangle = (round(sx) + half, round(sy) + half,
+                                            max(round(sw) - 2 * half, 0), max(round(sw) - 2 * half, 0),
+                                            r, r, r, r)
+        tw, th, dy = self._lbl
+        self.label.pos = (round(sx + sw + h * 0.17), round(y0 + h / 2.0 - th / 2.0 - dy))
+
+    def on_release(self):
+        if self.on_press_callback:
+            self.on_press_callback(self)
+
+
+class ThemePreviewBoard(FloatLayout):
+    """Живое превью темы: игровое поле (плитки + клавиатура) в редактируемых цветах.
+    Цвета букв на плитках - те же, что в игровых клетках (белый/чёрный)."""
+    WORD = "ЦВЕТА"
+    KEY_ROWS = ("ЙЦУКЕНГШЩЗ", "ФЫВАПРОЛДЖ")
+
+    @staticmethod
+    def metrics(w):
+        pad = w * 0.035
+        tile = w * 0.133
+        tg = w * 0.0167
+        kg = w * 0.0083
+        k = (w - 2 * pad - 9 * kg) / 10.0
+        top_gap = tg * 1.2
+        h = pad * 1.2 + 2 * tile + tg + top_gap + 2 * k + kg + pad
+        return dict(pad=pad, tile=tile, tg=tg, kg=kg, k=k, top_gap=top_gap, h=h)
+
+    @staticmethod
+    def height_for_width(w):
+        return ThemePreviewBoard.metrics(w)['h']
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.colors = {k: hex_to_rgba(v) for k, v in CUSTOM_DEFAULT_HEX.items()}
+
+        with self.canvas.before:
+            self.bg_color = Color(*self.colors['color_bg'])
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(16)])
+        with self.canvas:
+            self.tile_colors, self.tile_rects = [], []
+            for _ in range(10):
+                self.tile_colors.append(Color(1, 1, 1, 1))
+                self.tile_rects.append(RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(8)]))
+            self.key_color = Color(*self.colors['color_key'])
+            self.key_rects = [RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(5)]) for _ in range(20)]
+        with self.canvas.after:
+            Color(*color_blank)
+            self.border_line = Line(width=dp(1.5))
+
+        self.tile_labels, self.key_labels = [], []
+        for ch in self.WORD:
+            lbl = Label(text=ch, font_name=font_path("ClearSans-Bold.ttf"), bold=True, size_hint=(None, None))
+            self.tile_labels.append(lbl)
+            self.add_widget(lbl)
+        for row in self.KEY_ROWS:
+            for ch in row:
+                lbl = Label(text=ch, font_name=font_path("ClearSans-Bold.ttf"), bold=True, size_hint=(None, None))
+                self.key_labels.append(lbl)
+                self.add_widget(lbl)
+        self._tile_lbl = [(0, 0, 0)] * 5
+        self._key_lbl = [(0, 0, 0)] * 20
+        self.set_colors(self.colors)
+        self.bind(pos=self._relayout, size=self._relayout)
+
+    def set_colors(self, colors):
+        """colors: {ключ слота: rgba}."""
+        self.colors = colors
+        c = colors
+        self.bg_color.rgba = c['color_bg']
+        states = [c['color_blank'], c['color_correct'], c['color_in_word'], c['color_not_in_word'], c['color_blank']]
+        letter = [c['color_text'], (1, 1, 1, 1), (0, 0, 0, 1), (1, 1, 1, 1), c['color_text']]
+        for i in range(10):
+            self.tile_colors[i].rgba = states[i] if i < 5 else c['color_blank']
+        for i, lbl in enumerate(self.tile_labels):
+            lbl.color = letter[i]
+        self.key_color.rgba = c['color_key']
+        for lbl in self.key_labels:
+            lbl.color = c['color_text']
+
+    def _relayout(self, *args):
+        w, h = self.width, self.height
+        if w <= 1 or h <= 1:
+            return
+        full = self.metrics(w)
+        s = min(1.0, h / full['h'])
+        ew = w * s
+        m = self.metrics(ew)
+        x0, y0 = round(self.x), round(self.y)
+        self.bg_rect.pos = (x0, y0)
+        self.bg_rect.size = (round(w), round(h))
+        half = self.border_line.width / 2.0
+        r = dp(16)
+        self.border_line.rounded_rectangle = (x0 + half, y0 + half, max(round(w) - 2 * half, 0),
+                                              max(round(h) - 2 * half, 0), r, r, r, r)
+
+        tile, k = m['tile'], m['k']
+        fkey = (round(tile, 1), round(k, 1))
+        if fkey != getattr(self, '_font_key', None):
+            self._font_key = fkey
+            for i, lbl in enumerate(self.tile_labels):
+                lbl.font_size = f"{max(int(tile * 0.55), 8)}px"
+                self._tile_lbl[i] = _prep_caps_label(lbl)
+            for i, lbl in enumerate(self.key_labels):
+                lbl.font_size = f"{max(int(k * 0.55), 7)}px"
+                self._key_lbl[i] = _prep_caps_label(lbl)
+
+        ox = self.x + (w - ew) / 2.0
+        block_bottom = self.y + (h - m['h']) / 2.0
+        top = block_bottom + m['h']
+        row1_y = top - m['pad'] * 1.2 - tile
+        row2_y = row1_y - m['tg'] - tile
+        tiles_w = 5 * tile + 4 * m['tg']
+        tx0 = ox + (ew - tiles_w) / 2.0
+        for row, ty in ((0, row1_y), (1, row2_y)):
+            for col in range(5):
+                tx = tx0 + col * (tile + m['tg'])
+                rect = self.tile_rects[row * 5 + col]
+                rect.pos = (round(tx), round(ty))
+                rect.size = (round(tile), round(tile))
+                rect.radius = [tile * 0.17]
+                if row == 0:
+                    tw, th, dy = self._tile_lbl[col]
+                    self.tile_labels[col].pos = (round(tx + tile / 2.0 - tw / 2.0),
+                                                 round(ty + tile / 2.0 - th / 2.0 - dy))
+        key1_y = row2_y - m['top_gap'] - k
+        key2_y = key1_y - m['kg'] - k
+        for row, ky in ((0, key1_y), (1, key2_y)):
+            for col in range(10):
+                kx = ox + m['pad'] + col * (k + m['kg'])
+                idx = row * 10 + col
+                rect = self.key_rects[idx]
+                rect.pos = (round(kx), round(ky))
+                rect.size = (round(k), round(k))
+                rect.radius = [k * 0.17]
+                tw, th, dy = self._key_lbl[idx]
+                self.key_labels[idx].pos = (round(kx + k / 2.0 - tw / 2.0), round(ky + k / 2.0 - th / 2.0 - dy))
+
+
+class NameInput(TextInput):
+    """Поле названия: не длиннее CUSTOM_NAME_MAX символов."""
+    def insert_text(self, substring, from_undo=False):
+        room = CUSTOM_NAME_MAX - len(self.text)
+        if room <= 0:
+            return super().insert_text('', from_undo=from_undo)
+        return super().insert_text(substring[:room], from_undo=from_undo)
+
+
+class ThemeEditorScreen(BaseScreen):
+    """Экран "Своя тема": живое превью, выбор цвета элемента, ползунки Тон/Насыщенность/Яркость.
+    Правки живут на экране (черновик) и сохраняются/применяются кнопкой ПРИМЕНИТЬ;
+    сам интерфейс экрана красится текущей применённой темой, а не редактируемой."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = None
+        self.slot_index = 0
+        self._btn_state = None
+        self._head_h, self._row_h = dp(44), dp(40)
+        self._load_draft()
+        self._build_ui()
+        self.bind(size=self.reposition_elements)
+        self.reposition_elements(None, None)
+        self._refresh_all()
+        Clock.schedule_once(lambda dt: self.reposition_elements(None, None), 0)
+
+    # ------------------------------------------------------------------
+    # ДАННЫЕ
+    # ------------------------------------------------------------------
+    def _stats(self):
+        if 'MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS is not None:
+            return MOBILE_PLAYER_STATS
+        return {}
+
+    def _is_owned(self):
+        return bool(self._stats().get("unlocked_themes", {}).get(CUSTOM_THEME_ID, False))
+
+    def _load_draft(self):
+        name, colors = get_custom_theme_data()
+        self.name_text = name
+        self.draft = {k: _rgba_to_hsv(hex_to_rgba(v)) for k, v in colors.items()}
+
+    def _load_defaults(self):
+        self.name_text = CUSTOM_DEFAULT_NAME
+        self.draft = {k: _rgba_to_hsv(hex_to_rgba(v)) for k, v in CUSTOM_DEFAULT_HEX.items()}
+
+    def _draft_rgba(self):
+        return {k: _hsv_to_rgba(*v) for k, v in self.draft.items()}
+
+    def _draft_hex(self):
+        return {k: rgba_to_hex(c) for k, c in self._draft_rgba().items()}
+
+    # ------------------------------------------------------------------
+    # СБОРКА ИНТЕРФЕЙСА (заново при смене темы)
+    # ------------------------------------------------------------------
+    def _build_ui(self):
+        self.layout = FloatLayout()
+        card_bg = lerp_color(color_bg, color_key, 0.20)
+
+        self.btn_back = IconMenuButton(size_hint=(None, None), size=(dp(48), dp(48)))
+        self.btn_back.font_size = '20sp'
+        self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'customization'))
+        self.layout.add_widget(self.btn_back)
+        self.title_label = Label(text="Своя тема", font_name=font_path("ClearSans-Bold.ttf"), bold=True,
+                                 color=color_text, size_hint=(None, None), halign='left', valign='middle')
+        self.layout.add_widget(self.title_label)
+
+        # --- название ---
+        self.name_card = FloatLayout(size_hint=(None, None))
+        with self.name_card.canvas.before:
+            Color(*card_bg)
+            self._name_bg = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(14)])
+        with self.name_card.canvas.after:
+            Color(*color_blank)
+            self._name_border = Line(width=dp(1.2))
+        self.name_icon = Image(size_hint=(None, None), fit_mode="contain", color=color_text)
+        self.name_icon.texture = load_white_icon_texture(icon_path("pencil.png"))
+        self.name_card.add_widget(self.name_icon)
+        self.name_caption = Label(text="Название", font_name=font_path("ClearSans-Bold.ttf"), bold=True,
+                                  color=color_not_in_word, size_hint=(None, None))
+        self.name_card.add_widget(self.name_caption)
+        self.name_input = NameInput(text=self.name_text, multiline=False, write_tab=False,
+                                    font_name=font_path("ClearSans-Bold.ttf"), size_hint=(None, None),
+                                    foreground_color=color_text, cursor_color=color_text,
+                                    selection_color=(color_correct[0], color_correct[1], color_correct[2], 0.35),
+                                    background_color=(0, 0, 0, 0), background_normal='', background_active='',
+                                    background_disabled_normal='', halign='right')
+        self.name_input.bind(text=self._on_name_text)
+        self.name_input.bind(scroll_y=lambda inst, value: setattr(inst, 'scroll_y', 0))
+        self.name_input.bind(on_text_validate=lambda inst: setattr(inst, 'focus', False))
+        self.name_card.add_widget(self.name_input)
+        self.layout.add_widget(self.name_card)
+
+        # --- превью ---
+        self.preview = ThemePreviewBoard()
+        self.layout.add_widget(self.preview)
+
+        # --- выбор элемента ---
+        self.slot_scroll = SharpScrollView(size_hint=(1, None), do_scroll_x=True, do_scroll_y=False, bar_width=0)
+        self.slot_scroll.effect_cls = ScrollEffect
+        self.slot_row = BoxLayout(orientation='horizontal', spacing=dp(8), size_hint=(None, None),
+                                  padding=[dp(15), dp(4), dp(15), dp(4)])
+        self.slot_row.bind(minimum_width=self.slot_row.setter('width'))
+        self.slot_scroll.add_widget(self.slot_row)
+        self.slot_chips = []
+        for i, (key, label_text) in enumerate(CUSTOM_SLOTS):
+            chip = SlotChip(text=label_text, rgba=hex_to_rgba(CUSTOM_DEFAULT_HEX[key]),
+                            on_press_callback=lambda inst, idx=i: self._select_slot(idx))
+            self.slot_row.add_widget(chip)
+            self.slot_chips.append(chip)
+        self.layout.add_widget(self.slot_scroll)
+
+        # --- панель цвета ---
+        self.picker = FloatLayout(size_hint=(None, None))
+        with self.picker.canvas.before:
+            Color(*card_bg)
+            self._picker_bg = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(16)])
+        with self.picker.canvas:
+            self._picker_sw_color = Color(1, 1, 1, 1)
+            self._picker_sw = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(10)])
+            Color(*color_not_in_word)
+            self._picker_sw_border = Line(width=dp(1.2))
+        with self.picker.canvas.after:
+            Color(*color_blank)
+            self._picker_border = Line(width=dp(1.2))
+        self.cur_label = Label(text="", font_name=font_path("ClearSans-Bold.ttf"), bold=True,
+                               color=color_text, size_hint=(None, None), halign='left', valign='middle')
+        self.cur_hex = Label(text="", font_name=font_path("ClearSans-Bold.ttf"), bold=True,
+                             color=color_not_in_word, size_hint=(None, None), halign='left', valign='middle')
+        self.picker.add_widget(self.cur_label)
+        self.picker.add_widget(self.cur_hex)
+        self.contrast_chip = RarityBadge(dot_color=color_correct, text="ЧИТАЕТСЯ", filled=True)
+        self.picker.add_widget(self.contrast_chip)
+        self.row_captions, self.sliders = [], []
+        for i, caption in enumerate(("Тон", "Насыщ.", "Яркость")):
+            cap = Label(text=caption, font_name=font_path("ClearSans-Bold.ttf"), bold=True,
+                        color=color_not_in_word, size_hint=(None, None), halign='left', valign='middle')
+            slider = ColorSlider(on_change=lambda v, idx=i: self._on_slider(idx, v))
+            self.picker.add_widget(cap)
+            self.picker.add_widget(slider)
+            self.row_captions.append(cap)
+            self.sliders.append(slider)
+        self.sliders[0].set_gradient([(1, 0, 0, 1), (1, 1, 0, 1), (0, 1, 0, 1), (0, 1, 1, 1),
+                                      (0, 0, 1, 1), (1, 0, 1, 1), (1, 0, 0, 1)])
+        self.layout.add_widget(self.picker)
+
+        # --- нижняя панель ---
+        self.bottom_bar = FloatLayout(size_hint=(None, None))
+        with self.bottom_bar.canvas.before:
+            Color(*color_bg)
+            self._bar_bg = Rectangle(pos=(0, 0), size=(0, 0))
+            Color(*color_blank)
+            self._bar_line = Rectangle(pos=(0, 0), size=(0, 0))
+        self.btn_reset = ThemeActionButton()
+        self.btn_apply = ThemeActionButton()
+        self.bottom_bar.add_widget(self.btn_reset)
+        self.bottom_bar.add_widget(self.btn_apply)
+        self.layout.add_widget(self.bottom_bar)
+        self.btn_reset.set_content("СБРОС", "secondary", on_release=self._on_reset)
+        self._btn_state = None
+
+        self.add_widget(self.layout)
+
+    def apply_theme_instant(self):
+        """Вызывается из redraw_all_screens: пересобираем под новую тему, черновик сохраняется."""
+        if self.layout is not None:
+            self.remove_widget(self.layout)
+        self._build_ui()
+        self.reposition_elements(None, None)
+        self._refresh_all()
+
+    def on_pre_enter(self, *args):
+        if not self._is_owned():
+            self.manager.current = 'customization'
+            return
+        self._load_draft()
+        self.name_input.text = self.name_text
+        self._refresh_all()
+
+    def on_leave(self, *args):
+        if getattr(self, 'name_input', None) is not None:
+            self.name_input.focus = False
+
+    # ------------------------------------------------------------------
+    # РАЗМЕТКА
+    # ------------------------------------------------------------------
+    def reposition_elements(self, instance, size):
+        win_w, win_h = self.width, self.height
+        if win_w <= 0 or win_h <= 0:
+            return
+        content_top = position_header(self.title_label, self.btn_back, win_w, win_h)
+        side, gap = dp(15), dp(10)
+        inner_w = win_w - 2 * side
+
+        btn_h = min(max(win_h * 0.075, dp(54)), dp(66))
+        bar_h = dp(12) + btn_h + BOTTOM_SAFE_MARGIN
+        line_h = max(dp(1.2), 1)
+        self.bottom_bar.size = (win_w, bar_h)
+        self.bottom_bar.pos = (0, 0)
+        self._bar_bg.pos = (0, 0)
+        self._bar_bg.size = (win_w, bar_h)
+        self._bar_line.pos = (0, bar_h - line_h)
+        self._bar_line.size = (win_w, line_h)
+        btn_w = (win_w - side * 2 - gap) / 2.0
+        for i, btn in enumerate((self.btn_reset, self.btn_apply)):
+            btn.size = (btn_w, btn_h)
+            btn.pos = (round(side + i * (btn_w + gap)), round(BOTTOM_SAFE_MARGIN))
+
+        # --- вертикальная раскладка сверху вниз ---
+        # Блоки: название, превью, лента элементов, панель цвета. Нехватка места
+        # забирается сначала у превью, потом у высоты ползунков, потом у промежутков;
+        # запас места делится между превью и промежутками - никаких наездов друг на друга.
+        avail = content_top - bar_h
+        name_h = dp(52)
+        chip_h = dp(48)
+        slots_h = chip_h + dp(8)
+        head_h, row_h = dp(44), dp(40)
+        ratio = ThemePreviewBoard.metrics(1.0)['h']
+        prev_nat = ratio * inner_w
+        prev_min = ratio * min(inner_w, dp(220))
+        g = dp(10)
+
+        def picker_height(rh):
+            return dp(14) + head_h + dp(6) + 3 * rh + dp(10)
+
+        prev_h = prev_nat
+        need = name_h + prev_h + slots_h + picker_height(row_h) + 5 * g
+        if need > avail:
+            deficit = need - avail
+            cut = min(deficit, max(prev_h - prev_min, 0))
+            prev_h -= cut
+            deficit -= cut
+            if deficit > 0:
+                dr = min(deficit / 3.0, dp(8))
+                row_h -= dr
+                deficit -= 3 * dr
+            if deficit > 0:
+                g = max(dp(4), g - deficit / 5.0)
+        else:
+            slack = avail - need
+            extra = min(slack * 0.5, prev_nat * 0.25)
+            prev_h += extra
+            slack -= extra
+            g += min(slack / 5.0, dp(14))
+
+        self._head_h, self._row_h = head_h, row_h
+        picker_h = picker_height(row_h)
+
+        y = content_top - g
+        self.name_card.size = (inner_w, name_h)
+        self.name_card.pos = (side, y - name_h)
+        self._layout_name_card()
+        y -= name_h + g
+
+        prev_w = min(inner_w, prev_h / ratio)
+        self.preview.size = (prev_w, prev_h)
+        self.preview.pos = (side + (inner_w - prev_w) / 2.0, y - prev_h)
+        y -= prev_h + g
+
+        self.slot_scroll.size = (win_w, slots_h)
+        self.slot_scroll.pos = (0, y - slots_h)
+        self.slot_row.height = slots_h
+        for chip in self.slot_chips:
+            chip.fit_to_height(chip_h)
+        y -= slots_h + g
+
+        self.picker.size = (inner_w, picker_h)
+        self.picker.pos = (side, y - picker_h)
+        self._layout_picker()
+
+    def _layout_name_card(self):
+        c = self.name_card
+        w, h = c.width, c.height
+        x0, y0 = round(c.x), round(c.y)
+        self._name_bg.pos = (x0, y0)
+        self._name_bg.size = (round(w), round(h))
+        half = dp(1.2) / 2.0
+        r = dp(14)
+        self._name_border.rounded_rectangle = (x0 + half, y0 + half, max(round(w) - 2 * half, 0),
+                                               max(round(h) - 2 * half, 0), r, r, r, r)
+        icon = dp(22)
+        self.name_icon.size = (icon, icon)
+        self.name_icon.pos = (round(x0 + dp(14)), round(y0 + (h - icon) / 2.0))
+        self.name_caption.font_size = f"{dp(13)}px"
+        self.name_caption.texture_update()
+        cw, ch = self.name_caption.texture_size
+        self.name_caption.size = (cw, ch)
+        self.name_caption.pos = (round(x0 + dp(14) + icon + dp(10)), round(y0 + (h - ch) / 2.0))
+        in_x = self.name_caption.right + dp(8)
+        self.name_input.font_size = f"{dp(18)}px"
+        self._name_geom = (in_x, max(x0 + w - dp(10) - in_x, dp(40)), y0, h)
+        self._fit_name_input()
+        # Kivy обновляет высоту строки (line_height) не сразу после смены шрифта/текста,
+        # поэтому подгоняем поле ещё раз, когда он закончит пересчёт.
+        Clock.schedule_once(self._fit_name_input, 0.05)
+
+    def _fit_name_input(self, *args):
+        """Высота поля = реальная строка + запас; строка стоит ровно по центру карточки."""
+        geom = getattr(self, '_name_geom', None)
+        ti = getattr(self, 'name_input', None)
+        if geom is None or ti is None:
+            return
+        in_x, in_w, y0, h = geom
+        line_h = int(round(ti.line_height))
+        slack = max(int(round(dp(8))), 4)
+        box_h = line_h + slack
+        top_pad = slack // 2                      # строка по центру поля
+        bottom_pad = max(slack - top_pad - 2, 0)  # окно просмотра = строка + 2 px запаса
+        new_size = (in_w, box_h)
+        new_pos = (round(in_x), round(y0 + (h - box_h) / 2.0))
+        new_pad = [dp(4), top_pad, dp(4), bottom_pad]
+        if list(ti.size) != list(new_size):
+            ti.size = new_size
+        if tuple(ti.pos) != new_pos:
+            ti.pos = new_pos
+        if list(ti.padding) != new_pad:
+            ti.padding = new_pad
+        if ti.scroll_y != 0:
+            ti.scroll_y = 0
+
+    def _layout_picker(self):
+        p = self.picker
+        w, h = p.width, p.height
+        x0, y0 = round(p.x), round(p.y)
+        self._picker_bg.pos = (x0, y0)
+        self._picker_bg.size = (round(w), round(h))
+        half = dp(1.2) / 2.0
+        r = dp(16)
+        self._picker_border.rounded_rectangle = (x0 + half, y0 + half, max(round(w) - 2 * half, 0),
+                                                 max(round(h) - 2 * half, 0), r, r, r, r)
+        padx = dp(14)
+        head_top = y0 + h - dp(14)
+        sw = self._head_h * 0.82
+        sw_y = head_top - self._head_h / 2.0 - sw / 2.0
+        self._picker_sw.pos = (round(x0 + padx), round(sw_y))
+        self._picker_sw.size = (round(sw), round(sw))
+        sr = dp(10)
+        self._picker_sw_border.rounded_rectangle = (round(x0 + padx) + half, round(sw_y) + half,
+                                                    max(round(sw) - 2 * half, 0), max(round(sw) - 2 * half, 0),
+                                                    sr, sr, sr, sr)
+        tx = x0 + padx + sw + dp(10)
+        text_w = max(x0 + w - padx - tx - dp(120), dp(60))
+        half_h = self._head_h / 2.0
+        self.cur_label.font_size = f"{dp(16)}px"
+        self.cur_label.size = (text_w, half_h)
+        self.cur_label.text_size = self.cur_label.size
+        self.cur_label.pos = (round(tx), round(head_top - half_h))
+        self.cur_hex.font_size = f"{dp(12)}px"
+        self.cur_hex.size = (text_w, half_h)
+        self.cur_hex.text_size = self.cur_hex.size
+        self.cur_hex.pos = (round(tx), round(head_top - self._head_h))
+        self._layout_contrast_chip()
+
+        cap_w = dp(64)
+        rows_top = head_top - self._head_h - dp(6)
+        for i in range(3):
+            ry = rows_top - (i + 1) * self._row_h
+            cap = self.row_captions[i]
+            cap.font_size = f"{dp(12)}px"
+            cap.size = (cap_w, self._row_h)
+            cap.text_size = cap.size
+            cap.pos = (round(x0 + padx), round(ry))
+            sx = x0 + padx + cap_w + dp(8)
+            self.sliders[i].size = (max(x0 + w - padx - sx, dp(40)), self._row_h)
+            self.sliders[i].pos = (round(sx), round(ry))
+
+    def _layout_contrast_chip(self):
+        p = self.picker
+        chip = self.contrast_chip
+        chip.update_size(dp(26), font_scale=0.46)
+        head_top = p.y + p.height - dp(14)
+        chip.pos = (round(p.x + p.width - dp(14) - chip.width),
+                    round(head_top - self._head_h / 2.0 - chip.height / 2.0))
+
+    # ------------------------------------------------------------------
+    # ОБНОВЛЕНИЕ
+    # ------------------------------------------------------------------
+    def _cur_key(self):
+        return CUSTOM_SLOTS[self.slot_index][0]
+
+    def _select_slot(self, idx):
+        self.slot_index = idx
+        self._refresh_all()
+
+    def _on_slider(self, which, value):
+        key = self._cur_key()
+        h, s, v = self.draft[key]
+        if which == 0:
+            h = min(value, 0.9999)
+        elif which == 1:
+            s = value
+        else:
+            v = value
+        self.draft[key] = (h, s, v)
+        self._refresh_live()
+
+    def _on_name_text(self, instance, value):
+        self.name_text = value
+        self._refresh_buttons()
+        # после ввода Kivy пересчитывает высоту строки в следующих кадрах - подгоняем поле заново
+        Clock.schedule_once(self._fit_name_input, 0.05)
+
+    def _on_reset(self, *args):
+        self._load_defaults()
+        self.name_input.text = self.name_text
+        self._refresh_all()
+
+    def _on_apply(self, *args):
+        stats = self._stats()
+        name = (self.name_text.strip() or CUSTOM_DEFAULT_NAME)[:CUSTOM_NAME_MAX]
+        self.name_text = name
+        stats['custom_theme'] = {'name': name, 'colors': self._draft_hex()}
+        sync_custom_theme()
+        # choose_theme сохраняет прогресс и перекрашивает приложение (в т.ч. этот экран)
+        Clock.schedule_once(lambda dt: choose_theme(CUSTOM_THEME_ID), 0)
+
+    def _refresh_all(self):
+        for i, chip in enumerate(self.slot_chips):
+            chip.set_selected(i == self.slot_index)
+        key = self._cur_key()
+        self.cur_label.text = CUSTOM_SLOTS[self.slot_index][1]
+        h, s, v = self.draft[key]
+        self.sliders[0].set_value(h)
+        self.sliders[1].set_value(s)
+        self.sliders[2].set_value(v)
+        self._refresh_live()
+
+    def _refresh_live(self):
+        colors = self._draft_rgba()
+        self.preview.set_colors(colors)
+        for (key, _), chip in zip(CUSTOM_SLOTS, self.slot_chips):
+            chip.set_rgba(colors[key])
+        key = self._cur_key()
+        h, s, v = self.draft[key]
+        self._picker_sw_color.rgba = colors[key]
+        self.cur_hex.text = rgba_to_hex(colors[key])
+        self.sliders[1].set_gradient([_hsv_to_rgba(h, 0, v), _hsv_to_rgba(h, 1, v)])
+        self.sliders[2].set_gradient([_hsv_to_rgba(h, s, 0), _hsv_to_rgba(h, s, 1)])
+
+        readable = contrast_ratio(colors['color_text'], colors['color_bg']) >= 3.0
+        self.contrast_chip.dot_color_instr.rgba = color_correct if readable else color_in_word
+        self.contrast_chip.label.text = "ЧИТАЕТСЯ" if readable else "МАЛО КОНТРАСТА"
+        self._layout_contrast_chip()
+        self._refresh_buttons()
+
+    def _refresh_buttons(self):
+        saved_name, saved_colors = get_custom_theme_data()
+        name = (self.name_text.strip() or CUSTOM_DEFAULT_NAME)[:CUSTOM_NAME_MAX]
+        is_active = self._stats().get("active_theme_name") == CUSTOM_THEME_ID
+        same = (name == saved_name and self._draft_hex() == saved_colors)
+        state = "done" if (is_active and same) else "apply"
+        if state == self._btn_state:
+            return
+        self._btn_state = state
+        if state == "done":
+            self.btn_apply.set_content("ПРИМЕНЕНО", "done", icon_name="circle-check.png")
+        else:
+            self.btn_apply.set_content("ПРИМЕНИТЬ", "primary", on_release=self._on_apply)
+
+
 class CustomizationScreen(StatCardsMixin, BaseScreen):
     FILTER_TABS = [
         ("all", "ВСЕ"),
@@ -5648,16 +6709,24 @@ class CustomizationScreen(StatCardsMixin, BaseScreen):
         self.scroll_view = SharpScrollView(size_hint=(1, None), do_scroll_x=False,
                                            do_scroll_y=True, bar_width=0)
         self.scroll_view.effect_cls = ScrollEffect
-        self.grid = GridLayout(cols=2, spacing=dp(12), size_hint_y=None,
-                               padding=[dp(15), dp(4), dp(15), dp(24)])
+        # content: [широкая карточка "Своя тема"] + [сетка тем в 2 колонки]
+        self.content = BoxLayout(orientation='vertical', spacing=dp(12), size_hint_y=None,
+                                 padding=[dp(15), dp(4), dp(15), dp(24)])
+        self.content.bind(minimum_height=self.content.setter('height'))
+        self.grid = GridLayout(cols=2, spacing=dp(12), size_hint_y=None)
         self.grid.bind(minimum_height=self.grid.setter('height'))
-        self.scroll_view.add_widget(self.grid)
+        self.content.add_widget(self.grid)
+        self.scroll_view.add_widget(self.content)
         self.layout.add_widget(self.scroll_view)
 
         self.theme_cards = {}
         for t_id, t_data in color_themes.items():
-            self.theme_cards[t_id] = ThemeCard(theme_id=t_id, theme_data=t_data,
-                                               on_click_callback=self.select_theme)
+            if t_id == CUSTOM_THEME_ID:
+                self.theme_cards[t_id] = CustomThemeCard(theme_id=t_id, theme_data=t_data,
+                                                         on_click_callback=self.select_theme)
+            else:
+                self.theme_cards[t_id] = ThemeCard(theme_id=t_id, theme_data=t_data,
+                                                   on_click_callback=self.select_theme)
 
         # --- нижняя панель с кнопками ---
         self.bottom_bar = FloatLayout(size_hint=(None, None))
@@ -5740,7 +6809,7 @@ class CustomizationScreen(StatCardsMixin, BaseScreen):
         # список
         self.scroll_view.pos = (0, bar_h)
         self.scroll_view.size = (win_w, max(list_top - bar_h, dp(10)))
-        self.grid.width = win_w
+        self.content.width = win_w
         self._size_cards()
 
     def _size_cards(self):
@@ -5749,8 +6818,13 @@ class CustomizationScreen(StatCardsMixin, BaseScreen):
             return
         card_w = int((scroll_w - dp(15) * 2 - dp(12)) // 2)
         card_h = round(ThemeCard.metrics(card_w)['h'])
-        for card in self.theme_cards.values():
-            card.size = (card_w, card_h)
+        for t_id, card in self.theme_cards.items():
+            if t_id != CUSTOM_THEME_ID:
+                card.size = (card_w, card_h)
+        custom_card = self.theme_cards.get(CUSTOM_THEME_ID)
+        if custom_card is not None:
+            wide_w = int(scroll_w - dp(15) * 2)
+            custom_card.size = (wide_w, round(CustomThemeCard.metrics(wide_w)['h']))
 
     # ------------------------------------------------------------------
     # ТАБЫ
@@ -5766,13 +6840,22 @@ class CustomizationScreen(StatCardsMixin, BaseScreen):
 
     def _apply_filter(self):
         self.grid.clear_widgets()
+        self.content.clear_widgets()
+        custom_card = None
         for t_id, card in self.theme_cards.items():
             owned = self._is_unlocked(t_id)
             if self.current_filter == "owned" and not owned:
                 continue
             if self.current_filter == "shop" and owned:
                 continue
-            self.grid.add_widget(card)
+            if t_id == CUSTOM_THEME_ID:
+                custom_card = card
+            else:
+                self.grid.add_widget(card)
+        if custom_card is not None:
+            self.content.add_widget(custom_card)
+        if self.grid.children:
+            self.content.add_widget(self.grid)
         self._size_cards()
 
     # ------------------------------------------------------------------
@@ -5811,6 +6894,24 @@ class CustomizationScreen(StatCardsMixin, BaseScreen):
             self._set_stat(self._stat_cards['status'], "Закрыто", color_text, "lock.png", color_not_in_word)
 
         # --- главная кнопка ---
+        if theme_id == CUSTOM_THEME_ID:
+            # своя тема: слева ПРИМЕНИТЬ / КУПИТЬ, справа РЕДАКТОР (продавать её нельзя)
+            if not owned and coins >= price:
+                self.btn_action.set_content("КУПИТЬ", "primary", pill_text=str(price),
+                                            on_release=self.process_theme_action)
+            elif not owned:
+                self.btn_action.set_content("КУПИТЬ", "disabled", pill_text=str(price))
+            elif is_active:
+                self.btn_action.set_content("ПРИМЕНЕНО", "done", icon_name="circle-check.png")
+            else:
+                self.btn_action.set_content("ПРИМЕНИТЬ", "primary", on_release=self.process_theme_action)
+            if owned:
+                self.btn_sell.set_content("РЕДАКТОР", "secondary", icon_name="pencil.png",
+                                          on_release=self._open_editor)
+            else:
+                self.btn_sell.set_content("РЕДАКТОР", "disabled", icon_name="pencil.png")
+            return
+
         if owned and is_active:
             self.btn_action.set_content("ПРИМЕНЕНО", "done", icon_name="circle-check.png")
         elif owned:
@@ -5827,6 +6928,10 @@ class CustomizationScreen(StatCardsMixin, BaseScreen):
                                       on_release=self.process_theme_sell)
         else:
             self.btn_sell.set_content("ПРОДАТЬ", "disabled", pill_text=f"+{self.SELL_PRICE}")
+
+    def _open_editor(self, instance=None):
+        if self._is_unlocked(CUSTOM_THEME_ID):
+            self.manager.current = 'theme_editor'
 
     def select_theme(self, theme_id):
         self.selected_theme_id = theme_id
@@ -5867,7 +6972,7 @@ class CustomizationScreen(StatCardsMixin, BaseScreen):
     def process_theme_sell(self, instance=None):
         stats = self._stats()
         theme_id = self.selected_theme_id
-        if theme_id in self.FREE_THEMES or not self._is_unlocked(theme_id):
+        if theme_id in self.FREE_THEMES or theme_id == CUSTOM_THEME_ID or not self._is_unlocked(theme_id):
             return
 
         stats['player_coins'] = stats.get('player_coins', 0) + self.SELL_PRICE
@@ -6638,6 +7743,12 @@ class MobileApp(App):
         
         if isinstance(saved_theme, str):
             saved_theme = theme_translator.get(saved_theme.lower(), saved_theme.lower())
+
+        sync_custom_theme()
+        if saved_theme not in color_themes:
+            saved_theme = "classic"
+        elif saved_theme == CUSTOM_THEME_ID and not MOBILE_PLAYER_STATS.get("unlocked_themes", {}).get(CUSTOM_THEME_ID):
+            saved_theme = "classic"
 
         choose_theme(saved_theme)
         Window.clearcolor = color_bg
