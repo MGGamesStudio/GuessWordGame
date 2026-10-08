@@ -3,12 +3,16 @@ import sys
 import json
 import random
 import re
+import time
+import hashlib
+import hmac
 from platformdirs import user_data_dir
 from kivy.app import App
 from kivy.core.window import Window
 from kivy.core.clipboard import Clipboard
 from kivy.metrics import dp
 from kivy.clock import Clock
+from kivy.utils import platform
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
@@ -18,6 +22,7 @@ from kivy.uix.image import Image
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.modalview import ModalView
 from kivy.uix.scrollview import ScrollView
+from kivy.uix.textinput import TextInput
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.effects.scroll import ScrollEffect
 from kivy.graphics import Ellipse
@@ -697,6 +702,7 @@ _SCREEN_FACTORIES = {
     'customization': lambda: CustomizationScreen(name='customization'),
     'theme_editor': lambda: ThemeEditorScreen(name='theme_editor'),
     'quests': lambda: QuestsScreen(name='quests'),
+    'developer': lambda: DeveloperScreen(name='developer'),
     'one_player_game': lambda: OnePlayerGameScreen(name='one_player_game'),
     'two_player_game': lambda: TwoPlayerGameScreen(name='two_player_game'),
     'seed_generation': lambda: SeedGenerationScreen(name='seed_generation'),
@@ -1158,6 +1164,361 @@ def show_exit_confirm_popup(on_confirm):
 
     view.add_widget(box)
     view.open()
+
+# ======================================================================
+# МЕНЮ РАЗРАБОТЧИКА: вход (10 нажатий на имя автора -> окно пароля)
+# ======================================================================
+# Никакой видимой реакции на нажатия нет: ни счётчика, ни подсветки, ни звука.
+# Если между нажатиями пауза длиннее DEV_TAP_GAP секунд - счёт начинается заново
+# (так случайные нажатия за долгое время не складываются в 10).
+DEV_TAP_COUNT = 10
+DEV_TAP_GAP = 2.5
+
+# Пароль в коде не хранится - только соль и многократный SHA-256 от него.
+# Регистр не важен (на телефоне клавиатура сама ставит строчные буквы).
+_DEV_PW_SALT = bytes.fromhex("5d1f8c2a9e43b7066a1c3f84d29b50e7")
+_DEV_PW_ROUNDS = 30000
+_DEV_PW_HASH = bytes.fromhex("609fc040fe37e4ed18724ea709fde91b5357cfea21db0060e0eec7e417b2d3a0")
+
+def check_developer_password(candidate):
+    try:
+        data = str(candidate).strip().upper().encode("utf-8")
+        h = hashlib.sha256(_DEV_PW_SALT + data).digest()
+        for _ in range(_DEV_PW_ROUNDS):
+            h = hashlib.sha256(h + _DEV_PW_SALT + data).digest()
+        return hmac.compare_digest(h, _DEV_PW_HASH)
+    except Exception:
+        return False
+
+_DEV_DIALOG = None
+
+class DeveloperPasswordDialog(FloatLayout):
+    """
+    Окно «Для разработчика / Введите пароль». Это не ModalView, а своё затемнение
+    поверх окна: ModalView всегда возвращает себя в центр окна, а здесь окно нужно
+    поднимать над экранной клавиатурой, иначе она закроет кнопки.
+    Цвета - только из текущей темы (красный - только для ошибки, как в плашке выхода).
+    """
+    MAX_ATTEMPTS = 5
+    MAX_LEN = 24
+
+    def __init__(self, on_success=None, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.pos = (0, 0)
+        self.size = Window.size
+        self.on_success = on_success
+        self._attempts = 0
+        self._is_open = False
+        self._error = False
+        self._pw_geom = None
+
+        with self.canvas.before:
+            Color(0, 0, 0, 0.5)
+            self._dim = Rectangle(pos=(0, 0), size=self.size)
+
+        # --- карточка ---
+        self.card = FloatLayout(size_hint=(None, None))
+        with self.card.canvas.before:
+            self._shadow = None
+            if _BOX_SHADOW_AVAILABLE:
+                Color(0, 0, 0, 0.18)
+                self._shadow = BoxShadow(pos=(0, 0), size=(0, 0), offset=(0, -dp(4)),
+                                         blur_radius=dp(24), spread_radius=(-dp(2), -dp(2)),
+                                         border_radius=(dp(24),) * 4)
+            Color(*color_bg)
+            self._card_bg = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(24)])
+        self.add_widget(self.card)
+
+        # --- значок </> (code.png) на плашке color_key ---
+        self.badge = FloatLayout(size_hint=(None, None))
+        with self.badge.canvas.before:
+            Color(*color_key)
+            self._badge_bg = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(14)])
+        self.badge_icon = Image(size_hint=(None, None), fit_mode="contain", color=color_text)
+        self.badge_icon.texture = load_white_icon_texture(icon_path("code.png"))
+        self.badge.add_widget(self.badge_icon)
+        self.card.add_widget(self.badge)
+
+        self.title_lbl = Label(text="Для разработчика", font_name=font_path("ClearSans-Bold.ttf"),
+                               bold=True, color=color_text, size_hint=(None, None),
+                               halign='left', valign='middle')
+        self.card.add_widget(self.title_lbl)
+        self.sub_lbl = Label(text="Введите пароль", font_name=font_path("ClearSans-Bold.ttf"),
+                             bold=True, color=color_not_in_word, size_hint=(None, None),
+                             halign='left', valign='middle')
+        self.card.add_widget(self.sub_lbl)
+
+        # --- поле пароля ---
+        self.input_box = FloatLayout(size_hint=(None, None))
+        with self.input_box.canvas.before:
+            Color(*lerp_color(color_bg, color_key, 0.20))
+            self._in_bg = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(18)])
+            self._in_border_color = Color(*color_blank)
+            self._in_border = Line(width=dp(1.2))
+        self.lock_icon = Image(size_hint=(None, None), fit_mode="contain", color=color_not_in_word)
+        self.lock_icon.texture = load_white_icon_texture(icon_path("lock.png"))
+        self.input_box.add_widget(self.lock_icon)
+        self.pw_input = TextInput(
+            text="", multiline=False, write_tab=False, password=True, password_mask="\u2022",
+            font_name=font_path("ClearSans-Bold.ttf"), size_hint=(None, None),
+            foreground_color=color_text, cursor_color=color_text,
+            selection_color=(color_correct[0], color_correct[1], color_correct[2], 0.35),
+            background_color=(0, 0, 0, 0), background_normal='', background_active='',
+            background_disabled_normal='')
+        self.pw_input.bind(text=self._on_pw_text)
+        self.pw_input.bind(scroll_y=lambda inst, value: setattr(inst, 'scroll_y', 0))
+        self.pw_input.bind(on_text_validate=lambda inst: self._submit())
+        self.input_box.add_widget(self.pw_input)
+        self.card.add_widget(self.input_box)
+
+        # --- кнопки (те же ThemeActionButton, что на экране Кастомизации) ---
+        self.btn_cancel = ThemeActionButton()
+        self.btn_cancel.set_content("ОТМЕНА", "secondary", on_release=lambda *_: self.dismiss())
+        self.btn_ok = ThemeActionButton()
+        self.btn_ok.set_content("ВОЙТИ", "primary", icon_name="circle-check.png",
+                                on_release=lambda *_: self._submit())
+        self.card.add_widget(self.btn_cancel)
+        self.card.add_widget(self.btn_ok)
+
+    # ------------------------------------------------------------------
+    def open(self):
+        global _DEV_DIALOG
+        if self._is_open:
+            return
+        if _DEV_DIALOG is not None and _DEV_DIALOG is not self:
+            _DEV_DIALOG.dismiss()
+        _DEV_DIALOG = self
+        self._is_open = True
+        Window.add_widget(self)
+        Window.bind(size=self._on_window_size, on_keyboard=self._on_key)
+        try:
+            Window.bind(keyboard_height=self._on_kb_height)
+        except Exception:
+            pass
+        self._on_window_size()
+        Clock.schedule_once(self._focus_input, 0.2)
+
+    def dismiss(self, *args):
+        global _DEV_DIALOG
+        if not self._is_open:
+            return
+        self._is_open = False
+        if _DEV_DIALOG is self:
+            _DEV_DIALOG = None
+        try:
+            self.pw_input.focus = False
+        except Exception:
+            pass
+        try:
+            Window.unbind(size=self._on_window_size, on_keyboard=self._on_key)
+            Window.unbind(keyboard_height=self._on_kb_height)
+        except Exception:
+            pass
+        if self.parent is not None:
+            Window.remove_widget(self)
+
+    def _focus_input(self, dt=None):
+        if self._is_open:
+            self.pw_input.focus = True
+
+    # ------------------------------------------------------------------
+    def _on_key(self, window, key, *args):
+        if key == 27:       # Esc / системная кнопка «Назад»
+            self.dismiss()
+            return True
+        return False
+
+    def _on_window_size(self, *args):
+        self.size = Window.size
+        self._dim.size = Window.size
+        self._layout()
+
+    def _on_kb_height(self, *args):
+        self._layout()
+
+    def on_touch_down(self, touch):
+        if self.card.collide_point(*touch.pos):
+            super().on_touch_down(touch)
+        else:
+            self.dismiss()
+        return True
+
+    def on_touch_move(self, touch):
+        super().on_touch_move(touch)
+        return True
+
+    def on_touch_up(self, touch):
+        super().on_touch_up(touch)
+        return True
+
+    # ------------------------------------------------------------------
+    def _on_pw_text(self, inst, value):
+        if len(value) > self.MAX_LEN:
+            inst.text = value[:self.MAX_LEN]
+            return
+        if self._error:
+            self._set_error(False)
+
+    def _set_error(self, flag):
+        self._error = flag
+        self.sub_lbl.text = "Неверный пароль" if flag else "Введите пароль"
+        self.sub_lbl.color = EXIT_ALERT_ICON_COLOR if flag else color_not_in_word
+        self._in_border_color.rgba = EXIT_ALERT_ICON_COLOR if flag else color_blank
+        self._layout()
+
+    def _submit(self):
+        if not self._is_open:
+            return
+        if check_developer_password(self.pw_input.text):
+            callback = self.on_success
+            self.dismiss()
+            if callback:
+                Clock.schedule_once(lambda dt: callback(), 0)
+            return
+        self._attempts += 1
+        if self._attempts >= self.MAX_ATTEMPTS:
+            self.dismiss()      # молча: чтобы открыть окно снова, нужно опять сделать 10 нажатий
+            return
+        self.pw_input.text = ""
+        self._set_error(True)
+        Clock.schedule_once(self._focus_input, 0.05)
+
+    # ------------------------------------------------------------------
+    def _layout(self, *args):
+        W, H = Window.size
+        if W <= 1 or H <= 1:
+            return
+        card_w = min(W * 0.89, dp(420))
+        pad = dp(20)
+        badge_s = dp(46)
+        gap_h = dp(12)
+        inner_w = card_w - pad * 2
+        text_w = max(inner_w - badge_s - gap_h, dp(40))
+
+        fit_font_size(self.title_lbl, text_w, dp(22))
+        tw, th = self.title_lbl.texture_size
+        self.title_lbl.size = (tw, th)
+        self.title_lbl.text_size = (tw, th)
+        fit_font_size(self.sub_lbl, text_w, dp(14))
+        sw, sh = self.sub_lbl.texture_size
+        self.sub_lbl.size = (sw, sh)
+        self.sub_lbl.text_size = (sw, sh)
+
+        text_h = th + sh + dp(2)
+        head_h = max(badge_s, text_h)
+        input_h = dp(54)
+        btn_h = dp(54)
+        gap1 = dp(18)
+        gap2 = dp(16)
+        card_h = pad + head_h + gap1 + input_h + gap2 + btn_h + pad
+
+        # Центр окна: по центру экрана; на телефоне чуть выше; если открыта экранная
+        # клавиатура - по центру свободной области над ней.
+        kb = 0.0
+        try:
+            kb = float(Window.keyboard_height or 0)
+        except Exception:
+            kb = 0.0
+        if kb > 0:
+            free_lo = kb + dp(10)
+            cy = free_lo + (H - free_lo) / 2.0
+        elif platform in ('android', 'ios'):
+            cy = H * 0.56
+        else:
+            cy = H * 0.5
+        half = card_h / 2.0
+        cy = max(min(cy, H - half - dp(10)), half + dp(10))
+        x0 = round(W / 2.0 - card_w / 2.0)
+        y0 = round(cy - half)
+
+        self.card.size = (card_w, card_h)
+        self.card.pos = (x0, y0)
+        radius = min(dp(24), card_h * 0.1)
+        self._card_bg.pos = (x0, y0)
+        self._card_bg.size = (card_w, card_h)
+        self._card_bg.radius = [radius]
+        if self._shadow is not None:
+            self._shadow.pos = (x0, y0)
+            self._shadow.size = (card_w, card_h)
+            self._shadow.border_radius = (radius,) * 4
+
+        # шапка
+        head_top = y0 + card_h - pad
+        head_bottom = head_top - head_h
+        self.badge.size = (badge_s, badge_s)
+        self.badge.pos = (round(x0 + pad), round(head_bottom + (head_h - badge_s) / 2.0))
+        self._badge_bg.pos = self.badge.pos
+        self._badge_bg.size = (badge_s, badge_s)
+        icon = badge_s * 0.52
+        self.badge_icon.size = (icon, icon)
+        self.badge_icon.pos = (round(self.badge.x + (badge_s - icon) / 2.0),
+                               round(self.badge.y + (badge_s - icon) / 2.0))
+        text_x = round(x0 + pad + badge_s + gap_h)
+        tb_bottom = head_bottom + (head_h - text_h) / 2.0
+        self.sub_lbl.pos = (text_x, round(tb_bottom))
+        self.title_lbl.pos = (text_x, round(tb_bottom + sh + dp(2)))
+
+        # поле ввода
+        self.input_box.size = (inner_w, input_h)
+        self.input_box.pos = (round(x0 + pad), round(head_bottom - gap1 - input_h))
+        self._layout_input_box()
+
+        # кнопки
+        btn_gap = dp(12)
+        bw = (inner_w - btn_gap) / 2.0
+        for i, btn in enumerate((self.btn_cancel, self.btn_ok)):
+            btn.size = (bw, btn_h)
+            btn.pos = (round(x0 + pad + i * (bw + btn_gap)), round(y0 + pad))
+
+    def _layout_input_box(self):
+        b = self.input_box
+        x0, y0 = round(b.x), round(b.y)
+        w, h = round(b.width), round(b.height)
+        r = min(dp(18), h / 2.0)
+        self._in_bg.pos = (x0, y0)
+        self._in_bg.size = (w, h)
+        self._in_bg.radius = [r]
+        half = dp(1.2) / 2.0
+        self._in_border.rounded_rectangle = (x0 + half, y0 + half, max(w - 2 * half, 0),
+                                             max(h - 2 * half, 0), r, r, r, r)
+        icon = dp(22)
+        self.lock_icon.size = (icon, icon)
+        self.lock_icon.pos = (round(x0 + dp(16)), round(y0 + (h - icon) / 2.0))
+        in_x = x0 + dp(16) + icon + dp(12)
+        self.pw_input.font_size = f"{int(dp(20))}px"
+        self._pw_geom = (in_x, max(x0 + w - dp(14) - in_x, dp(40)), y0, h)
+        self._fit_pw_input()
+        # Kivy обновляет line_height не сразу после смены шрифта - подгоняем ещё раз
+        Clock.schedule_once(self._fit_pw_input, 0.05)
+
+    def _fit_pw_input(self, *args):
+        """Высота поля = реальная строка + запас; строка стоит по центру (как в редакторе темы)."""
+        geom = self._pw_geom
+        ti = self.pw_input
+        if geom is None:
+            return
+        in_x, in_w, y0, h = geom
+        line_h = int(round(ti.line_height))
+        slack = max(int(round(dp(8))), 4)
+        box_h = line_h + slack
+        top_pad = slack // 2
+        bottom_pad = max(slack - top_pad - 2, 0)
+        new_size = (in_w, box_h)
+        new_pos = (round(in_x), round(y0 + (h - box_h) / 2.0))
+        new_pad = [dp(4), top_pad, dp(4), bottom_pad]
+        if list(ti.size) != list(new_size):
+            ti.size = new_size
+        if tuple(ti.pos) != new_pos:
+            ti.pos = new_pos
+        if list(ti.padding) != new_pad:
+            ti.padding = new_pad
+        if ti.scroll_y != 0:
+            ti.scroll_y = 0
+
+def show_developer_password_popup(on_success):
+    DeveloperPasswordDialog(on_success=on_success).open()
+
 
 class MenuButton(Button):
     def __init__(self, text="", pos_hint=None, size_hint=(0.93, None), height=84, **kwargs):
@@ -2595,6 +2956,35 @@ class SettingInfoRow(FloatLayout):
         self.label.pos = (round(self.x), round(self.y + self.height - self.v_pad - self.label.height))
         self.value_label.pos = (round(self.x + self.width - self.value_label.width), round(self.y + self.height - self.v_pad - self.value_label.height))
 
+class SecretInfoRow(ButtonBehavior, SettingInfoRow):
+    """
+    Обычная строка «ключ - значение» (как SettingInfoRow), но со скрытым счётчиком
+    нажатий. Нажатия никак не отображаются: ни подсветки, ни звука, ни счётчика.
+    После DEV_TAP_COUNT нажатий подряд (пауза между ними не дольше DEV_TAP_GAP секунд)
+    вызывается on_secret.
+    """
+    def __init__(self, text, value="", on_secret=None, **kwargs):
+        super().__init__(text=text, value=value, **kwargs)
+        self.on_secret = on_secret
+        self._taps = 0
+        self._last_tap = 0.0
+
+    def reset_taps(self):
+        self._taps = 0
+
+    def on_release(self):
+        now = time.monotonic()
+        if self._taps and (now - self._last_tap) > DEV_TAP_GAP:
+            self._taps = 0
+        self._last_tap = now
+        self._taps += 1
+        if self._taps >= DEV_TAP_COUNT:
+            self._taps = 0
+            callback = self.on_secret
+            if callback:
+                Clock.schedule_once(lambda dt: callback(), 0)
+
+
 class OptionsScreen(BaseScreen):
     settings_definitions = [
         {"type": "toggle", "key": "confirm_exit", "text": "Спрашивать о выходе из игры", "default": True},
@@ -2693,7 +3083,7 @@ class OptionsScreen(BaseScreen):
 class AboutScreen(BaseScreen):
     about_definitions = [
         {"type": "info", "text": "Версия игры", "value": "v.1.2.0"},
-        {"type": "info", "text": "Автор", "value": "MGGamesStudio"},
+        {"type": "info", "text": "Автор", "value": "MGGamesStudio", "secret": True},
         {"type": "link", "text": "Особая благодарность", "target": "special_thanks"},
         {"type": "link", "text": "Лицензия", "target": "license"},
         {"type": "link", "text": "Сторонние компоненты", "target": "third_party"},
@@ -2740,9 +3130,15 @@ class AboutScreen(BaseScreen):
     def build_about_list(self):
         self.about_list_layout.clear_widgets()
 
+        self._secret_row = None
         for item in self.about_definitions:
             if item["type"] == "info":
-                row = SettingInfoRow(text=item["text"], value=item.get("value", ""))
+                if item.get("secret"):
+                    row = SecretInfoRow(text=item["text"], value=item.get("value", ""),
+                                        on_secret=self._on_secret_unlocked)
+                    self._secret_row = row
+                else:
+                    row = SettingInfoRow(text=item["text"], value=item.get("value", ""))
                 self.about_list_layout.add_widget(row)
             elif item["type"] == "link":
                 row = SettingLinkRow(
@@ -2755,6 +3151,19 @@ class AboutScreen(BaseScreen):
         def _handler():
             setattr(self.manager, 'current', target_screen)
         return _handler
+
+    def _on_secret_unlocked(self):
+        # 10 нажатий на строку автора -> окно пароля (подробности в блоке «МЕНЮ РАЗРАБОТЧИКА»)
+        show_developer_password_popup(self._open_developer_menu)
+
+    def _open_developer_menu(self):
+        if self.manager is not None and self.manager.has_screen('developer'):
+            self.manager.current = 'developer'
+
+    def on_leave(self, *args):
+        # счётчик нажатий не должен переживать уход с экрана
+        if getattr(self, '_secret_row', None) is not None:
+            self._secret_row.reset_taps()
 
     def reposition_elements(self, *args):
         win_w, win_h = self.width, self.height
@@ -7597,6 +8006,529 @@ class QuestsScreen(StatCardsMixin, BaseScreen):
 
         if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
             MOBILE_SAVE_FUNC(MOBILE_PLAYER_STATS)
+
+# ======================================================================
+# МЕНЮ РАЗРАБОТЧИКА: экран
+# ======================================================================
+class DevChipButton(ButtonBehavior, FloatLayout):
+    """
+    Маленькая кнопка меню разработчика. Обычная (+100, +500...): плашка color_key,
+    текст color_text. flat=True: без плашки, приглушённый текст (СБРОСИТЬ СУММУ),
+    при нажатии текст темнеет до color_text.
+    """
+    def __init__(self, text="", on_tap=None, flat=False, align='center', font_scale=0.40, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.on_tap = on_tap
+        self.flat = flat
+        self.align = align
+        self.font_scale = font_scale
+        self._base = (0, 0, 0, 0) if flat else color_key
+
+        with self.canvas.before:
+            self.bg_color_instr = Color(*self._base)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(14)])
+
+        self.label = Label(text=text, font_name=font_path("ClearSans-Bold.ttf"), bold=True,
+                           color=(color_not_in_word if flat else color_text),
+                           size_hint=(None, None), halign='left', valign='middle')
+        self.add_widget(self.label)
+        self.bind(pos=self._sync, size=self._sync, state=self._on_state)
+
+    def _on_state(self, *args):
+        down = (self.state == 'down')
+        if self.flat:
+            self.label.color = color_text if down else color_not_in_word
+        else:
+            k = 0.9 if down else 1.0
+            c = self._base
+            self.bg_color_instr.rgba = (c[0] * k, c[1] * k, c[2] * k, c[3])
+
+    def _sync(self, *args):
+        w, h = self.width, self.height
+        if w <= 1 or h <= 1:
+            return
+        pos = (round(self.x), round(self.y))
+        self.bg_rect.pos = pos
+        self.bg_rect.size = (round(w), round(h))
+        self.bg_rect.radius = [min(dp(14), h / 2.0)]
+        fit_font_size(self.label, max(w - dp(12), dp(10)), h * self.font_scale)
+        lw, lh = self.label.texture_size
+        self.label.size = (lw, lh)
+        self.label.text_size = (lw, lh)
+        dy = cap_ink_offset_y(self.label.font_size)
+        x = self.x if self.align == 'left' else self.x + (w - lw) / 2.0
+        self.label.pos = (round(x), round(self.y + h / 2.0 - lh / 2.0 - dy))
+
+    def on_release(self):
+        if self.on_tap:
+            self.on_tap(self)
+
+
+class DevStatusChip(FloatLayout):
+    """Плашка-подтверждение справа от СБРОСИТЬ СУММУ: зелёная точка + «ВЫДАНО +1000»."""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        with self.canvas.before:
+            Color(*color_key)
+            self.bg_rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(10)])
+            Color(*color_correct)
+            self.dot = Ellipse(pos=self.pos, size=(0, 0))
+        self.label = Label(text="", font_name=font_path("ClearSans-Bold.ttf"), bold=True,
+                           color=color_text, size_hint=(None, None), halign='left', valign='middle')
+        self.add_widget(self.label)
+        self.bind(pos=self._sync, size=self._sync)
+
+    def update_size(self, height, text):
+        key = (round(height, 2), text)
+        if key == getattr(self, '_size_key', None):
+            return
+        self._size_key = key
+        self.label.text = text
+        self.label.font_size = f"{max(int(height * 0.40), 11)}px"
+        self.label.text_size = (None, None)
+        self.label.texture_update()
+        lw, lh = self.label.texture_size
+        self._pad = height * 0.42
+        self._dot_d = height * 0.26
+        self._gap = height * 0.24
+        self.label.size = (lw, lh)
+        self.label.text_size = (lw, lh)
+        self.size = (self._pad * 2 + self._dot_d + self._gap + lw, height)
+        self._sync()
+
+    def _sync(self, *args):
+        h = self.height
+        if h <= 1 or not hasattr(self, '_pad'):
+            return
+        pos = (round(self.x), round(self.y))
+        self.bg_rect.pos = pos
+        self.bg_rect.size = (round(self.width), round(h))
+        self.bg_rect.radius = [round(h / 2.0)]
+        d = round(self._dot_d)
+        self.dot.size = (d, d)
+        self.dot.pos = (round(self.x + self._pad), round(self.y + (h - d) / 2.0))
+        dy = cap_ink_offset_y(self.label.font_size)
+        lw, lh = self.label.texture_size
+        self.label.pos = (round(self.x + self._pad + self._dot_d + self._gap),
+                          round(self.y + h / 2.0 - lh / 2.0 - dy))
+
+
+class DeveloperScreen(StatCardsMixin, BaseScreen):
+    """
+    Меню разработчика. Сейчас: выдача монет. Блок «Выдать монеты» устроен как
+    самостоятельная панель (self.panel), под неё же потом можно добавлять
+    следующие панели (достижения, квесты, обновление дня) в self.body.
+    Всё содержимое лежит в прокрутке, поэтому на низких окнах ничего не обрезается.
+    """
+    MAX_DIGITS = 8
+    DEFAULT_AMOUNT = 1000
+    QUICK_ADD = (100, 500, 1000, 10000)
+    STATUS_SECONDS = 2.5
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.layout = None
+        self._amount = self.DEFAULT_AMOUNT
+        self._syncing = False
+        self._status_event = None
+        self._row_h = dp(34)
+        self._amount_geom = None
+        self._panel_m = None
+        self._build_ui()
+        self.bind(size=self.reposition_elements)
+        self.reposition_elements()
+        Clock.schedule_once(lambda dt: self.reposition_elements(), 0)
+
+    # ------------------------------------------------------------------
+    # ДАННЫЕ
+    # ------------------------------------------------------------------
+    def _stats(self):
+        if 'MOBILE_PLAYER_STATS' in globals() and MOBILE_PLAYER_STATS is not None:
+            return MOBILE_PLAYER_STATS
+        return {}
+
+    # ------------------------------------------------------------------
+    # СБОРКА ИНТЕРФЕЙСА
+    # ------------------------------------------------------------------
+    def _build_ui(self):
+        self.layout = FloatLayout()
+        card_bg = lerp_color(color_bg, color_key, 0.20)
+
+        self.btn_back = IconMenuButton(size_hint=(None, None), size=(dp(48), dp(48)))
+        self.btn_back.font_size = '20sp'
+        self.btn_back.bind(on_release=lambda x: setattr(self.manager, 'current', 'about'))
+        self.layout.add_widget(self.btn_back)
+
+        self.title_label = Label(text="Разработчик", font_name=font_path("ClearSans-Bold.ttf"),
+                                 bold=True, color=color_text, size_hint=(None, None),
+                                 halign='left', valign='middle')
+        self.layout.add_widget(self.title_label)
+
+        # --- прокручиваемое содержимое ---
+        self.body_scroll = SharpScrollView(size_hint=(None, None), do_scroll_x=False,
+                                           do_scroll_y=True, bar_width=0)
+        self.body_scroll.effect_cls = ScrollEffect
+        self.body = FloatLayout(size_hint=(None, None))
+        self.body_scroll.add_widget(self.body)
+        self.layout.add_widget(self.body_scroll)
+
+        # --- две карточки статистики: Монеты / Режим ---
+        self._stat_cards = {}
+        for key, icon_name, label_text in [("coins", "copyright.png", "Монеты"),
+                                           ("mode", "circle-check.png", "Режим")]:
+            card = self.create_stat_card(icon_name, label_text)
+            self.body.add_widget(card)
+            self._stat_cards[key] = card
+
+        # --- панель «Выдать монеты» ---
+        self.panel = FloatLayout(size_hint=(None, None))
+        with self.panel.canvas.before:
+            Color(*card_bg)
+            self._panel_bg = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(16)])
+            Color(*color_blank)
+            self._panel_border = Line(width=dp(1.2))
+        self.body.add_widget(self.panel)
+
+        self.coin_badge = FloatLayout(size_hint=(None, None))
+        with self.coin_badge.canvas.before:
+            Color(*color_key)
+            self._coin_badge_bg = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(12)])
+        self.coin_badge_icon = Image(size_hint=(None, None), fit_mode="contain", color=color_in_word)
+        self.coin_badge_icon.texture = load_white_icon_texture(icon_path("copyright.png"))
+        self.coin_badge.add_widget(self.coin_badge_icon)
+        self.panel.add_widget(self.coin_badge)
+
+        self.panel_title = Label(text="Выдать монеты", font_name=font_path("ClearSans-Bold.ttf"),
+                                 bold=True, color=color_text, size_hint=(None, None),
+                                 halign='left', valign='middle')
+        self.panel.add_widget(self.panel_title)
+
+        # поле «Сумма»
+        self.field = FloatLayout(size_hint=(None, None))
+        with self.field.canvas.before:
+            Color(*color_bg)
+            self._field_bg = RoundedRectangle(pos=(0, 0), size=(0, 0), radius=[dp(16)])
+            Color(*color_blank)
+            self._field_border = Line(width=dp(1.2))
+        self.field_caption = Label(text="Сумма", font_name=font_path("ClearSans-Bold.ttf"),
+                                   bold=True, color=color_not_in_word, size_hint=(None, None))
+        self.field.add_widget(self.field_caption)
+        self.amount_input = TextInput(
+            text=str(self._amount), multiline=False, write_tab=False,
+            input_filter='int', input_type='number', halign='right',
+            hint_text="0", hint_text_color=color_not_in_word,
+            font_name=font_path("ClearSans-Bold.ttf"), size_hint=(None, None),
+            foreground_color=color_text, cursor_color=color_text,
+            selection_color=(color_correct[0], color_correct[1], color_correct[2], 0.35),
+            background_color=(0, 0, 0, 0), background_normal='', background_active='',
+            background_disabled_normal='')
+        self.amount_input.bind(text=self._on_amount_text)
+        self.amount_input.bind(scroll_y=lambda inst, value: setattr(inst, 'scroll_y', 0))
+        self.amount_input.bind(on_text_validate=lambda inst: setattr(inst, 'focus', False))
+        self.field.add_widget(self.amount_input)
+        self.panel.add_widget(self.field)
+
+        # быстрые кнопки +100 / +500 / +1000 / +10000
+        self.chips = []
+        for value in self.QUICK_ADD:
+            chip = DevChipButton(text=f"+{value}", on_tap=lambda inst, v=value: self._add_amount(v))
+            self.panel.add_widget(chip)
+            self.chips.append(chip)
+
+        self.reset_btn = DevChipButton(text="СБРОСИТЬ СУММУ", flat=True, align='left',
+                                       font_scale=0.40, on_tap=lambda inst: self._set_amount(0))
+        self.panel.add_widget(self.reset_btn)
+
+        self.status_chip = DevStatusChip()
+        self.status_chip.opacity = 0
+        self.panel.add_widget(self.status_chip)
+
+        # --- нижняя панель с кнопкой ВЫДАТЬ ---
+        self.bottom_bar = FloatLayout(size_hint=(None, None))
+        with self.bottom_bar.canvas.before:
+            Color(*color_bg)
+            self._bar_bg = Rectangle(pos=(0, 0), size=(0, 0))
+            Color(*color_blank)
+            self._bar_line = Rectangle(pos=(0, 0), size=(0, 0))
+        self.btn_issue = ThemeActionButton()
+        self.bottom_bar.add_widget(self.btn_issue)
+        self.layout.add_widget(self.bottom_bar)
+
+        self.add_widget(self.layout)
+
+        self._refresh_stats()
+        self._refresh_issue_button()
+
+    # ------------------------------------------------------------------
+    # ЖИЗНЕННЫЙ ЦИКЛ ЭКРАНА
+    # ------------------------------------------------------------------
+    def on_pre_enter(self, *args):
+        self._set_amount(self.DEFAULT_AMOUNT)
+        self._refresh_stats()
+
+    def on_leave(self, *args):
+        self.amount_input.focus = False
+        self._hide_status()
+
+    # ------------------------------------------------------------------
+    # РАЗМЕТКА
+    # ------------------------------------------------------------------
+    def reposition_elements(self, *args):
+        win_w, win_h = self.width, self.height
+        if win_w <= 0 or win_h <= 0:
+            return
+
+        content_top = position_header(self.title_label, self.btn_back, win_w, win_h)
+        side = dp(15)
+        gap = dp(10)
+
+        # нижняя панель
+        btn_h = min(max(win_h * 0.075, dp(54)), dp(66))
+        bar_h = dp(12) + btn_h + BOTTOM_SAFE_MARGIN
+        line_h = max(dp(1.2), 1)
+        self.bottom_bar.size = (win_w, bar_h)
+        self.bottom_bar.pos = (0, 0)
+        self._bar_bg.pos = (0, 0)
+        self._bar_bg.size = (win_w, bar_h)
+        self._bar_line.pos = (0, bar_h - line_h)
+        self._bar_line.size = (win_w, line_h)
+        self.btn_issue.size = (win_w - side * 2, btn_h)
+        self.btn_issue.pos = (round(side), round(BOTTOM_SAFE_MARGIN))
+
+        # метрики содержимого
+        inner_w = win_w - side * 2
+        stats_h = min(max(win_h * 0.13, dp(88)), dp(112))
+        card_w = (inner_w - gap) / 2.0
+
+        pad = dp(14)
+        head_h = dp(40)
+        field_h = min(max(inner_w * 0.16, dp(52)), dp(68))
+        chips_h = min(max(inner_w * 0.115, dp(40)), dp(50))
+        self._row_h = dp(34)
+        g1, g2, g3 = dp(14), dp(10), dp(6)
+        panel_h = pad + head_h + g1 + field_h + g2 + chips_h + g3 + self._row_h + pad
+        self._panel_m = (pad, head_h, field_h, chips_h, g1, g2, g3)
+
+        top_pad = dp(4)
+        bottom_pad = dp(16)
+        section_gap = dp(14)
+        body_h = top_pad + stats_h + section_gap + panel_h + bottom_pad
+
+        self.body_scroll.pos = (0, bar_h)
+        self.body_scroll.size = (win_w, max(content_top - bar_h, dp(10)))
+        self.body.size = (win_w, body_h)
+
+        bx, by = self.body.x, self.body.y
+        y = by + body_h - top_pad
+        for i, key in enumerate(("coins", "mode")):
+            card = self._stat_cards[key]
+            card.size = (card_w, stats_h)
+            card.pos = (round(bx + side + i * (card_w + gap)), round(y - stats_h))
+            self._layout_stat_card(card)
+        y -= stats_h + section_gap
+
+        self.panel.size = (inner_w, panel_h)
+        self.panel.pos = (round(bx + side), round(y - panel_h))
+        self._layout_panel()
+
+    def _layout_panel(self):
+        p = self.panel
+        w, h = round(p.width), round(p.height)
+        if w <= 1 or h <= 1 or not self._panel_m:
+            return
+        pad, head_h, field_h, chips_h, g1, g2, g3 = self._panel_m
+        x0, y0 = round(p.x), round(p.y)
+
+        self._panel_bg.pos = (x0, y0)
+        self._panel_bg.size = (w, h)
+        half = dp(1.2) / 2.0
+        r = dp(16)
+        self._panel_border.rounded_rectangle = (x0 + half, y0 + half, max(w - 2 * half, 0),
+                                                max(h - 2 * half, 0), r, r, r, r)
+
+        top = y0 + h - pad
+        inner_w = w - pad * 2
+
+        # шапка: плашка с монетой + заголовок
+        badge = head_h
+        self.coin_badge.size = (badge, badge)
+        self.coin_badge.pos = (round(x0 + pad), round(top - badge))
+        self._coin_badge_bg.pos = self.coin_badge.pos
+        self._coin_badge_bg.size = (badge, badge)
+        icon = badge * 0.52
+        self.coin_badge_icon.size = (icon, icon)
+        self.coin_badge_icon.pos = (round(self.coin_badge.x + (badge - icon) / 2.0),
+                                    round(self.coin_badge.y + (badge - icon) / 2.0))
+        title_x = x0 + pad + badge + dp(12)
+        fit_font_size(self.panel_title, max(x0 + w - pad - title_x, dp(40)), dp(19))
+        tw, th = self.panel_title.texture_size
+        self.panel_title.size = (tw, th)
+        self.panel_title.text_size = (tw, th)
+        self.panel_title.pos = (round(title_x), round(top - badge / 2.0 - th / 2.0))
+
+        # поле «Сумма»
+        fy_top = top - head_h - g1
+        self.field.size = (inner_w, field_h)
+        self.field.pos = (round(x0 + pad), round(fy_top - field_h))
+        self._layout_field()
+
+        # быстрые кнопки
+        cy_top = fy_top - field_h - g2
+        n = len(self.chips)
+        cgap = dp(8)
+        cw = (inner_w - cgap * (n - 1)) / float(n)
+        for i, chip in enumerate(self.chips):
+            chip.size = (cw, chips_h)
+            chip.pos = (round(x0 + pad + i * (cw + cgap)), round(cy_top - chips_h))
+
+        # нижняя строка: СБРОСИТЬ СУММУ слева, плашка «ВЫДАНО» справа
+        row_h = self._row_h
+        row_y = cy_top - chips_h - g3 - row_h
+        self.status_chip.update_size(row_h * 0.84, getattr(self.status_chip.label, 'text', "") or "")
+        chip_w = self.status_chip.width if self.status_chip.opacity > 0 else 0
+        self.status_chip.pos = (round(x0 + w - pad - self.status_chip.width),
+                                round(row_y + (row_h - self.status_chip.height) / 2.0))
+        reset_w = max(inner_w - chip_w - dp(8), dp(90))
+        self.reset_btn.size = (reset_w, row_h)
+        self.reset_btn.pos = (round(x0 + pad), round(row_y))
+
+    def _layout_field(self):
+        f = self.field
+        x0, y0 = round(f.x), round(f.y)
+        w, h = round(f.width), round(f.height)
+        r = min(dp(16), h / 2.0)
+        self._field_bg.pos = (x0, y0)
+        self._field_bg.size = (w, h)
+        self._field_bg.radius = [r]
+        half = dp(1.2) / 2.0
+        self._field_border.rounded_rectangle = (x0 + half, y0 + half, max(w - 2 * half, 0),
+                                                max(h - 2 * half, 0), r, r, r, r)
+
+        self.field_caption.font_size = f"{int(dp(13))}px"
+        self.field_caption.texture_update()
+        cw, ch = self.field_caption.texture_size
+        self.field_caption.size = (cw, ch)
+        self.field_caption.pos = (round(x0 + dp(18)), round(y0 + (h - ch) / 2.0))
+
+        in_x = self.field_caption.right + dp(10)
+        self.amount_input.font_size = f"{int(max(dp(22), min(h * 0.5, dp(34))))}px"
+        self._amount_geom = (in_x, max(x0 + w - dp(14) - in_x, dp(40)), y0, h)
+        self._fit_amount_input()
+        # Kivy обновляет line_height не сразу после смены шрифта - подгоняем ещё раз
+        Clock.schedule_once(self._fit_amount_input, 0.05)
+
+    def _fit_amount_input(self, *args):
+        """Высота поля = реальная строка + запас; строка стоит по центру карточки."""
+        geom = self._amount_geom
+        ti = getattr(self, 'amount_input', None)
+        if geom is None or ti is None:
+            return
+        in_x, in_w, y0, h = geom
+        line_h = int(round(ti.line_height))
+        slack = max(int(round(dp(8))), 4)
+        box_h = line_h + slack
+        top_pad = slack // 2
+        bottom_pad = max(slack - top_pad - 2, 0)
+        new_size = (in_w, box_h)
+        new_pos = (round(in_x), round(y0 + (h - box_h) / 2.0))
+        new_pad = [dp(4), top_pad, dp(4), bottom_pad]
+        if list(ti.size) != list(new_size):
+            ti.size = new_size
+        if tuple(ti.pos) != new_pos:
+            ti.pos = new_pos
+        if list(ti.padding) != new_pad:
+            ti.padding = new_pad
+        if ti.scroll_y != 0:
+            ti.scroll_y = 0
+
+    # ------------------------------------------------------------------
+    # СУММА
+    # ------------------------------------------------------------------
+    def _on_amount_text(self, inst, value):
+        if self._syncing:
+            return
+        digits = ''.join(ch for ch in value if ch.isdigit())[:self.MAX_DIGITS]
+        number = int(digits) if digits else 0
+        normalized = str(number) if digits else ""
+        if value != normalized:          # убираем лишние нули и посторонние символы
+            self._syncing = True
+            inst.text = normalized
+            self._syncing = False
+        self._amount = number
+        self._hide_status()
+        self._refresh_issue_button()
+
+    def _set_amount(self, value):
+        value = max(0, min(int(value), 10 ** self.MAX_DIGITS - 1))
+        self._amount = value
+        self._syncing = True
+        self.amount_input.text = str(value)
+        self._syncing = False
+        self._hide_status()
+        self._refresh_issue_button()
+
+    def _add_amount(self, value):
+        self.amount_input.focus = False
+        self._set_amount(self._amount + value)
+
+    # ------------------------------------------------------------------
+    # СОСТОЯНИЕ
+    # ------------------------------------------------------------------
+    def _set_stat(self, card, value, value_color, icon_name, icon_color):
+        card.value_ref.text = value
+        card.value_ref.color = value_color
+        card.icon_ref.texture = load_white_icon_texture(icon_path(icon_name))
+        card.icon_ref.color = icon_color
+        self._layout_stat_card(card)
+
+    def _refresh_stats(self):
+        coins = self._stats().get('player_coins', 0)
+        self._set_stat(self._stat_cards['coins'], str(coins), color_text, "copyright.png", color_in_word)
+        self._set_stat(self._stat_cards['mode'], "Включён", color_correct, "circle-check.png", color_correct)
+
+    def _refresh_issue_button(self):
+        if self._amount > 0:
+            self.btn_issue.set_content("ВЫДАТЬ", "primary", pill_text=str(self._amount),
+                                       on_release=self._issue)
+        else:
+            self.btn_issue.set_content("ВЫДАТЬ", "disabled", pill_text="0")
+
+    def _show_status(self, text):
+        self.status_chip.update_size(self._row_h * 0.84, text)
+        self.status_chip.opacity = 1
+        self._layout_panel()
+        if self._status_event is not None:
+            self._status_event.cancel()
+        self._status_event = Clock.schedule_once(lambda dt: self._hide_status(), self.STATUS_SECONDS)
+
+    def _hide_status(self):
+        if self._status_event is not None:
+            self._status_event.cancel()
+            self._status_event = None
+        chip = getattr(self, 'status_chip', None)
+        if chip is not None and chip.opacity != 0:
+            chip.opacity = 0
+            self._layout_panel()
+
+    # ------------------------------------------------------------------
+    # ДЕЙСТВИЯ
+    # ------------------------------------------------------------------
+    def _issue(self, instance=None):
+        amount = self._amount
+        if amount <= 0:
+            return
+        if 'MOBILE_PLAYER_STATS' not in globals() or MOBILE_PLAYER_STATS is None:
+            return
+        stats = MOBILE_PLAYER_STATS
+        stats['player_coins'] = int(stats.get('player_coins', 0)) + amount
+        if 'MOBILE_SAVE_FUNC' in globals() and MOBILE_SAVE_FUNC is not None:
+            MOBILE_SAVE_FUNC(stats)
+        self.amount_input.focus = False
+        self._refresh_stats()
+        self._show_status(f"ВЫДАНО +{amount}")
+
 
 def create_stub_layout(screen_instance, text):
     layout = FloatLayout()
